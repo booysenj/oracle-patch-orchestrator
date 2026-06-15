@@ -141,3 +141,18 @@ dist
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 .vite/
+
+# SQLite databases
+*.db
+*.db-shm
+*.db-wal
+
+# Node modules
+node_modules/
+
+# Backup files
+*.bak
+*.bak.*
+
+# Inventory exports
+project_inventory.txt

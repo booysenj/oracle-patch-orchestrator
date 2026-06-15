@@ -1,0 +1,709 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Insight Patch UI</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <!-- Login Screen -->
+  <div id="loginScreen" class="login-screen">
+    <div class="login-card">
+      <div class="login-logo">
+        <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="3"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/>
+        </svg>
+      </div>
+      <h2>Insight Patch UI</h2>
+      <p class="login-sub">Sign in to continue</p>
+      <div class="form-group">
+        <label for="loginUser">Username</label>
+        <input type="text" id="loginUser" placeholder="admin" autocomplete="username" />
+      </div>
+      <div class="form-group">
+        <label for="loginPass">Password</label>
+        <input type="password" id="loginPass" placeholder="Password" autocomplete="current-password" />
+      </div>
+      <div id="loginError" class="login-error"></div>
+      <button id="loginBtn" class="btn btn-primary btn-block" onclick="doLogin()">Sign In</button>
+    </div>
+  </div>
+
+  <!-- App Shell (hidden until login) -->
+  <div id="appShell" class="hidden">
+    <header>
+      <div class="header-left">
+        <div class="logo-icon">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="3"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/>
+          </svg>
+        </div>
+        <div>
+          <h1>Insight Patch UI</h1>
+          <span class="subtitle">Oracle GI &amp; DB Patch Orchestrator</span>
+        </div>
+      </div>
+      <div class="header-right">
+        <!-- Theme Picker -->
+        <div class="theme-picker">
+          <button class="theme-toggle" id="themeToggle" title="Change theme">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+          </button>
+          <div class="theme-dropdown hidden" id="themeDropdown">
+            <div class="theme-dropdown-title">Theme</div>
+            <button class="theme-btn active" data-theme="dark"><span class="theme-swatch" style="background:#0c0e14"></span>Dark</button>
+            <button class="theme-btn" data-theme="midnight"><span class="theme-swatch" style="background:#0a0f1e"></span>Midnight</button>
+            <button class="theme-btn" data-theme="nord"><span class="theme-swatch" style="background:#2e3440"></span>Nord</button>
+            <button class="theme-btn" data-theme="dracula"><span class="theme-swatch" style="background:#1e1f29"></span>Dracula</button>
+            <button class="theme-btn" data-theme="solarized"><span class="theme-swatch" style="background:#002b36"></span>Solarized</button>
+            <button class="theme-btn" data-theme="light"><span class="theme-swatch" style="background:#f5f6fa;border:1px solid #ccc"></span>Light</button>
+          </div>
+        </div>
+
+        <!-- Auto-Refresh Picker -->
+        <div class="theme-picker">
+          <button class="theme-toggle" id="refreshToggle" title="Auto-refresh interval">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+          </button>
+          <div class="theme-dropdown hidden" id="refreshDropdown">
+            <div class="theme-dropdown-title">Auto-Refresh</div>
+            <button class="refresh-opt" data-ms="0">Off</button>
+            <button class="refresh-opt" data-ms="10000">10 seconds</button>
+            <button class="refresh-opt" data-ms="30000">30 seconds</button>
+            <button class="refresh-opt active" data-ms="60000">1 minute</button>
+            <button class="refresh-opt" data-ms="120000">2 minutes</button>
+            <button class="refresh-opt" data-ms="300000">5 minutes</button>
+          </div>
+        </div>
+
+        <span id="autoRefreshStatus" class="auto-refresh-badge">Auto-refresh: 30s</span>
+        <span id="connStatus" class="conn-badge disconnected">&#9679; Disconnected</span>
+
+        <!-- User / Logout -->
+        <div class="user-menu">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+          <span id="userDisplay"></span>
+          <button class="btn btn-sm btn-secondary" onclick="logout()" title="Logout">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <nav>
+      <button class="nav-btn active" data-tab="dashboard">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+        Dashboard
+      </button>
+      <button class="nav-btn" data-tab="jobs">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+        Job History
+      </button>
+      <button class="nav-btn" data-tab="patches" id="patchesTab"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/></svg> Patches</button>
+      <button class="nav-btn" data-tab="schedules" id="schedulesTab"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg> Schedules</button>
+      <button class="nav-btn" data-tab="admin" id="adminTab" style="display:none">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+        Admin
+      </button>
+
+    </nav>
+
+    <main>
+      <section id="tab-dashboard" class="tab-content active">
+        <div class="section-header">
+          <h2>Virtual Machines</h2>
+          <span id="vmCount" class="count-badge">0 VMs</span>
+        </div>
+        <div class="toolbar">
+          <div class="search-wrap">
+            <svg class="search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+            <input type="text" id="vmSearch" placeholder="Search by hostname, IP, or role..." />
+          </div>
+          <select id="envFilter">
+            <option value="">All Environments</option>
+            <option value="PROD">PROD</option>
+            <option value="UAT">UAT</option>
+            <option value="DEV">DEV</option>
+            <option value="DR">DR</option>
+          </select>
+          <button class="btn btn-sm btn-primary" onclick="openAddVmModal()">
+            + Add VM
+          </button>
+          <button id="refreshVMs" class="btn btn-sm btn-secondary">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+            Refresh
+          </button>
+        </div>
+        <div id="vmGrid" class="vm-grid">
+          <div class="loading-state"><div class="spinner"></div><p>Loading VMs...</p></div>
+        </div>
+      </section>
+
+      <section id="tab-jobs" class="tab-content">
+        <div class="section-header"><h2>Job History</h2></div>
+        <div class="toolbar">
+          <select id="jobStatusFilter">
+            <option value="">All Statuses</option>
+            <option value="success">Success</option>
+            <option value="failed">Failed</option>
+            <option value="running">Running</option>
+          </select>
+          <button id="refreshJobs" class="btn btn-sm btn-secondary">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+            Refresh
+          </button>
+        </div>
+        <div class="table-wrap">
+          <table id="jobsTable" class="data-table">
+            <thead><tr><th>Hostname</th><th>Operation</th><th>Status</th><th>Started</th><th>Duration</th><th>Actions</th></tr></thead>
+            <tbody id="jobsBody"><tr><td colspan="6" class="loading">Loading jobs...</td></tr></tbody>
+          </table>
+        </div>
+      </section>
+      <section id="tab-admin" class="tab-content">
+        <div class="section-header"><h2>User Management</h2>
+          <button class="btn btn-sm btn-primary" onclick="openCreateUserModal()">+ Add User</button>
+        </div>
+        <div class="table-wrap">
+          <table id="usersTable" class="data-table">
+            <thead><tr><th>Username</th><th>Role</th><th>Status</th><th>Last Login</th><th>Actions</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+
+        <div class="section-header" style="margin-top:32px"><h2>Change My Password</h2></div>
+        <div style="max-width:400px">
+          <div class="form-group"><label>Current Password</label><input type="password" id="myCurrentPwd" /></div>
+          <div class="form-group"><label>New Password</label><input type="password" id="myNewPwd" /></div>
+          <div class="form-group"><label>Confirm New Password</label><input type="password" id="myConfirmPwd" /></div>
+          <button class="btn btn-primary" onclick="changeMyPassword()">Update Password</button>
+          <span id="pwdMsg" style="margin-left:12px"></span>
+        </div>
+      </section>
+
+      <!-- Schedules Tab -->
+<section id="tab-schedules" class="tab-content">
+  <div class="tab-header">
+    <div><h2>Schedules & Maintenance Windows</h2></div>
+  </div>
+  <div class="patch-sub-tabs">
+    <button class="patch-sub-tab active" data-subtab="one-time" onclick="switchSchedSubTab('one-time')">One-Time Schedules <span id="schedCount" class="vm-count" style="font-size:11px;margin-left:4px">0</span></button>
+    <button class="patch-sub-tab" data-subtab="maintenance" onclick="switchSchedSubTab('maintenance')">Maintenance Windows <span id="maintCount" class="vm-count" style="font-size:11px;margin-left:4px">0</span></button>
+  </div>
+
+  <div id="subtab-one-time" class="patch-sub-content">
+    <div style="display:flex;gap:8px;margin-bottom:12px">
+      <button class="btn btn-primary" onclick="openScheduleModal()">+ New Schedule</button>
+      <button class="btn btn-secondary" onclick="loadScheduledJobs()">Refresh</button>
+    </div>
+    <div class="table-wrap"><table class="data-table">
+      <thead><tr><th>Name</th><th>Operation</th><th>VMs</th><th>Scheduled</th><th>Exec Mode</th><th>Status</th><th>Actions</th></tr></thead>
+      <tbody id="schedJobsBody"><tr><td colspan="7" style="text-align:center;color:var(--text-dim)">No schedules</td></tr></tbody>
+    </table></div>
+  </div>
+
+  <div id="subtab-maintenance" class="patch-sub-content" style="display:none">
+    <div style="display:flex;gap:8px;margin-bottom:12px">
+      <button class="btn btn-primary" onclick="openMaintModal()">+ New Maintenance Window</button>
+      <button class="btn btn-secondary" onclick="loadMaintWindows()">Refresh</button>
+    </div>
+    <div class="table-wrap"><table class="data-table">
+      <thead><tr><th>Name</th><th>Description</th><th>CRON</th><th>Operations</th><th>VMs</th><th>Status</th><th>Actions</th></tr></thead>
+      <tbody id="maintWindowsBody"><tr><td colspan="7" style="text-align:center;color:var(--text-dim)">No maintenance windows</td></tr></tbody>
+    </table></div>
+  </div>
+</section>
+
+<!-- Schedule Modal -->
+<div id="scheduleModal" class="modal-overlay hidden" onclick="if(event.target===this)closeScheduleModal()">
+  <div class="modal" style="max-width:600px">
+    <div class="modal-header"><h3 id="schedModalTitle">New Schedule</h3><button class="modal-close" onclick="closeScheduleModal()">&times;</button></div>
+    <div class="modal-body">
+      <div class="form-grid" style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <div class="form-group"><label>Schedule Name</label><input type="text" id="schedName" placeholder="e.g. Patch DB servers Friday"></div>
+        <div class="form-group"><label>Operation</label><select id="schedOperation" onchange="toggleSchedPatchVersion()"><option value="">Select operation...</option></select></div>
+        <div class="form-group" id="schedPatchVersionGroup"><label>Patch Version</label><select id="schedPatchVersion"><option value="">Select patch...</option></select></div>
+        <div class="form-group"><label>Scheduled Date/Time</label><input type="datetime-local" id="schedDatetime"></div>
+        <div class="form-group"><label>Execution Mode</label><select id="schedExecMode"><option value="serial">Serial</option><option value="parallel">Parallel</option><option value="rolling">Rolling</option></select></div>
+        <div class="form-group" style="grid-column:1/-1"><label>Notes</label><input type="text" id="schedNotes" placeholder="Optional notes"></div>
+        <div class="form-group" style="grid-column:1/-1"><label>Target VMs</label><div id="schedVmList" style="max-height:150px;overflow-y:auto;border:1px solid var(--border);border-radius:6px;padding:8px"></div></div>
+        <div id="schedRollbackNote" style="display:none;grid-column:1/-1;color:var(--warning);font-size:12px">Rollback operations will revert to the previous Oracle home.</div>
+      </div>
+      <div style="color:#e74c3c;margin-top:8px" id="schedError"></div>
+    </div>
+    <div class="modal-footer"><button class="btn btn-secondary" onclick="closeScheduleModal()">Cancel</button><button class="btn btn-primary" id="schedSubmitBtn" onclick="submitSchedule()">Create Schedule</button></div>
+  </div>
+</div>
+
+<!-- Maintenance Window Modal -->
+<div id="maintWindowModal" class="modal-overlay hidden" onclick="if(event.target===this)closeMaintModal()">
+  <div class="modal" style="max-width:600px">
+    <div class="modal-header"><h3 id="maintModalTitle">New Maintenance Window</h3><button class="modal-close" onclick="closeMaintModal()">&times;</button></div>
+    <div class="modal-body">
+      <div class="form-grid" style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <div class="form-group"><label>Window Name</label><input type="text" id="maintName" placeholder="e.g. Monthly DB Patching"></div>
+        <div class="form-group"><label>CRON Preset</label><select id="maintCronPreset" onchange="applyCronPreset()"><option value="">Custom...</option><option value="0 2 * * 0">Weekly Sun 02:00</option><option value="0 2 1 * *">Monthly 1st 02:00</option><option value="0 2 15 * *">Monthly 15th 02:00</option><option value="0 3 * * 6">Weekly Sat 03:00</option></select></div>
+        <div class="form-group"><label>CRON Expression</label><input type="text" id="maintCronExpr" placeholder="0 2 * * 0"></div>
+        <div class="form-group"><label>Execution Mode</label><select id="maintExecMode"><option value="serial">Serial</option><option value="parallel">Parallel</option><option value="rolling">Rolling</option></select></div>
+        <div class="form-group" style="grid-column:1/-1"><label>Description</label><input type="text" id="maintDesc" placeholder="Description of maintenance window"></div>
+        <div class="form-group" style="grid-column:1/-1"><label>Operations (comma-separated)</label><input type="text" id="maintOps" placeholder="gi_precheck,db_precheck,gi_install,db_install"></div>
+        <div class="form-group"><label>Patch Version</label><select id="maintPatchVersion"><option value="">Latest available</option></select></div>
+        <div class="form-group" style="grid-column:1/-1"><label>Notes</label><input type="text" id="maintNotes" placeholder="Optional notes"></div>
+        <div class="form-group" style="grid-column:1/-1"><label>Target VMs</label><div id="maintVmList" style="max-height:150px;overflow-y:auto;border:1px solid var(--border);border-radius:6px;padding:8px"></div></div>
+      </div>
+      <div style="color:#e74c3c;margin-top:8px" id="maintError"></div>
+    </div>
+    <div class="modal-footer"><button class="btn btn-secondary" onclick="closeMaintModal()">Cancel</button><button class="btn btn-primary" id="maintSubmitBtn" onclick="submitMaintWindow()">Create Window</button></div>
+  </div>
+</div>
+
+<!-- Create User Modal -->
+      <div id="createUserModal" class="modal hidden">
+        <div class="modal-backdrop" onclick="closeCreateUserModal()"></div>
+        <div class="modal-content" style="max-width:400px">
+          <div class="modal-header"><h2>Create User</h2>
+            <button class="modal-close" onclick="closeCreateUserModal()">&times;</button>
+          </div>
+          <div class="form-group"><label>Username</label><input type="text" id="newUsername" placeholder="johndoe" /></div>
+          <div class="form-group"><label>Password</label><input type="password" id="newUserPwd" /></div>
+          <div class="form-group"><label>Role</label>
+            <select id="newUserRole"><option value="operator">Operator</option><option value="admin">Admin</option><option value="viewer">Viewer</option></select>
+          </div>
+          <button class="btn btn-primary btn-block" onclick="createUser()">Create User</button>
+          <div id="createUserError" class="login-error" style="margin-top:12px"></div>
+        </div>
+      </div>
+    </main>
+
+    <!-- Launch Modal -->
+    <div id="launchModal" class="modal hidden">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h2 id="modalTitle">Run Operation</h2>
+          <button class="modal-close" onclick="closeModal()">&#215;</button>
+        </div>
+        <div class="modal-body">
+          <div class="form-group"><label>Target VM</label><div id="modalVmInfo" class="vm-info-box"></div></div>
+          <div class="form-group">
+            <label for="opCategory">Category</label>
+            <select id="opCategory" onchange="loadOpsForCategory()">
+              <option value="">-- Select Category --</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="opSelect">Operation</label>
+            <select id="opSelect" disabled>
+              <option value="">-- Select a category first --</option>
+            </select>
+                    <div id="patchVersionGroup" class="hidden" style="margin-top:12px">
+            <label style="font-weight:600;display:block;margin-bottom:4px">Patch Version</label>
+            <select id="patchVersionSelect" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;background:var(--surface2);color:var(--text);font-family:monospace">
+                <option value="">-- Select Patch Version --</option>
+            </select>
+            <div id="patchVersionInfo" style="margin-top:8px;font-size:12px;color:var(--text-dim)"></div>
+        </div>
+<div id="opMeta" class="op-meta hidden"></div>
+          </div>
+          <div class="form-group checkbox-group">
+            <label><input type="checkbox" id="dryRunCheck" checked /><span class="checkmark"></span> Dry Run (simulate only)</label>
+          </div>
+          <div id="preflightResult" class="preflight-box hidden"></div>
+          <div class="modal-actions">
+            <button id="preflightBtn" class="btn btn-secondary" disabled>Preflight Check</button>
+            <button id="scheduleFromDashBtn" class="btn btn-secondary" onclick="openScheduleFromDashboard()">Schedule</button>
+            <button id="executeBtn" class="btn btn-primary" disabled>Execute</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Log Modal -->
+    <div id="logModal" class="modal hidden">
+      <div class="modal-content modal-wide">
+        <div class="modal-header">
+          <h2 id="logModalTitle">Job Logs</h2>
+          <button class="modal-close" onclick="closeLogModal()">&#215;</button>
+        </div>
+        <div class="modal-body">
+          <div id="jobMeta" class="job-meta"></div>
+          <div id="logContainer" class="log-container"><pre id="logOutput"></pre></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Add VM Modal -->
+    <div id="addVmModal" class="modal hidden">
+      <div class="modal-content" style="max-width:560px">
+        <div class="modal-header">
+          <h2>Add Virtual Machines</h2>
+          <button class="modal-close" onclick="closeAddVmModal()">&#215;</button>
+        </div>
+        <div class="modal-body">
+          <div class="add-vm-tabs">
+            <button class="add-vm-tab active" data-mode="single" onclick="switchAddVmTab('single')">Single VM</button>
+            <button class="add-vm-tab" data-mode="bulk" onclick="switchAddVmTab('bulk')">Bulk Import</button>
+          </div>
+
+          <!-- Single VM Form -->
+          <div id="singleVmForm">
+            <div class="form-row">
+              <div class="form-group"><label for="addVmHostname">Hostname *</label>
+                <input type="text" id="addVmHostname" placeholder="zacprdvmora01" /></div>
+              <div class="form-group"><label for="addVmIp">IP Address *</label>
+                <input type="text" id="addVmIp" placeholder="10.0.1.50" /></div>
+            </div>
+            <div class="form-row">
+              <div class="form-group"><label for="addVmSshUser">SSH User</label>
+                <input type="text" id="addVmSshUser" value="oracle" /></div>
+              <div class="form-group"><label for="addVmSshPort">SSH Port</label>
+                <input type="number" id="addVmSshPort" value="22" /></div>
+            </div>
+            <div class="form-row">
+              <div class="form-group"><label for="addVmRole">Node Role</label>
+                <select id="addVmRole">
+                  <option value="UNKNOWN">Unknown</option>
+                  <option value="PRIMARY">Primary</option>
+                  <option value="STANDBY">Standby</option>
+                  <option value="HUB">Hub Node</option>
+                  <option value="LEAF">Leaf Node</option>
+                </select></div>
+              <div class="form-group"><label for="addVmEnv">Environment</label>
+                <select id="addVmEnv">
+                  <option value="PROD">PROD</option>
+                  <option value="UAT" selected>UAT</option>
+                  <option value="DEV">DEV</option>
+                  <option value="DR">DR</option>
+                </select></div>
+            </div>
+            <div class="form-group"><label for="addVmPatch">Patch Target</label>
+              <select id="addVmPatch" class="patch-select">
+                <option value="19.26">Oracle 19.26 (Jan 2025 RU)</option>
+                <option value="19.27">Oracle 19.27 (Apr 2025 RU)</option>
+                <option value="19.28">Oracle 19.28 (Jul 2025 RU)</option>
+                <option value="19.29">Oracle 19.29 (Oct 2025 RU)</option>
+                <option value="19.30">Oracle 19.30 (Jan 2026 RU)</option>
+                <option value="23ai">Oracle 23ai Upgrade</option>
+                <option value="26ai">Oracle 26ai Upgrade</option>
+              </select>
+            </div>
+            <button class="btn btn-primary btn-block" onclick="addSingleVm()">Add VM</button>
+          </div>
+
+          <!-- Bulk Import Form -->
+          <div id="bulkVmForm" class="hidden">
+            <p class="bulk-help">Paste one VM per line: <code>hostname,ip</code> or <code>hostname,ip,ssh_user,role</code></p>
+            <div class="form-group">
+              <textarea id="bulkVmText" rows="8" placeholder="zacprdvmora01,10.0.1.50&#10;zacprdvmora02,10.0.1.51,oracle,PRIMARY&#10;zacprdvmora03,10.0.1.52"></textarea>
+            </div>
+            <div class="form-row">
+              <div class="form-group"><label for="bulkVmEnv">Environment</label>
+                <select id="bulkVmEnv">
+                  <option value="PROD">PROD</option>
+                  <option value="UAT" selected>UAT</option>
+                  <option value="DEV">DEV</option>
+                  <option value="DR">DR</option>
+                </select></div>
+              <div class="form-group"><label for="bulkVmPatch">Patch Target</label>
+                <select id="bulkVmPatch" class="patch-select">
+                  <option value="19.26">Oracle 19.26</option>
+                  <option value="19.27">Oracle 19.27</option>
+                  <option value="19.28">Oracle 19.28</option>
+                  <option value="19.29">Oracle 19.29</option>
+                  <option value="19.30">Oracle 19.30</option>
+                  <option value="23ai">Oracle 23ai Upgrade</option>
+                  <option value="26ai">Oracle 26ai Upgrade</option>
+                </select></div>
+            </div>
+            <button class="btn btn-primary btn-block" onclick="bulkImportVms()">Import VMs</button>
+          </div>
+
+          <div id="addVmError" class="login-error" style="margin-top:12px"></div>
+        </div>
+      </div>
+    </div>
+
+    <footer>
+      <span>Insight Patch UI v1.0</span>
+      <span>&#8226;</span>
+      <span>4C Group DevOps</span>
+    </footer>
+  </div>
+
+  <script src="app.js?v=1780433473"></script>
+    <script src="patches-ui.js"></script>
+    <script src="scheduler-ui.js"></script>
+  <script>
+    // Theme picker toggle
+    document.getElementById('themeToggle').addEventListener('click', function(e) {
+      e.stopPropagation();
+      document.getElementById('themeDropdown').classList.toggle('hidden');
+      document.getElementById('refreshDropdown').classList.add('hidden');
+    });
+    document.querySelectorAll('.theme-btn').forEach(function(btn) {
+      btn.addEventListener('click', function() {
+        setTheme(btn.dataset.theme);
+        document.getElementById('themeDropdown').classList.add('hidden');
+      });
+    });
+
+    // Auto-refresh picker toggle
+    document.getElementById('refreshToggle').addEventListener('click', function(e) {
+      e.stopPropagation();
+      document.getElementById('refreshDropdown').classList.toggle('hidden');
+      document.getElementById('themeDropdown').classList.add('hidden');
+    });
+    document.querySelectorAll('.refresh-opt').forEach(function(btn) {
+      btn.addEventListener('click', function() {
+        setAutoRefresh(parseInt(btn.dataset.ms));
+        document.getElementById('refreshDropdown').classList.add('hidden');
+      });
+    });
+
+    // Mark saved auto-refresh option as active on load
+    var savedMs = parseInt(localStorage.getItem('autoRefreshMs') || '30000');
+    document.querySelectorAll('.refresh-opt').forEach(function(b) {
+      b.classList.toggle('active', parseInt(b.dataset.ms) === savedMs);
+    });
+
+    // Close dropdowns on outside click
+    document.addEventListener('click', function(e) {
+      if (!e.target.closest('.theme-picker')) {
+        document.getElementById('themeDropdown').classList.add('hidden');
+        document.getElementById('refreshDropdown').classList.add('hidden');
+      }
+    });
+  </script>
+
+<div id="tab-patches" class="tab-content">
+    <div class="tab-header">
+        <div><h2>Patch Catalog &amp; Software Staging</h2><span id="patchCount" class="vm-count">0 patches</span></div>
+    </div>
+    <div class="patch-sub-tabs">
+        <button class="patch-sub-tab active" data-subtab="catalog" onclick="switchPatchSubTab('catalog')">Patch Catalog</button>
+        <button class="patch-sub-tab" data-subtab="transfers" onclick="switchPatchSubTab('transfers')">Software Staging</button>
+        <button class="patch-sub-tab" data-subtab="reports" onclick="switchPatchSubTab('reports')">Precheck Reports</button>
+    </div>
+
+    <div id="patchCatalogPanel">
+        <div class="filter-bar">
+            <input type="text" id="patchSearch" placeholder="Search patches..." class="search-input" oninput="loadPatches()">
+            <select id="patchTypeFilter" class="filter-select" onchange="loadPatches()">
+                <option value="">All Types</option>
+                <option value="RU">RU</option><option value="OPATCH">OPatch</option>
+                <option value="OJVM">OJVM</option><option value="GI_BASE">GI Base</option>
+                <option value="DB_BASE">DB Base</option><option value="ONE_OFF">One-Off</option>
+            </select>
+            <select id="patchStatusFilter" class="filter-select" onchange="loadPatches()">
+                <option value="">All Status</option>
+                <option value="local">Local (Downloaded)</option>
+                <option value="remote">Remote (Not Downloaded)</option>
+            </select>
+            <button class="btn btn-sm btn-primary" onclick="openAddPatchModal()">+ Add Patch</button>
+            <button class="btn btn-sm btn-secondary" onclick="openBulkPatchModal()">Bulk Import</button>
+            <button class="btn btn-sm btn-secondary" onclick="scanPatchRepo()">Scan Repo</button>
+            <button class="btn btn-sm btn-secondary" onclick="loadPatches()">Refresh</button>
+        </div>
+        <div id="patchGrid" class="vm-grid"></div>
+    </div>
+
+    <div id="patchTransfersPanel" class="hidden">
+        <div class="filter-bar">
+            <input type="text" id="transferHostFilter" placeholder="Filter by host..." class="search-input" oninput="loadTransfers()">
+            <select id="transferStatusFilter" class="filter-select" onchange="loadTransfers()">
+                <option value="">All Status</option>
+                <option value="PENDING">Pending</option><option value="TRANSFERRING">Transferring</option>
+                <option value="EXTRACTING">Extracting</option><option value="STAGED">Staged</option>
+                <option value="FAILED">Failed</option>
+            </select>
+            <span id="transferCount" class="vm-count">0 transfers</span>
+            <button class="btn btn-sm btn-primary" onclick="openCreateTransferModal()">+ New Transfer</button>
+            <button class="btn btn-sm btn-secondary" onclick="loadTransfers()">Refresh</button>
+        </div>
+        <div class="table-wrap"><table class="data-table">
+            <thead><tr><th>Patch</th><th>Target Host</th><th>Status</th><th>Progress</th><th>Stage Path</th><th>Method</th><th>Actions</th></tr></thead>
+            <tbody id="transfersBody"></tbody>
+        </table></div>
+    </div>
+
+    <div id="patchReportsPanel" class="hidden">
+        <div class="filter-bar">
+            <input type="text" id="reportSearch" placeholder="Search reports..." class="search-input" oninput="loadReports()">
+            <select id="reportTypeFilter" class="filter-select" onchange="loadReports()">
+                <option value="">All Types</option>
+                <option value="precheck">Precheck</option><option value="postcheck">Postcheck</option>
+                <option value="validation">Validation</option><option value="staging">Staging</option>
+            </select>
+            <span id="reportCount" class="vm-count">0 reports</span>
+            <button class="btn btn-sm btn-secondary" onclick="loadReports()">Refresh</button>
+        </div>
+        <div class="table-wrap"><table class="data-table">
+            <thead><tr><th>Hostname</th><th>Type</th><th>Operation</th><th>Result</th><th>Date</th><th>Actions</th></tr></thead>
+            <tbody id="reportsBody"></tbody>
+        </table></div>
+    </div>
+</div>
+
+<div id="patchModal" class="modal-overlay hidden" onclick="if(event.target===this)closePatchModal()">
+    <div class="modal" style="max-width:720px">
+        <div class="modal-header"><h3 id="patchModalTitle">Add Patch Version</h3><button class="modal-close" onclick="closePatchModal()">&times;</button></div>
+        <div class="modal-body">
+            <form id="patchForm" onsubmit="event.preventDefault();savePatch()">
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+                    <div class="form-group"><label>Version <span style="color:#e74c3c">*</span></label><input type="text" id="patchVersion" placeholder="e.g. 19.29" required></div>
+                    <div class="form-group"><label>Patch Type</label><select id="patchType">
+                        <option value="RU">RU</option><option value="OPATCH">OPatch</option><option value="OJVM">OJVM</option>
+                        <option value="GI_BASE">GI Base</option><option value="DB_BASE">DB Base</option><option value="ONE_OFF">One-Off</option>
+                    </select></div>
+                    <div class="form-group" style="grid-column:1/-1"><label>Description</label><input type="text" id="patchDescription" placeholder="e.g. Database Release Update 19.29.0.0.0"></div>
+                    <div class="form-group"><label>Platform</label><input type="text" id="patchPlatform" value="Linux-x86-64"></div>
+                    <div class="form-group"><label>Release Date</label><input type="date" id="patchReleaseDate"></div>
+                    <div class="form-group" style="grid-column:1/-1;border-top:1px solid var(--border);padding-top:12px;margin-top:4px"><strong style="color:var(--text-dim)">Software Paths</strong></div>
+                    <div class="form-group"><label>GI Base ZIP</label><input type="text" id="patchGiBaseZip" placeholder="/backup/patches/GI_SOFT/V982068-01.zip"></div>
+                    <div class="form-group"><label>DB Base ZIP</label><input type="text" id="patchDbBaseZip" placeholder="/backup/patches/DB_BASE/V982063-01.zip"></div>
+                    <div class="form-group"><label>Patch Search Root</label><input type="text" id="patchSearchRoot" placeholder="/backup/patches/p19.29"></div>
+                    <div class="form-group"><label>RU Dir</label><input type="text" id="patchRuDir" placeholder="auto or /backup/patches/p19.29/36909058"></div>
+                    <div class="form-group"><label>OPatch ZIP</label><input type="text" id="patchOpatchZip" placeholder="/backup/patches/p19.29/p6880880.zip"></div>
+                    <div class="form-group" style="grid-column:1/-1;border-top:1px solid var(--border);padding-top:12px;margin-top:4px"><strong style="color:var(--text-dim)">File Info</strong></div>
+                    <div class="form-group"><label>File Name</label><input type="text" id="patchFileName" placeholder="p36233263_190000_Linux-x86-64.zip"></div>
+                    <div class="form-group"><label>File Size (bytes)</label><input type="number" id="patchFileSize" placeholder="3489726401"></div>
+                    <div class="form-group"><label>SHA-256 Checksum</label><input type="text" id="patchChecksum" placeholder=""></div>
+                    <div class="form-group"><label>Source URL</label><input type="text" id="patchSourceUrl" placeholder="https://updates.oracle.com/..."></div>
+                    <div class="form-group"><label>Supersedes</label><input type="text" id="patchSupersedes" placeholder="19.28, 19.27"></div>
+                    <div class="form-group"><label>Min OPatch Version</label><input type="text" id="patchPrereqOpatch" placeholder="12.2.0.1.42"></div>
+                    <div class="form-group"><label>Required Patches</label><input type="text" id="patchPrereqPatches" placeholder=""></div>
+                    <div class="form-group"><label style="display:flex;align-items:center;gap:8px"><input type="checkbox" id="patchIsDownloaded"> Available locally (downloaded)</label></div>
+                </div>
+                <div style="color:#e74c3c;margin-top:8px" id="patchModalError"></div>
+            </form>
+        </div>
+        <div class="modal-footer"><button class="btn btn-secondary" onclick="closePatchModal()">Cancel</button><button class="btn btn-primary" onclick="savePatch()">Save Patch</button></div>
+    </div>
+</div>
+
+<div id="bulkPatchModal" class="modal-overlay hidden" onclick="if(event.target===this)closeBulkPatchModal()">
+    <div class="modal" style="max-width:600px">
+        <div class="modal-header"><h3>Bulk Import Patches</h3><button class="modal-close" onclick="closeBulkPatchModal()">&times;</button></div>
+        <div class="modal-body">
+            <p style="color:var(--text-dim);margin-bottom:12px">One per line: version,type,description,gi_base_zip,db_base_zip,patch_search_root,opatch_zip</p>
+            <textarea id="bulkPatchText" rows="8" style="width:100%;font-family:monospace;font-size:13px;background:var(--surface2);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:10px" placeholder="19.29,RU,DB RU 19.29,/backup/patches/GI/V982068-01.zip,/backup/patches/DB/V982063-01.zip,/backup/patches/p19.29,/backup/patches/p19.29/p6880880.zip"></textarea>
+            <div style="color:#e74c3c;margin-top:8px" id="bulkPatchError"></div>
+        </div>
+        <div class="modal-footer"><button class="btn btn-secondary" onclick="closeBulkPatchModal()">Cancel</button><button class="btn btn-primary" onclick="bulkImportPatches()">Import</button></div>
+    </div>
+</div>
+
+<div id="createTransferModal" class="modal-overlay hidden" onclick="if(event.target===this)closeCreateTransferModal()">
+    <div class="modal" style="max-width:500px">
+        <div class="modal-header"><h3>Create Transfer</h3><button class="modal-close" onclick="closeCreateTransferModal()">&times;</button></div>
+        <div class="modal-body">
+            <div class="form-group"><label>Patch Version <span style="color:#e74c3c">*</span></label><select id="transferPatchSelect" style="width:100%"></select></div>
+            <div class="form-group"><label>File Type <span style="color:#e74c3c">*</span></label><select id="transferFileType" style="width:100%" onchange="updateTransferSourceInfo()"><option value="ru_patch">RU Patch (Full Patch Bundle)</option><option value="opatch">OPatch Utility</option><option value="gi_base">GI Base Binaries</option><option value="db_base">DB Base Binaries</option><option value="all">All Available Files</option></select><div id="transferFileInfo" style="margin-top:4px;font-size:12px;color:var(--text-dim)"></div></div>
+            <div class="form-group"><label>Target Host <span style="color:#e74c3c">*</span></label><select id="transferTargetHost" style="width:100%"><option value="">-- Select Target VM --</option></select></div>
+            <div class="form-group"><label>Stage Path</label><input type="text" id="transferStagePath" value="/grid/stage/patches"></div>
+            <div class="form-group"><label>Transfer Method</label><select id="transferMethod">
+                <option value="API" selected>API (Agent)</option><option value="SCP">SCP</option><option value="RSYNC">RSYNC</option><option value="CP">CP (local)</option><option value="NFS">NFS Mount</option>
+            </select></div>
+            <div style="color:#e74c3c;margin-top:8px" id="createTransferError"></div>
+        </div>
+        <div class="modal-footer"><button class="btn btn-secondary" onclick="closeCreateTransferModal()">Cancel</button><button class="btn btn-primary" onclick="createTransfer()">Create Transfer</button></div>
+    </div>
+</div>
+
+<div id="reportViewerModal" class="modal-overlay hidden" onclick="if(event.target===this)closeReportViewer()">
+    <div class="modal" style="max-width:900px;max-height:85vh">
+        <div class="modal-header">
+            <h3 id="reportViewerTitle">Precheck Report</h3>
+            <div style="display:flex;gap:8px;align-items:center">
+                <button class="btn btn-sm btn-secondary" onclick="downloadReport()">Download</button>
+                <button class="btn btn-sm btn-secondary" onclick="printReport()">Print</button>
+                <button class="modal-close" onclick="closeReportViewer()">&times;</button>
+            </div>
+        </div>
+        <div class="modal-body" style="overflow:auto;max-height:70vh">
+            <div id="reportViewerContent" style="background:var(--surface2);border-radius:8px;padding:16px"></div>
+        </div>
+    </div>
+</div>
+
+<div id="scanRepoModal" class="modal-overlay hidden" onclick="if(event.target===this)closeScanRepoModal()">
+    <div class="modal" style="max-width:500px">
+        <div class="modal-header"><h3>Scan Software Repository</h3><button class="modal-close" onclick="closeScanRepoModal()">&times;</button></div>
+        <div class="modal-body">
+            <p style="color:var(--text-dim);margin-bottom:12px">Scan a directory for Oracle patches and auto-register them. When you move files to a new location, just scan the new path.</p>
+            <div class="form-group"><label>Repository Root Path <span style="color:#e74c3c">*</span></label><input type="text" id="scanRepoPath" placeholder="/backup/patches" style="width:100%;font-family:monospace"></div>
+            <div id="scanRepoResult" class="hidden" style="margin-top:12px;padding:12px;border-radius:8px;background:var(--surface3);font-size:13px"></div>
+            <div style="color:#e74c3c;margin-top:8px" id="scanRepoError"></div>
+        </div>
+        <div class="modal-footer"><button class="btn btn-secondary" onclick="closeScanRepoModal()">Cancel</button><button class="btn btn-primary" id="scanRepoBtn" onclick="doScanRepo()">Scan and Import</button></div>
+    </div>
+</div>
+
+
+    <!-- SCHEDULE JOB MODAL -->
+    
+    
+    <!-- MAINTENANCE WINDOW MODAL -->
+    <div id="maintWindowModal" class="modal-overlay hidden">
+        <div class="modal" style="max-width:650px">
+            <div class="modal-header">
+                <h3>New Maintenance Window</h3>
+                <button class="modal-close" onclick="closeMaintWindowModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label>Window Name</label>
+                    <input type="text" id="maintName" placeholder="e.g. Weekly Production Precheck" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;background:var(--surface2);color:var(--text)">
+                </div>
+                <div class="form-group">
+                    <label>Description (optional)</label>
+                    <input type="text" id="maintDesc" placeholder="e.g. Run prechecks every Friday before weekend maintenance" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;background:var(--surface2);color:var(--text)">
+                </div>
+                <div class="form-group">
+                    <label>Schedule (Cron Expression)</label>
+                    <div style="display:flex;gap:8px">
+                        <select id="maintCronPreset" onchange="applyCronPreset()" style="flex:1;padding:8px;border:1px solid var(--border);border-radius:6px;background:var(--surface2);color:var(--text)">
+                            <option value="">-- Preset --</option>
+                        </select>
+                        <input type="text" id="maintCronExpr" placeholder="0 2 * * 0" style="flex:1;padding:8px;border:1px solid var(--border);border-radius:6px;background:var(--surface2);color:var(--text);font-family:monospace">
+                    </div>
+                    <div style="font-size:11px;color:var(--text-dim);margin-top:4px">Format: minute hour day-of-month month day-of-week</div>
+                </div>
+                <div class="form-group">
+                    <label>Operations to Run</label>
+                    <div id="maintOps" class="sched-vm-grid" style="border:1px solid var(--border);border-radius:6px;padding:8px"></div>
+                </div>
+                <div class="form-group">
+                    <label>Patch Version (optional)</label>
+                    <select id="maintPatchVersion" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;background:var(--surface2);color:var(--text);font-family:monospace">
+                        <option value="">-- Latest available --</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Target VMs</label>
+                    <div id="maintVmList" class="sched-vm-grid" style="max-height:200px;overflow:auto;border:1px solid var(--border);border-radius:6px;padding:8px"></div>
+                    <div style="margin-top:4px"><button class="btn btn-xs btn-secondary" onclick="document.querySelectorAll('#maintVmList input').forEach(function(c){c.checked=true})">Select All</button> <button class="btn btn-xs btn-secondary" onclick="document.querySelectorAll('#maintVmList input').forEach(function(c){c.checked=false})">Clear</button></div>
+                </div>
+                <div class="form-group">
+                    <label>Execution Mode</label>
+                    <select id="maintExecMode" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;background:var(--surface2);color:var(--text)">
+                        <option value="sequential">Sequential (one VM at a time)</option>
+                        <option value="parallel">Parallel (all VMs at once)</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Notes (optional)</label>
+                    <textarea id="maintNotes" rows="2" placeholder="Additional notes" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;background:var(--surface2);color:var(--text);resize:vertical"></textarea>
+                </div>
+                <div id="maintError" style="color:#e74c3c;font-size:13px;min-height:18px"></div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeMaintWindowModal()">Cancel</button>
+                <button class="btn btn-primary" id="maintSubmitBtn" onclick="submitMaintWindow()">Create Window</button>
+            </div>
+        </div>
+    </div>
+    
+</body>
+</html>
