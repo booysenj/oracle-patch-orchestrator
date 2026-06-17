@@ -353,7 +353,25 @@
         </div>
         <div class="modal-body">
           <div id="jobMeta" class="job-meta"></div>
+          <div style="display:flex;gap:8px;margin-bottom:8px">
+            <button class="btn btn-sm btn-secondary log-view-tab active" data-view="logs" onclick="switchLogView('logs')">Logs</button>
+            <button class="btn btn-sm btn-secondary log-view-tab" data-view="report" onclick="switchLogView('report')">Report</button>
+          </div>
           <div id="logContainer" class="log-container"><pre id="logOutput"></pre></div>
+          <div id="reportContainer" class="hidden" style="overflow:auto;max-height:520px">
+            <table id="reportTable" style="width:100%;border-collapse:collapse;font-size:13px">
+              <thead>
+                <tr style="background:var(--surface3)">
+                  <th style="padding:8px 12px;text-align:left;white-space:nowrap">Check</th>
+                  <th style="padding:8px 12px;text-align:left;white-space:nowrap">Status</th>
+                  <th style="padding:8px 12px;text-align:left">Details</th>
+                </tr>
+              </thead>
+              <tbody id="reportBody">
+                <tr><td colspan="3" style="padding:16px;text-align:center;color:var(--text-muted)">No check results yet — run a precheck job and switch back here when complete.</td></tr>
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
     </div>

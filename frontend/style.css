@@ -27,6 +27,10 @@
   --shadow-lg: 0 8px 32px rgba(0,0,0,0.4);
   --transition: 0.2s ease;
   --log-bg: #080a10;
+  --report-pass: rgba(61,214,140,0.18);
+  --report-fail: rgba(240,101,101,0.18);
+  --report-warn: rgba(245,195,66,0.18);
+  --report-info: rgba(96,165,250,0.12);
 }
 
 body {
@@ -466,6 +470,8 @@ main { padding: 28px; max-width: 1440px; margin: 0 auto; }
   border-radius: 6px; border: 1px solid var(--border);
   font-family: 'JetBrains Mono', monospace;
 }
+
+.log-view-tab.active { background: var(--accent); color: #fff; border-color: var(--accent); }
 
 .log-container {
   background: var(--log-bg); border: 1px solid var(--border);

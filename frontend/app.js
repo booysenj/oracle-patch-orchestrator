@@ -442,14 +442,26 @@ function openLogViewer(jobId, hostname, operation) {
   activeLogJobId = jobId;
   document.getElementById('logModalTitle').textContent = 'Logs \u2014 ' + hostname + ' \u2014 ' + operation;
   document.getElementById('logOutput').innerHTML = '';
+  reportRows = [];
+  document.getElementById('reportBody').innerHTML =
+    '<tr><td colspan="3" style="padding:16px;text-align:center;color:var(--text-muted)">No check results yet \u2014 run a precheck job and switch back here when complete.</td></tr>';
   document.getElementById('jobMeta').innerHTML =
     '<span>Job: ' + jobId.slice(0,8) + '\u2026</span>' +
     '<span>Host: ' + esc(hostname) + '</span>' +
     '<span>Op: ' + operation + '</span>' +
     '<span id="logJobStatus" class="status-badge status-running">\u25CF Running</span>';
+  switchLogView('logs');
   document.getElementById('logModal').classList.remove('hidden');
   connectLogWS(jobId);
   startLogPolling(jobId);
+}
+
+function switchLogView(view) {
+  document.querySelectorAll('.log-view-tab').forEach(function(b) {
+    b.classList.toggle('active', b.dataset.view === view);
+  });
+  document.getElementById('logContainer').classList.toggle('hidden', view !== 'logs');
+  document.getElementById('reportContainer').classList.toggle('hidden', view !== 'report');
 }
 
 function closeLogModal() {
@@ -459,21 +471,43 @@ function closeLogModal() {
   if (ws) { ws.close(); ws = null; }
 }
 
-async function loadLogs(jobId) {
-  try {
-    var logs = await api('/logs/' + jobId);
-    if (Array.isArray(logs)) { logs.forEach(function(l) { appendLogLine(l); }); }
-  } catch (e) { /* will get via WS */ }
+var reportRows = [];
+
+function appendReportRow(label, status, details) {
+  reportRows.push({ label: label, status: status, details: details });
+  var tbody = document.getElementById('reportBody');
+  if (reportRows.length === 1) tbody.innerHTML = '';
+  var colors = { PASS: 'var(--report-pass)', FAIL: 'var(--report-fail)', WARN: 'var(--report-warn)', INFO: 'var(--report-info)' };
+  var icons = { PASS: '\u2714', FAIL: '\u2718', WARN: '\u26A0', INFO: '\u2139' };
+  var tr = document.createElement('tr');
+  tr.style.borderBottom = '1px solid var(--border)';
+  tr.innerHTML =
+    '<td style="padding:7px 12px;font-weight:600">' + esc(label) + '</td>' +
+    '<td style="padding:7px 12px;white-space:nowrap">' +
+      '<span style="display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:4px;font-size:12px;font-weight:700;background:' + (colors[status] || 'var(--surface3)') + '">' +
+      (icons[status] || '') + ' ' + esc(status) + '</span></td>' +
+    '<td style="padding:7px 12px;font-size:12px;color:var(--text-dim)">' + esc(details) + '</td>';
+  tbody.appendChild(tr);
 }
 
 function appendLogLine(log) {
+  var line = log.line || '';
+  // Parse structured check results emitted by add_html_row in the shell script
+  if (line.indexOf('[CHECK] ') === 0) {
+    var parts = line.slice(8).split('|');
+    if (parts.length >= 3) {
+      appendReportRow(parts[0].trim(), parts[1].trim(), parts.slice(2).join('|').trim());
+    }
+    // Still show in raw log view (without the [CHECK] prefix for readability)
+    line = parts[0].trim() + ': ' + parts[1].trim();
+  }
   var pre = document.getElementById('logOutput');
   var cls = log.stream === 'stderr' ? 'log-line-stderr' :
             log.stream === 'system' ? 'log-line-system' : 'log-line-stdout';
-  var line = document.createElement('span');
-  line.className = cls;
-  line.textContent = (log.ts || '') + ' ' + (log.line || '') + '\n';
-  pre.appendChild(line);
+  var span = document.createElement('span');
+  span.className = cls;
+  span.textContent = (log.ts || '') + ' ' + line + '\n';
+  pre.appendChild(span);
   var container = document.getElementById('logContainer');
   container.scrollTop = container.scrollHeight;
 }

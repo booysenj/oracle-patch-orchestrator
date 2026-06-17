@@ -1366,6 +1366,7 @@ add_html_row() {
         <td style=\"padding:4px 8px; white-space:nowrap;\">${status}</td>
         <td style=\"padding:4px 8px;\">${details}</td>
     </tr>"
+    log "[CHECK] ${label}|${status}|${details}"
 }
 
 add_attachment() {
