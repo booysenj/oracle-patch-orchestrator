@@ -78,6 +78,20 @@ function initDB() {
         CREATE INDEX IF NOT EXISTS idx_reports_job ON patch_reports(job_id);
         CREATE INDEX IF NOT EXISTS idx_reports_host ON patch_reports(hostname);
     `);
+    // discoveries: stores structured JSON emitted by [DISCOVERY_JSON] log lines
+    d.exec(`
+        CREATE TABLE IF NOT EXISTS discoveries (
+            id          TEXT PRIMARY KEY,
+            job_id      TEXT,
+            hostname    TEXT,
+            type        TEXT,
+            payload     TEXT NOT NULL,
+            created_at  TEXT DEFAULT (datetime('now'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_discoveries_job  ON discoveries(job_id);
+        CREATE INDEX IF NOT EXISTS idx_discoveries_host ON discoveries(hostname);
+        CREATE INDEX IF NOT EXISTS idx_discoveries_type ON discoveries(type);
+    `);
     console.log('[db] Initialised at', DB_PATH);
 }
 

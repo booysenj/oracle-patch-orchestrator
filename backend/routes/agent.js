@@ -85,6 +85,9 @@ router.post('/:jobId/logs', (req, res) => {
     const reportStmt = db.prepare(
         'INSERT INTO patch_reports (id, job_id, hostname, operation, subject, result, html_content) VALUES (?, ?, ?, ?, ?, ?, ?)'
     );
+    const discoveryStmt = db.prepare(
+        'INSERT INTO discoveries (id, job_id, hostname, type, payload) VALUES (?, ?, ?, ?, ?)'
+    );
 
     const insertBatch = db.transaction(function(items) {
         for (var i = 0; i < items.length; i++) {
@@ -104,6 +107,19 @@ router.post('/:jobId/logs', (req, res) => {
                     reportStmt.run(uuidv4(), jobId, job ? job.hostname : null, job ? job.operation : null, subject, result, html);
                 } catch(e) {
                     console.error('[agent] Failed to store HTML report:', e.message);
+                }
+                continue; // don't add to job_logs
+            }
+
+            // Intercept [DISCOVERY_JSON] lines — store in discoveries table, skip from log view
+            if (line.startsWith('[DISCOVERY_JSON] ')) {
+                try {
+                    var jsonStr = line.slice('[DISCOVERY_JSON] '.length);
+                    var parsed = JSON.parse(jsonStr);
+                    var discJob = db.prepare('SELECT j.*, v.hostname FROM jobs j LEFT JOIN vms v ON j.vm_id = v.id WHERE j.id = ?').get(jobId);
+                    discoveryStmt.run(uuidv4(), jobId, discJob ? discJob.hostname : null, parsed.type || 'unknown', jsonStr);
+                } catch(e) {
+                    console.error('[agent] Failed to store discovery JSON:', e.message);
                 }
                 continue; // don't add to job_logs
             }

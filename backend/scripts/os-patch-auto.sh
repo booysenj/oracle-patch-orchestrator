@@ -3624,6 +3624,234 @@ os_patch_html() {
 #    sudo /sbin/shutdowno -r +1 || sudo shutdowno -r +1 || shutdown -r +1
 #}
 # ------------------------------------------------------------
+# GI PRECHECK: GI / Clusterware discovery
+# ------------------------------------------------------------
+gi_discovery_html() {
+    local gi_home="$1"
+    log "Running GI discovery for GRID_HOME=$gi_home"
+
+    add_html_row "--- GI ENVIRONMENT ---" "INFO" "Grid Infrastructure discovery"
+    add_html_row "GRID_HOME (OLD)" "INFO" "$gi_home"
+    add_html_row "NEW_GI_HOME"     "INFO" "$NEW_GI_HOME"
+
+    # ORACLE_BASE for grid user
+    local oracle_base=""
+    if [[ -x "$gi_home/bin/orabase" ]]; then
+        oracle_base=$(ORACLE_HOME="$gi_home" "$gi_home/bin/orabase" 2>/dev/null || true)
+    fi
+    if [[ -n "$oracle_base" ]]; then
+        add_html_row "ORACLE_BASE" "INFO" "$oracle_base"
+    else
+        add_html_row "ORACLE_BASE" "WARN" "Could not determine ORACLE_BASE from $gi_home/bin/orabase"
+    fi
+
+    # GI patch level
+    local gi_patch
+    gi_patch=$(get_patch_level "$gi_home" 2>/dev/null || echo "<unable to query>")
+    add_html_row "GI Current Patch Level" "INFO" "$gi_patch"
+
+    # CRS active version
+    add_html_row "--- CLUSTER / CRS ---" "INFO" "Cluster identification"
+    local crs_version=""
+    if [[ -x "$gi_home/bin/crsctl" ]]; then
+        crs_version=$(ORACLE_HOME="$gi_home" "$gi_home/bin/crsctl" query crs activeversion 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)
+        if [[ -n "$crs_version" ]]; then
+            add_html_row "CRS Active Version" "INFO" "$crs_version"
+        else
+            add_html_row "CRS Active Version" "WARN" "crsctl query crs activeversion returned no version — CRS may not be running."
+        fi
+    else
+        add_html_row "CRS Active Version" "WARN" "crsctl not found in $gi_home/bin"
+    fi
+
+    # Cluster name
+    local cluster_name=""
+    if [[ -x "$gi_home/bin/cemutlo" ]]; then
+        cluster_name=$("$gi_home/bin/cemutlo" -n 2>/dev/null || true)
+    fi
+    if [[ -z "$cluster_name" ]] && [[ -x "$gi_home/bin/olsnodes" ]]; then
+        cluster_name=$(ORACLE_HOME="$gi_home" "$gi_home/bin/olsnodes" -c 2>/dev/null | head -1 || true)
+    fi
+    if [[ -z "$cluster_name" ]] && [[ -x "$gi_home/bin/crsctl" ]]; then
+        cluster_name=$(ORACLE_HOME="$gi_home" "$gi_home/bin/crsctl" get cluster name 2>/dev/null | awk -F: '{print $NF}' | tr -d ' ' | head -1 || true)
+    fi
+    if [[ -n "$cluster_name" ]]; then
+        add_html_row "Cluster Name" "INFO" "$cluster_name"
+    else
+        add_html_row "Cluster Name" "INFO" "Standalone / non-clustered (HAS mode or no cluster name detected)"
+        cluster_name="standalone"
+    fi
+
+    # Node list
+    add_html_row "--- CLUSTER NODES ---" "INFO" "olsnodes output"
+    local node_list=""
+    local -a nodes=()
+    if [[ -x "$gi_home/bin/olsnodes" ]]; then
+        node_list=$(ORACLE_HOME="$gi_home" "$gi_home/bin/olsnodes" -n 2>/dev/null || true)
+        if [[ -n "$node_list" ]]; then
+            while IFS= read -r node_line; do
+                [[ -z "$node_line" ]] && continue
+                local node_num node_name
+                node_name=$(echo "$node_line" | awk '{print $1}')
+                node_num=$(echo "$node_line" | awk '{print $2}')
+                nodes+=("$node_name")
+                add_html_row "Node ${node_num:-}" "INFO" "$node_name"
+            done <<< "$node_list"
+        else
+            add_html_row "Cluster Nodes" "INFO" "olsnodes returned no output — likely standalone (HAS)."
+            nodes=("$HOSTNAME")
+        fi
+    else
+        add_html_row "Cluster Nodes" "WARN" "olsnodes not found in $gi_home/bin — cannot enumerate cluster nodes."
+        nodes=("$HOSTNAME")
+    fi
+
+    # ASM instance
+    add_html_row "--- ASM ---" "INFO" "ASM instance information"
+    local asm_sid=""
+    asm_sid=$(ps -eo args 2>/dev/null | awk -Fpmon_ '/pmon_\+ASM/{print $2}' | sed 's/ .*//' | head -1 || true)
+    if [[ -z "$asm_sid" ]]; then
+        asm_sid=$(ps -eo args 2>/dev/null | grep 'pmon_+ASM' | awk '{print $NF}' | sed 's/.*pmon_//' | head -1 || true)
+    fi
+
+    if [[ -n "$asm_sid" ]]; then
+        local asm_sqlplus="$gi_home/bin/sqlplus"
+        if [[ -x "$asm_sqlplus" ]]; then
+            local asm_output
+            asm_output=$(ORACLE_SID="$asm_sid" ORACLE_HOME="$gi_home" \
+                PATH="$gi_home/bin:$PATH" \
+                "$asm_sqlplus" -S / as sysasm 2>/dev/null <<'ASMEOF'
+SET PAGESIZE 0 FEEDBACK OFF VERIFY OFF HEADING OFF ECHO OFF TRIMOUT ON TRIMSPOOL ON
+WHENEVER SQLERROR CONTINUE
+SELECT 'ASM_INSTANCE='||instance_name FROM v$instance;
+SELECT 'ASM_STATUS='||status FROM v$instance;
+SELECT 'ASM_VERSION='||version FROM v$instance;
+SELECT 'ASM_DG='||name||':'||state||':'||type FROM v$asm_diskgroup ORDER BY name;
+EXIT
+ASMEOF
+            ) || true
+
+            if [[ -n "$asm_output" ]]; then
+                local asm_instance asm_status asm_version
+                while IFS= read -r rawline; do
+                    local trimmed
+                    trimmed=$(printf '%s' "$rawline" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+                    [[ -z "$trimmed" ]] && continue
+                    local key="${trimmed%%=*}"
+                    local val="${trimmed#*=}"
+                    case "$key" in
+                        ASM_INSTANCE) asm_instance="$val" ;;
+                        ASM_STATUS)   asm_status="$val"   ;;
+                        ASM_VERSION)  asm_version="$val"  ;;
+                        ASM_DG)
+                            local dg_name dg_state dg_type
+                            IFS=: read -r dg_name dg_state dg_type <<< "$val"
+                            local dg_st="PASS"
+                            [[ "${dg_state:-}" != "MOUNTED" ]] && dg_st="WARN"
+                            add_html_row "ASM Diskgroup $dg_name" "$dg_st" "$dg_type — $dg_state"
+                            ;;
+                    esac
+                done <<< "$asm_output"
+                add_html_row "ASM Instance" "PASS" "${asm_instance:-$asm_sid} (${asm_version:-?}) — status: ${asm_status:-?}"
+            else
+                add_html_row "ASM Instance" "INFO" "$asm_sid running (sysasm query returned no output)"
+            fi
+        else
+            add_html_row "ASM Instance" "INFO" "$asm_sid running (sqlplus not available in $gi_home)"
+        fi
+    else
+        add_html_row "ASM Instance" "INFO" "No ASM instance detected (standalone filesystem or ASM not running)"
+    fi
+
+    # ---- Build node JSON array ----
+    local nodes_json="["
+    for n in "${nodes[@]}"; do
+        nodes_json+="\"${n}\","
+    done
+    nodes_json="${nodes_json%,}]"
+    [[ "$nodes_json" == "[" ]] && nodes_json="[]"
+
+    # ---- Write GI discovery JSON ----
+    local gi_json_file="${GI_LOG_DIR}/gi_discovery.json"
+    cat > "$gi_json_file" <<GIJSON
+{
+  "type": "gi_discovery",
+  "hostname": "$HOSTNAME",
+  "grid_home": "$gi_home",
+  "new_gi_home": "$NEW_GI_HOME",
+  "oracle_base": "${oracle_base:-}",
+  "crs_active_version": "${crs_version:-}",
+  "gi_patch_level": "${gi_patch:-}",
+  "cluster_name": "${cluster_name:-}",
+  "cluster_mode": "$GI_CLUSTER_MODE",
+  "nodes": $nodes_json,
+  "asm_sid": "${asm_sid:-}",
+  "generated_at": "$(date '+%F %T')"
+}
+GIJSON
+    add_html_row "GI Discovery JSON" "INFO" "Written to $gi_json_file"
+    log "GI Discovery JSON written to $gi_json_file"
+
+    # Emit for backend storage
+    local gi_json_content
+    gi_json_content=$(cat "$gi_json_file")
+    log "[DISCOVERY_JSON] ${gi_json_content}"
+}
+
+# ------------------------------------------------------------
+# GI PRECHECK: OCR + Voting disk backup validation
+# ------------------------------------------------------------
+gi_backup_validation_html() {
+    local gi_home="$1"
+    add_html_row "--- BACKUP VALIDATION ---" "INFO" "OCR and Voting Disk status"
+
+    # OCR check
+    if [[ -x "$gi_home/bin/ocrcheck" ]]; then
+        local ocr_out
+        ocr_out=$(ORACLE_HOME="$gi_home" "$gi_home/bin/ocrcheck" 2>&1 || true)
+        if echo "$ocr_out" | grep -qi "Device/File.*integrity check succeeded\|successful"; then
+            local ocr_devices
+            ocr_devices=$(echo "$ocr_out" | grep -i "Device\|File Name" | head -5 | tr '\n' ' ')
+            add_html_row "OCR Integrity" "PASS" "ocrcheck passed. ${ocr_devices}"
+        elif echo "$ocr_out" | grep -qi "FAILED\|error"; then
+            add_html_row "OCR Integrity" "FAIL" "ocrcheck reported failures: $(echo "$ocr_out" | head -5)"
+        else
+            add_html_row "OCR Integrity" "INFO" "ocrcheck output: $(echo "$ocr_out" | head -5)"
+        fi
+    else
+        add_html_row "OCR Integrity" "INFO" "ocrcheck not found in $gi_home/bin (may be standalone / no GI)"
+    fi
+
+    # OCR backup location
+    if [[ -x "$gi_home/bin/ocrconfig" ]]; then
+        local ocr_backup
+        ocr_backup=$(ORACLE_HOME="$gi_home" "$gi_home/bin/ocrconfig" -showbackup 2>/dev/null | head -10 || true)
+        if [[ -n "$ocr_backup" ]]; then
+            add_html_row "OCR Backup Status" "INFO" "$(echo "$ocr_backup" | head -5 | tr '\n' ' ')"
+        else
+            add_html_row "OCR Backup Status" "WARN" "ocrconfig -showbackup returned no output"
+        fi
+    fi
+
+    # Voting disk
+    if [[ -x "$gi_home/bin/crsctl" ]]; then
+        local vd_out
+        vd_out=$(ORACLE_HOME="$gi_home" "$gi_home/bin/crsctl" query css votedisk 2>/dev/null || true)
+        if echo "$vd_out" | grep -q "ONLINE"; then
+            local vd_count
+            vd_count=$(echo "$vd_out" | grep -c "ONLINE" || true)
+            add_html_row "Voting Disks" "PASS" "$vd_count voting disk(s) ONLINE. $(echo "$vd_out" | grep ONLINE | head -3 | tr '\n' ' ')"
+        elif [[ -n "$vd_out" ]]; then
+            add_html_row "Voting Disks" "WARN" "$(echo "$vd_out" | head -5 | tr '\n' ' ')"
+        else
+            add_html_row "Voting Disks" "INFO" "crsctl query css votedisk returned no output (standalone / HAS mode expected)"
+        fi
+    else
+        add_html_row "Voting Disks" "INFO" "crsctl not found in $gi_home/bin (no GI / standalone)"
+    fi
+}
+
+# ------------------------------------------------------------
 # GI PRECHECK (19c patching)  -- also acts as common GI health
 # ------------------------------------------------------------
 gi_precheck() {
@@ -3811,6 +4039,12 @@ gi_precheck() {
     # Marker that GI precheck completed
     run_cmd "touch $PRECHECK_MARKER"
     add_html_row "GI precheck marker" "INFO" "Created marker file: $PRECHECK_MARKER"
+
+    # ------------------------------------------------------------
+    # GI Discovery + Backup Validation
+    # ------------------------------------------------------------
+    gi_discovery_html "$OLD_GI_HOME"
+    gi_backup_validation_html "$OLD_GI_HOME"
 
     send_html_report "GI Precheck Report - $HOST" "GI Precheck Report"
 }
@@ -5337,13 +5571,13 @@ db_sql_discovery_html() {
         return 0
     fi
 
-    # Run all discovery queries in one sqlplus session
+    # Single sqlplus session — all queries in one pass
     local sql_output
     sql_output=$(ORACLE_SID="$sid" ORACLE_HOME="$oracle_home" \
         PATH="$oracle_home/bin:$PATH" \
         "$sqlplus_bin" -S / as sysdba 2>/dev/null <<'SQLEOF'
 SET PAGESIZE 0 FEEDBACK OFF VERIFY OFF HEADING OFF ECHO OFF TRIMOUT ON TRIMSPOOL ON
-WHENEVER SQLERROR EXIT 1
+WHENEVER SQLERROR CONTINUE
 -- DB identity
 SELECT 'DB_NAME='||name FROM v$database;
 SELECT 'DB_UNIQUE_NAME='||db_unique_name FROM v$database;
@@ -5351,7 +5585,7 @@ SELECT 'DB_ROLE='||database_role FROM v$database;
 SELECT 'OPEN_MODE='||open_mode FROM v$database;
 SELECT 'SWITCHOVER_STATUS='||switchover_status FROM v$database;
 SELECT 'PROTECTION_MODE='||protection_mode FROM v$database;
--- Instance
+-- Instance (primary)
 SELECT 'INSTANCE_NAME='||instance_name FROM v$instance;
 SELECT 'HOST_NAME='||host_name FROM v$instance;
 SELECT 'DB_VERSION='||version FROM v$instance;
@@ -5363,59 +5597,85 @@ SELECT 'COMPATIBLE='||value FROM v$parameter WHERE name='compatible';
 SELECT 'CLUSTER_DATABASE='||value FROM v$parameter WHERE name='cluster_database';
 SELECT 'LOCAL_LISTENER='||value FROM v$parameter WHERE name='local_listener';
 SELECT 'REMOTE_LISTENER='||value FROM v$parameter WHERE name='remote_listener';
+SELECT 'LOG_ARCHIVE_DEST_1='||value FROM v$parameter WHERE name='log_archive_dest_1';
 SELECT 'DB_RECOVERY_FILE_DEST='||value FROM v$parameter WHERE name='db_recovery_file_dest';
 SELECT 'DB_RECOVERY_FILE_DEST_SIZE='||value FROM v$parameter WHERE name='db_recovery_file_dest_size';
 SELECT 'PROCESSES='||value FROM v$parameter WHERE name='processes';
-SELECT 'MEMORY_TARGET='||value FROM v$parameter WHERE name='memory_target';
 SELECT 'SGA_TARGET='||value FROM v$parameter WHERE name='sga_target';
 SELECT 'PGA_AGGREGATE_TARGET='||value FROM v$parameter WHERE name='pga_aggregate_target';
--- RMAN last backup
+SELECT 'MEMORY_TARGET='||value FROM v$parameter WHERE name='memory_target';
+-- All RAC instances
+SELECT 'RAC_INSTANCE='||instance_number||':'||instance_name||':'||host_name||':'||status FROM gv$instance ORDER BY instance_number;
+-- Services (exclude internal services)
+SELECT 'SERVICE='||name FROM v$services WHERE name NOT IN (SELECT db_unique_name FROM v$database) AND name NOT LIKE 'SYS$%' ORDER BY name;
+-- RMAN backup (last 7 days)
 SELECT 'LAST_BACKUP='||TO_CHAR(MAX(completion_time),'YYYY-MM-DD HH24:MI:SS') FROM v$backup_set WHERE status='A';
-SELECT 'RMAN_STATUS='||MAX(status) FROM v$backup_set WHERE completion_time > SYSDATE-7;
+SELECT 'RMAN_LAST_STATUS='||MAX(status) FROM v$backup_set WHERE completion_time > SYSDATE-7;
 EXIT
 SQLEOF
     ) || true
 
     if [[ -z "$sql_output" ]]; then
-        add_html_row "DB SQL Discovery ($sid)" "WARN" "No output from sqlplus — DB may not be open or sysdba login failed."
+        add_html_row "DB SQL Discovery ($sid)" "WARN" "No output from sqlplus — DB may not be open or sysdba connection failed."
         return 0
     fi
 
-    # Parse and emit key values
-    local db_name db_unique role open_mode switchover protection instance host version startup spfile
-    local compatible cluster local_list remote_list recovery_dest recovery_size processes memory sga pga
+    # ---- Parse output ----
+    local db_name db_unique role open_mode switchover protection
+    local instance host version startup spfile
+    local compatible cluster local_list remote_list archive_dest recovery_dest recovery_size
+    local processes sga pga memory
     local last_backup rman_status
+    local -a rac_instances=()
+    local -a services=()
 
-    while IFS='=' read -r key val; do
+    while IFS= read -r rawline; do
+        # Trim whitespace
+        local trimmed
+        trimmed=$(printf '%s' "$rawline" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+        [[ -z "$trimmed" ]] && continue
+        local key="${trimmed%%=*}"
+        local val="${trimmed#*=}"
         case "$key" in
-            DB_NAME)              db_name="$val" ;;
-            DB_UNIQUE_NAME)       db_unique="$val" ;;
-            DB_ROLE)              role="$val" ;;
-            OPEN_MODE)            open_mode="$val" ;;
-            SWITCHOVER_STATUS)    switchover="$val" ;;
-            PROTECTION_MODE)      protection="$val" ;;
-            INSTANCE_NAME)        instance="$val" ;;
-            HOST_NAME)            host="$val" ;;
-            DB_VERSION)           version="$val" ;;
-            STARTUP_TIME)         startup="$val" ;;
-            SPFILE)               spfile="$val" ;;
-            COMPATIBLE)           compatible="$val" ;;
-            CLUSTER_DATABASE)     cluster="$val" ;;
-            LOCAL_LISTENER)       local_list="$val" ;;
-            REMOTE_LISTENER)      remote_list="$val" ;;
-            DB_RECOVERY_FILE_DEST) recovery_dest="$val" ;;
+            DB_NAME)                db_name="$val" ;;
+            DB_UNIQUE_NAME)         db_unique="$val" ;;
+            DB_ROLE)                role="$val" ;;
+            OPEN_MODE)              open_mode="$val" ;;
+            SWITCHOVER_STATUS)      switchover="$val" ;;
+            PROTECTION_MODE)        protection="$val" ;;
+            INSTANCE_NAME)          instance="$val" ;;
+            HOST_NAME)              host="$val" ;;
+            DB_VERSION)             version="$val" ;;
+            STARTUP_TIME)           startup="$val" ;;
+            SPFILE)                 spfile="$val" ;;
+            COMPATIBLE)             compatible="$val" ;;
+            CLUSTER_DATABASE)       cluster="$val" ;;
+            LOCAL_LISTENER)         local_list="$val" ;;
+            REMOTE_LISTENER)        remote_list="$val" ;;
+            LOG_ARCHIVE_DEST_1)     archive_dest="$val" ;;
+            DB_RECOVERY_FILE_DEST)  recovery_dest="$val" ;;
             DB_RECOVERY_FILE_DEST_SIZE) recovery_size="$val" ;;
-            PROCESSES)            processes="$val" ;;
-            MEMORY_TARGET)        memory="$val" ;;
-            SGA_TARGET)           sga="$val" ;;
-            PGA_AGGREGATE_TARGET) pga="$val" ;;
-            LAST_BACKUP)          last_backup="$val" ;;
-            RMAN_STATUS)          rman_status="$val" ;;
+            PROCESSES)              processes="$val" ;;
+            SGA_TARGET)             sga="$val" ;;
+            PGA_AGGREGATE_TARGET)   pga="$val" ;;
+            MEMORY_TARGET)          memory="$val" ;;
+            LAST_BACKUP)            last_backup="$val" ;;
+            RMAN_LAST_STATUS)       rman_status="$val" ;;
+            RAC_INSTANCE)           rac_instances+=("$val") ;;
+            SERVICE)                services+=("$val") ;;
         esac
     done <<< "$sql_output"
 
-    # --- Section: DB Identity ---
-    add_html_row "DB Name" "INFO" "${db_name:-<unknown>}"
+    # ---- Determine cluster type ----
+    local cluster_type="Single Instance (SI)"
+    if [[ "${cluster:-FALSE}" == "TRUE" ]]; then
+        cluster_type="RAC"
+    fi
+
+    # ---- Section header ----
+    add_html_row "--- DB IDENTITY ---" "INFO" "Values discovered via v\$database / v\$instance"
+
+    add_html_row "DB Name"        "INFO" "${db_name:-<unknown>}"
     add_html_row "DB Unique Name" "INFO" "${db_unique:-<unknown>}"
 
     local role_status="INFO"
@@ -5427,75 +5687,132 @@ SQLEOF
     add_html_row "Open Mode" "$open_status" "${open_mode:-<unknown>}"
 
     add_html_row "Switchover Status" "INFO" "${switchover:-<unknown>}"
-    add_html_row "Protection Mode" "INFO" "${protection:-<unknown>}"
-    add_html_row "Instance Name" "INFO" "${instance:-<unknown>}"
-    add_html_row "DB Version" "INFO" "${version:-<unknown>}"
-    add_html_row "Startup Time" "INFO" "${startup:-<unknown>}"
+    add_html_row "Protection Mode"   "INFO" "${protection:-<unknown>}"
+    add_html_row "DB Version"        "INFO" "${version:-<unknown>}"
+    add_html_row "ORACLE_HOME"       "INFO" "$oracle_home"
+    add_html_row "Startup Time"      "INFO" "${startup:-<unknown>}"
+    add_html_row "Cluster Type"      "INFO" "$cluster_type"
 
-    # --- SPFILE ---
+    # ---- RAC instances ----
+    add_html_row "--- INSTANCE LIST ---" "INFO" "From gv\$instance"
+    if [[ ${#rac_instances[@]} -gt 0 ]]; then
+        for inst_info in "${rac_instances[@]}"; do
+            local inst_num inst_name inst_host inst_status
+            IFS=: read -r inst_num inst_name inst_host inst_status <<< "$inst_info"
+            local inst_st="PASS"
+            [[ "${inst_status:-}" != "OPEN" ]] && inst_st="WARN"
+            add_html_row "Instance $inst_num" "$inst_st" "$inst_name @ $inst_host — $inst_status"
+        done
+    else
+        add_html_row "Instances" "INFO" "${instance:-<unknown>} @ ${host:-<unknown>}"
+    fi
+
+    # ---- Services ----
+    add_html_row "--- SERVICES ---" "INFO" "From v\$services"
+    if [[ ${#services[@]} -gt 0 ]]; then
+        for svc in "${services[@]}"; do
+            add_html_row "Service" "INFO" "$svc"
+        done
+    else
+        add_html_row "Services" "INFO" "No application services found (default service only)."
+    fi
+
+    # ---- SPFILE ----
+    add_html_row "--- SPFILE ---" "INFO" ""
     if [[ -n "${spfile:-}" ]]; then
         add_html_row "SPFILE" "PASS" "$spfile"
     else
-        add_html_row "SPFILE" "WARN" "No SPFILE found — database using PFILE. SPFILE is recommended for patching."
+        add_html_row "SPFILE" "WARN" "No SPFILE — database using PFILE. SPFILE is required for patching."
     fi
 
-    # --- Key parameters ---
-    add_html_row "compatible" "INFO" "${compatible:-<not set>}"
+    # ---- Parameter validation ----
+    add_html_row "--- PARAMETER VALIDATION ---" "INFO" "Key init parameters"
 
-    local cluster_status="INFO"
-    [[ "${cluster:-FALSE}" == "FALSE" ]] && cluster_status="INFO"
-    [[ "${cluster:-FALSE}" == "TRUE" ]]  && cluster_status="INFO"
-    add_html_row "cluster_database" "$cluster_status" "${cluster:-FALSE}"
+    add_html_row "db_unique_name" "INFO" "${db_unique:-<not set>}"
+    add_html_row "compatible"     "INFO" "${compatible:-<not set>}"
+    add_html_row "cluster_database" "INFO" "${cluster:-FALSE}"
 
     if [[ -n "${local_list:-}" ]]; then
-        add_html_row "local_listener" "PASS" "$local_list"
+        add_html_row "local_listener"  "PASS" "$local_list"
     else
-        add_html_row "local_listener" "WARN" "Not set — default dynamic registration may be used."
+        add_html_row "local_listener"  "WARN" "Not set — listener dynamic registration only."
     fi
-
     if [[ -n "${remote_list:-}" ]]; then
         add_html_row "remote_listener" "INFO" "$remote_list"
     else
-        add_html_row "remote_listener" "INFO" "Not set (standalone / non-RAC expected)."
+        add_html_row "remote_listener" "INFO" "Not set (expected for standalone / non-RAC)."
     fi
+    [[ -n "${archive_dest:-}" ]]   && add_html_row "log_archive_dest_1"       "INFO" "$archive_dest"
+    [[ -n "${recovery_dest:-}" ]]  && add_html_row "db_recovery_file_dest"    "INFO" "${recovery_dest} (size: ${recovery_size:-unset})"
+    [[ -n "${processes:-}" ]]      && add_html_row "processes"                "INFO" "$processes"
+    [[ -n "${sga:-}" ]]            && add_html_row "sga_target"               "INFO" "$sga"
+    [[ -n "${pga:-}" ]]            && add_html_row "pga_aggregate_target"     "INFO" "$pga"
+    [[ -n "${memory:-}" ]]         && add_html_row "memory_target"            "INFO" "$memory"
 
-    [[ -n "${recovery_dest:-}" ]]  && add_html_row "db_recovery_file_dest"      "INFO" "${recovery_dest} (size: ${recovery_size:-<unset>})"
-    [[ -n "${processes:-}" ]]      && add_html_row "processes"                  "INFO" "$processes"
-    [[ -n "${memory:-}" ]]         && add_html_row "memory_target"              "INFO" "$memory"
-    [[ -n "${sga:-}" ]]            && add_html_row "sga_target"                 "INFO" "$sga"
-    [[ -n "${pga:-}" ]]            && add_html_row "pga_aggregate_target"       "INFO" "$pga"
-
-    # --- RMAN Backup ---
-    if [[ -n "${last_backup:-}" && "$last_backup" != "<unknown>" ]]; then
+    # ---- RMAN ----
+    add_html_row "--- BACKUP VALIDATION ---" "INFO" "RMAN backup status"
+    if [[ -n "${last_backup:-}" && "${last_backup:-}" != " " ]]; then
         add_html_row "Last RMAN Backup" "PASS" "$last_backup (status: ${rman_status:-unknown})"
     else
         add_html_row "Last RMAN Backup" "WARN" "No completed RMAN backup found in the last 7 days."
     fi
 
-    # --- Write discovery JSON ---
+    # ---- Build service/instance JSON arrays ----
+    local svc_json="[]"
+    if [[ ${#services[@]} -gt 0 ]]; then
+        svc_json="["
+        for svc in "${services[@]}"; do
+            svc_json+="\"${svc}\","
+        done
+        svc_json="${svc_json%,}]"
+    fi
+
+    local inst_json="[]"
+    if [[ ${#rac_instances[@]} -gt 0 ]]; then
+        inst_json="["
+        for inst_info in "${rac_instances[@]}"; do
+            IFS=: read -r inst_num inst_name inst_host inst_status <<< "$inst_info"
+            inst_json+="{\"number\":${inst_num:-0},\"name\":\"${inst_name:-}\",\"host\":\"${inst_host:-}\",\"status\":\"${inst_status:-}\"},"
+        done
+        inst_json="${inst_json%,}]"
+    else
+        inst_json="[{\"number\":1,\"name\":\"${instance:-}\",\"host\":\"${host:-}\",\"status\":\"${open_mode:-}\"}]"
+    fi
+
+    # ---- Write discovery.json file ----
     local json_file="${DB_LOG_DIR}/discovery.json"
-    cat > "$json_file" << JSONEOF
+    cat > "$json_file" <<JSONEOF
 {
+  "type": "db_discovery",
   "hostname": "$HOSTNAME",
   "db_name": "${db_name:-}",
   "db_unique_name": "${db_unique:-}",
-  "instance_name": "${instance:-}",
-  "db_role": "${role:-}",
+  "database_role": "${role:-}",
   "open_mode": "${open_mode:-}",
   "switchover_status": "${switchover:-}",
+  "protection_mode": "${protection:-}",
   "oracle_home": "$oracle_home",
+  "db_version": "${version:-}",
+  "cluster_type": "${cluster_type}",
+  "cluster_database": "${cluster:-FALSE}",
   "spfile": "${spfile:-}",
   "compatible": "${compatible:-}",
-  "cluster_database": "${cluster:-false}",
   "local_listener": "${local_list:-}",
   "remote_listener": "${remote_list:-}",
-  "db_version": "${version:-}",
+  "log_archive_dest_1": "${archive_dest:-}",
+  "instances": $inst_json,
+  "services": $svc_json,
   "last_rman_backup": "${last_backup:-}",
   "generated_at": "$(date '+%F %T')"
 }
 JSONEOF
-    add_html_row "Discovery JSON" "INFO" "Written to $json_file — consumed by subsequent phases."
+    add_html_row "Discovery JSON" "INFO" "Written to $json_file"
     log "Discovery JSON written to $json_file"
+
+    # ---- Emit as structured log line for backend storage ----
+    local json_content
+    json_content=$(cat "$json_file")
+    log "[DISCOVERY_JSON] ${json_content}"
 }
 
 # ------------------------------------------------------------
