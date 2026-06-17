@@ -80,6 +80,7 @@ router.get('/poll', (req, res) => {
         stagePath: vm.stage_path || null,
         env: env
     });
+});
 
 // Discovery — agent POSTs system inventory on every poll cycle
 router.post('/discover', (req, res) => {
