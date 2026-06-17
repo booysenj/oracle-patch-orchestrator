@@ -1494,6 +1494,13 @@ send_html_report() {
     else
         printf '%b\n' "$text_body" | mailx -r "$MAIL_FROM" -s "$subject" "$MAIL_TO"
     fi
+
+    # Emit full HTML to the log stream so the UI can store and display it
+    local _b64
+    _b64=$(printf '%s' "$html_body" | base64 -w0 2>/dev/null || printf '%s' "$html_body" | base64 2>/dev/null || true)
+    if [[ -n "$_b64" ]]; then
+        log "[HTML_REPORT] ${subject}|${_b64}"
+    fi
 }
 
 send_phase_html_report() {
@@ -5317,6 +5324,208 @@ schedule_gi_upgrade() {
     sleep 2
 }
 # ------------------------------------------------------------
+# DB PRECHECK: SQL-based discovery (runs only if a DB is up)
+# ------------------------------------------------------------
+db_sql_discovery_html() {
+    local sid="$1"
+    local oracle_home="$2"
+    log "Running SQL discovery for SID=$sid ORACLE_HOME=$oracle_home"
+
+    local sqlplus_bin="$oracle_home/bin/sqlplus"
+    if [[ ! -x "$sqlplus_bin" ]]; then
+        add_html_row "DB SQL Discovery" "WARN" "sqlplus not found at $sqlplus_bin — skipping SQL checks."
+        return 0
+    fi
+
+    # Run all discovery queries in one sqlplus session
+    local sql_output
+    sql_output=$(ORACLE_SID="$sid" ORACLE_HOME="$oracle_home" \
+        PATH="$oracle_home/bin:$PATH" \
+        "$sqlplus_bin" -S / as sysdba 2>/dev/null <<'SQLEOF'
+SET PAGESIZE 0 FEEDBACK OFF VERIFY OFF HEADING OFF ECHO OFF TRIMOUT ON TRIMSPOOL ON
+WHENEVER SQLERROR EXIT 1
+-- DB identity
+SELECT 'DB_NAME='||name FROM v$database;
+SELECT 'DB_UNIQUE_NAME='||db_unique_name FROM v$database;
+SELECT 'DB_ROLE='||database_role FROM v$database;
+SELECT 'OPEN_MODE='||open_mode FROM v$database;
+SELECT 'SWITCHOVER_STATUS='||switchover_status FROM v$database;
+SELECT 'PROTECTION_MODE='||protection_mode FROM v$database;
+-- Instance
+SELECT 'INSTANCE_NAME='||instance_name FROM v$instance;
+SELECT 'HOST_NAME='||host_name FROM v$instance;
+SELECT 'DB_VERSION='||version FROM v$instance;
+SELECT 'STARTUP_TIME='||TO_CHAR(startup_time,'YYYY-MM-DD HH24:MI:SS') FROM v$instance;
+-- SPFILE
+SELECT 'SPFILE='||value FROM v$parameter WHERE name='spfile';
+-- Key parameters
+SELECT 'COMPATIBLE='||value FROM v$parameter WHERE name='compatible';
+SELECT 'CLUSTER_DATABASE='||value FROM v$parameter WHERE name='cluster_database';
+SELECT 'LOCAL_LISTENER='||value FROM v$parameter WHERE name='local_listener';
+SELECT 'REMOTE_LISTENER='||value FROM v$parameter WHERE name='remote_listener';
+SELECT 'DB_RECOVERY_FILE_DEST='||value FROM v$parameter WHERE name='db_recovery_file_dest';
+SELECT 'DB_RECOVERY_FILE_DEST_SIZE='||value FROM v$parameter WHERE name='db_recovery_file_dest_size';
+SELECT 'PROCESSES='||value FROM v$parameter WHERE name='processes';
+SELECT 'MEMORY_TARGET='||value FROM v$parameter WHERE name='memory_target';
+SELECT 'SGA_TARGET='||value FROM v$parameter WHERE name='sga_target';
+SELECT 'PGA_AGGREGATE_TARGET='||value FROM v$parameter WHERE name='pga_aggregate_target';
+-- RMAN last backup
+SELECT 'LAST_BACKUP='||TO_CHAR(MAX(completion_time),'YYYY-MM-DD HH24:MI:SS') FROM v$backup_set WHERE status='A';
+SELECT 'RMAN_STATUS='||MAX(status) FROM v$backup_set WHERE completion_time > SYSDATE-7;
+EXIT
+SQLEOF
+    ) || true
+
+    if [[ -z "$sql_output" ]]; then
+        add_html_row "DB SQL Discovery ($sid)" "WARN" "No output from sqlplus — DB may not be open or sysdba login failed."
+        return 0
+    fi
+
+    # Parse and emit key values
+    local db_name db_unique role open_mode switchover protection instance host version startup spfile
+    local compatible cluster local_list remote_list recovery_dest recovery_size processes memory sga pga
+    local last_backup rman_status
+
+    while IFS='=' read -r key val; do
+        case "$key" in
+            DB_NAME)              db_name="$val" ;;
+            DB_UNIQUE_NAME)       db_unique="$val" ;;
+            DB_ROLE)              role="$val" ;;
+            OPEN_MODE)            open_mode="$val" ;;
+            SWITCHOVER_STATUS)    switchover="$val" ;;
+            PROTECTION_MODE)      protection="$val" ;;
+            INSTANCE_NAME)        instance="$val" ;;
+            HOST_NAME)            host="$val" ;;
+            DB_VERSION)           version="$val" ;;
+            STARTUP_TIME)         startup="$val" ;;
+            SPFILE)               spfile="$val" ;;
+            COMPATIBLE)           compatible="$val" ;;
+            CLUSTER_DATABASE)     cluster="$val" ;;
+            LOCAL_LISTENER)       local_list="$val" ;;
+            REMOTE_LISTENER)      remote_list="$val" ;;
+            DB_RECOVERY_FILE_DEST) recovery_dest="$val" ;;
+            DB_RECOVERY_FILE_DEST_SIZE) recovery_size="$val" ;;
+            PROCESSES)            processes="$val" ;;
+            MEMORY_TARGET)        memory="$val" ;;
+            SGA_TARGET)           sga="$val" ;;
+            PGA_AGGREGATE_TARGET) pga="$val" ;;
+            LAST_BACKUP)          last_backup="$val" ;;
+            RMAN_STATUS)          rman_status="$val" ;;
+        esac
+    done <<< "$sql_output"
+
+    # --- Section: DB Identity ---
+    add_html_row "DB Name" "INFO" "${db_name:-<unknown>}"
+    add_html_row "DB Unique Name" "INFO" "${db_unique:-<unknown>}"
+
+    local role_status="INFO"
+    [[ "${role:-}" == "PRIMARY" ]] && role_status="PASS"
+    add_html_row "Database Role" "$role_status" "${role:-<unknown>}"
+
+    local open_status="PASS"
+    [[ "${open_mode:-}" != "READ WRITE" ]] && open_status="WARN"
+    add_html_row "Open Mode" "$open_status" "${open_mode:-<unknown>}"
+
+    add_html_row "Switchover Status" "INFO" "${switchover:-<unknown>}"
+    add_html_row "Protection Mode" "INFO" "${protection:-<unknown>}"
+    add_html_row "Instance Name" "INFO" "${instance:-<unknown>}"
+    add_html_row "DB Version" "INFO" "${version:-<unknown>}"
+    add_html_row "Startup Time" "INFO" "${startup:-<unknown>}"
+
+    # --- SPFILE ---
+    if [[ -n "${spfile:-}" ]]; then
+        add_html_row "SPFILE" "PASS" "$spfile"
+    else
+        add_html_row "SPFILE" "WARN" "No SPFILE found — database using PFILE. SPFILE is recommended for patching."
+    fi
+
+    # --- Key parameters ---
+    add_html_row "compatible" "INFO" "${compatible:-<not set>}"
+
+    local cluster_status="INFO"
+    [[ "${cluster:-FALSE}" == "FALSE" ]] && cluster_status="INFO"
+    [[ "${cluster:-FALSE}" == "TRUE" ]]  && cluster_status="INFO"
+    add_html_row "cluster_database" "$cluster_status" "${cluster:-FALSE}"
+
+    if [[ -n "${local_list:-}" ]]; then
+        add_html_row "local_listener" "PASS" "$local_list"
+    else
+        add_html_row "local_listener" "WARN" "Not set — default dynamic registration may be used."
+    fi
+
+    if [[ -n "${remote_list:-}" ]]; then
+        add_html_row "remote_listener" "INFO" "$remote_list"
+    else
+        add_html_row "remote_listener" "INFO" "Not set (standalone / non-RAC expected)."
+    fi
+
+    [[ -n "${recovery_dest:-}" ]]  && add_html_row "db_recovery_file_dest"      "INFO" "${recovery_dest} (size: ${recovery_size:-<unset>})"
+    [[ -n "${processes:-}" ]]      && add_html_row "processes"                  "INFO" "$processes"
+    [[ -n "${memory:-}" ]]         && add_html_row "memory_target"              "INFO" "$memory"
+    [[ -n "${sga:-}" ]]            && add_html_row "sga_target"                 "INFO" "$sga"
+    [[ -n "${pga:-}" ]]            && add_html_row "pga_aggregate_target"       "INFO" "$pga"
+
+    # --- RMAN Backup ---
+    if [[ -n "${last_backup:-}" && "$last_backup" != "<unknown>" ]]; then
+        add_html_row "Last RMAN Backup" "PASS" "$last_backup (status: ${rman_status:-unknown})"
+    else
+        add_html_row "Last RMAN Backup" "WARN" "No completed RMAN backup found in the last 7 days."
+    fi
+
+    # --- Write discovery JSON ---
+    local json_file="${DB_LOG_DIR}/discovery.json"
+    cat > "$json_file" << JSONEOF
+{
+  "hostname": "$HOSTNAME",
+  "db_name": "${db_name:-}",
+  "db_unique_name": "${db_unique:-}",
+  "instance_name": "${instance:-}",
+  "db_role": "${role:-}",
+  "open_mode": "${open_mode:-}",
+  "switchover_status": "${switchover:-}",
+  "oracle_home": "$oracle_home",
+  "spfile": "${spfile:-}",
+  "compatible": "${compatible:-}",
+  "cluster_database": "${cluster:-false}",
+  "local_listener": "${local_list:-}",
+  "remote_listener": "${remote_list:-}",
+  "db_version": "${version:-}",
+  "last_rman_backup": "${last_backup:-}",
+  "generated_at": "$(date '+%F %T')"
+}
+JSONEOF
+    add_html_row "Discovery JSON" "INFO" "Written to $json_file — consumed by subsequent phases."
+    log "Discovery JSON written to $json_file"
+}
+
+# ------------------------------------------------------------
+# DB PRECHECK: Listener status
+# ------------------------------------------------------------
+db_listener_html() {
+    local oracle_home="$1"
+    local lsnrctl="$oracle_home/bin/lsnrctl"
+
+    if [[ ! -x "$lsnrctl" ]]; then
+        add_html_row "Listener check" "WARN" "lsnrctl not found at $lsnrctl — skipping listener validation."
+        return 0
+    fi
+
+    local lsnr_out
+    lsnr_out=$(ORACLE_HOME="$oracle_home" PATH="$oracle_home/bin:$PATH" \
+        "$lsnrctl" status 2>&1 | head -30 || true)
+
+    if echo "$lsnr_out" | grep -qi "TNS-12541\|no listener\|not running"; then
+        add_html_row "Listener status" "FAIL" "Listener does not appear to be running. lsnrctl status: $(echo "$lsnr_out" | head -5)"
+    elif echo "$lsnr_out" | grep -qi "alias\|listening on\|READY"; then
+        local endpoints
+        endpoints=$(echo "$lsnr_out" | grep -i "listening on" | head -5 | tr '\n' ' ' || echo "see log")
+        add_html_row "Listener status" "PASS" "Listener is running. Endpoints: $endpoints"
+    else
+        add_html_row "Listener status" "WARN" "Could not determine listener status. Output: $(echo "$lsnr_out" | head -3)"
+    fi
+}
+
+# ------------------------------------------------------------
 # DB PRECHECK / INSTALL (19c patching) + optional upgrade check
 # ------------------------------------------------------------
 db_precheck() {
@@ -5609,6 +5818,26 @@ EOF
     else
         add_html_row "DB executePrereqs" "WARN" \
             "Could not stage DB software for precheck"
+    fi
+
+    # ------------------------------------------------------------
+    # SQL-based discovery (runs per running DB instance)
+    # ------------------------------------------------------------
+    if [[ ${#DB_UNIQUES[@]} -gt 0 ]]; then
+        for _disc_db in "${DB_UNIQUES[@]}"; do
+            _disc_home=""
+            # Try to get home from the pmon sid mapping
+            local _pmon_home
+            _pmon_home=$(get_home_from_pmon_sid "$_disc_db" 2>/dev/null || true)
+            [[ -z "$_pmon_home" ]] && _pmon_home="$OLD_DB_HOME"
+            db_sql_discovery_html "$_disc_db" "$_pmon_home"
+            db_listener_html "$_pmon_home"
+        done
+    else
+        # DB not running — still check listener using OLD_DB_HOME
+        db_listener_html "$OLD_DB_HOME"
+        add_html_row "DB SQL Discovery" "INFO" \
+            "No running database instances found — SQL-based checks skipped. Start DB before patching if SQL validation is required."
     fi
 
     # ------------------------------------------------------------

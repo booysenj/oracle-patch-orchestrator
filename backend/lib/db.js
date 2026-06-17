@@ -63,6 +63,21 @@ function initDB() {
     try { d.exec(`ALTER TABLE jobs ADD COLUMN db_unique_name TEXT`); } catch(_) {}
     try { d.exec(`ALTER TABLE vms ADD COLUMN stage_path TEXT`); } catch(_) {}
     try { d.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_patch_versions_unique ON patch_versions(version, patch_type)`); } catch(_) {}
+    // patch_reports: stores full HTML reports emitted by the shell script via [HTML_REPORT] log lines
+    d.exec(`
+        CREATE TABLE IF NOT EXISTS patch_reports (
+            id          TEXT PRIMARY KEY,
+            job_id      TEXT,
+            hostname    TEXT,
+            operation   TEXT,
+            subject     TEXT,
+            result      TEXT DEFAULT 'unknown',
+            html_content TEXT NOT NULL,
+            created_at  TEXT DEFAULT (datetime('now'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_reports_job ON patch_reports(job_id);
+        CREATE INDEX IF NOT EXISTS idx_reports_host ON patch_reports(hostname);
+    `);
     console.log('[db] Initialised at', DB_PATH);
 }
 

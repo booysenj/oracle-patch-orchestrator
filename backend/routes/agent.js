@@ -1,4 +1,5 @@
 const express = require('express');
+const { v4: uuidv4 } = require('uuid');
 const { getDB } = require('../lib/db');
 const { jobEvents } = require('../lib/job-runner');
 const router = express.Router();
@@ -81,12 +82,36 @@ router.post('/:jobId/logs', (req, res) => {
 
     const db = getDB();
     const stmt = db.prepare('INSERT INTO job_logs (job_id, stream, line) VALUES (?, ?, ?)');
+    const reportStmt = db.prepare(
+        'INSERT INTO patch_reports (id, job_id, hostname, operation, subject, result, html_content) VALUES (?, ?, ?, ?, ?, ?, ?)'
+    );
+
     const insertBatch = db.transaction(function(items) {
         for (var i = 0; i < items.length; i++) {
-            stmt.run(jobId, items[i].stream || 'stdout', items[i].line);
+            var line = items[i].line || '';
+
+            // Intercept [HTML_REPORT] lines — store as a patch report, skip from log view
+            if (line.startsWith('[HTML_REPORT] ')) {
+                try {
+                    var payload = line.slice('[HTML_REPORT] '.length);
+                    var pipeIdx = payload.indexOf('|');
+                    var subject = pipeIdx >= 0 ? payload.slice(0, pipeIdx) : 'Report';
+                    var b64 = pipeIdx >= 0 ? payload.slice(pipeIdx + 1) : payload;
+                    var html = Buffer.from(b64, 'base64').toString('utf8');
+                    var job = db.prepare('SELECT j.*, v.hostname FROM jobs j LEFT JOIN vms v ON j.vm_id = v.id WHERE j.id = ?').get(jobId);
+                    var result = subject.toLowerCase().includes('fail') ? 'failed'
+                               : subject.toLowerCase().includes('incomplete') ? 'failed' : 'success';
+                    reportStmt.run(uuidv4(), jobId, job ? job.hostname : null, job ? job.operation : null, subject, result, html);
+                } catch(e) {
+                    console.error('[agent] Failed to store HTML report:', e.message);
+                }
+                continue; // don't add to job_logs
+            }
+
+            stmt.run(jobId, items[i].stream || 'stdout', line);
             jobEvents.emit('log:' + jobId, {
                 stream: items[i].stream || 'stdout',
-                line: items[i].line,
+                line: line,
                 ts: new Date().toISOString()
             });
         }

@@ -1415,8 +1415,88 @@ function switchPatchSubTab(tab) {
     });
     document.getElementById('patchCatalogPanel').classList.toggle('hidden', tab !== 'catalog');
     document.getElementById('patchTransfersPanel').classList.toggle('hidden', tab !== 'transfers');
+    document.getElementById('patchReportsPanel').classList.toggle('hidden', tab !== 'reports');
     if (tab === 'catalog') loadPatches();
     if (tab === 'transfers') loadTransfers();
+    if (tab === 'reports') loadReports();
+}
+
+// -- Precheck Reports --
+async function loadReports() {
+    var tbody = document.getElementById('reportsBody');
+    tbody.innerHTML = '<tr><td colspan="6" class="loading"><div class="spinner" style="margin:0 auto"></div></td></tr>';
+    try {
+        var q = (document.getElementById('reportSearch') || {}).value || '';
+        var type = (document.getElementById('reportTypeFilter') || {}).value || '';
+        var qs = '?';
+        if (q) qs += 'q=' + encodeURIComponent(q) + '&';
+        if (type) qs += 'type=' + encodeURIComponent(type) + '&';
+        var reports = await api('/reports' + qs);
+        var countEl = document.getElementById('reportCount');
+        if (countEl) countEl.textContent = reports.length + ' report' + (reports.length !== 1 ? 's' : '');
+        if (!reports.length) {
+            tbody.innerHTML = '<tr><td colspan="6" class="loading"><div class="empty-state-inline">' +
+                '<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>' +
+                '<p>No reports yet. Reports are generated during precheck/postcheck runs.</p></div></td></tr>';
+            return;
+        }
+        tbody.innerHTML = reports.map(function(r) {
+            var resultBadge = r.result === 'success'
+                ? '<span class="status-badge status-success">✔ Pass</span>'
+                : r.result === 'failed'
+                ? '<span class="status-badge status-failed">✘ Fail</span>'
+                : '<span class="status-badge status-pending">● Unknown</span>';
+            var opLabel = (r.subject || r.operation || '—').replace(/ - .*$/, '');
+            return '<tr>' +
+                '<td><span class="mono">' + esc(r.hostname || '—') + '</span></td>' +
+                '<td>' + esc(r.operation || '—') + '</td>' +
+                '<td style="max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + esc(r.subject || '') + '">' + esc(opLabel) + '</td>' +
+                '<td>' + resultBadge + '</td>' +
+                '<td>' + formatDate(r.created_at) + '</td>' +
+                '<td><button class="btn btn-sm btn-primary" onclick="openReportViewer(\'' + r.id + '\',\'' + esc(r.subject || r.operation || 'Report') + '\')">' +
+                    '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>' +
+                    ' View</button> ' +
+                '<button class="btn btn-sm btn-secondary" onclick="deleteReport(\'' + r.id + '\')" title="Delete">✕</button>' +
+                '</td></tr>';
+        }).join('');
+    } catch(e) {
+        if (e.message === 'Session expired') return;
+        document.getElementById('reportsBody').innerHTML = '<tr><td colspan="6" class="loading">Failed to load reports</td></tr>';
+        showToast('Failed to load reports: ' + e.message, 'error');
+    }
+}
+
+function openReportViewer(id, title) {
+    var modal = document.getElementById('reportViewerModal');
+    if (!modal) {
+        modal = document.createElement('div');
+        modal.id = 'reportViewerModal';
+        modal.className = 'modal hidden';
+        modal.innerHTML =
+            '<div class="modal-content" style="max-width:900px;height:85vh;display:flex;flex-direction:column">' +
+            '<div class="modal-header">' +
+                '<h2 id="reportViewerTitle">Report</h2>' +
+                '<button class="modal-close" onclick="document.getElementById(\'reportViewerModal\').classList.add(\'hidden\')">&#215;</button>' +
+            '</div>' +
+            '<div style="flex:1;overflow:auto;padding:0">' +
+                '<iframe id="reportViewerFrame" style="width:100%;height:100%;border:none;background:#fff"></iframe>' +
+            '</div>' +
+            '</div>';
+        modal.addEventListener('click', function(e) { if (e.target === modal) modal.classList.add('hidden'); });
+        document.body.appendChild(modal);
+    }
+    document.getElementById('reportViewerTitle').textContent = title;
+    document.getElementById('reportViewerFrame').src = API + '/reports/' + id + '/html?token=' + encodeURIComponent(TOKEN);
+    modal.classList.remove('hidden');
+}
+
+async function deleteReport(id) {
+    if (!confirm('Delete this report?')) return;
+    try {
+        await api('/reports/' + id, { method: 'DELETE' });
+        showToast('Report deleted', 'success');
+        loadReports();
+    } catch(e) { showToast('Delete failed: ' + e.message, 'error'); }
 }
 
 function openBulkPatchModal() {
