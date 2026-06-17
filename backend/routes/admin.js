@@ -188,11 +188,11 @@ router.post('/vms/:id/deploy-agent', requireAdmin, (req, res) => {
                 const cmds = [
                     'chown oracle /home/oracle/insight-agent.py',
                     'chmod 750 /home/oracle/insight-agent.py',
-                    `sudo tee /etc/systemd/system/insight-agent.service > /dev/null << 'SVCEOF'\n${serviceUnit}\nSVCEOF`,
-                    'sudo systemctl daemon-reload',
-                    'sudo systemctl enable insight-agent',
-                    'sudo systemctl restart insight-agent',
-                    'sleep 2 && sudo systemctl is-active insight-agent'
+                    `tee /etc/systemd/system/insight-agent.service > /dev/null << 'SVCEOF'\n${serviceUnit}\nSVCEOF`,
+                    'systemctl daemon-reload',
+                    'systemctl enable insight-agent',
+                    'systemctl restart insight-agent',
+                    'sleep 2 && systemctl is-active insight-agent'
                 ].join(' && ');
                 conn.exec(cmds, (err2, stream) => {
                     if (err2) { conn.end(); return res.status(500).json({ error: err2.message }); }
@@ -208,7 +208,7 @@ router.post('/vms/:id/deploy-agent', requireAdmin, (req, res) => {
             writeStream.end(agentContent);
         });
     }).on('error', err => res.status(500).json({ error: err.message }))
-      .connect({ host: vm.ip, port: vm.ssh_port || 22, username: vm.ssh_user || 'oracle', privateKey, readyTimeout: 10000 });
+      .connect({ host: vm.ip, port: vm.ssh_port || 22, username: 'root', privateKey, readyTimeout: 10000 });
 });
 
 module.exports = router;
