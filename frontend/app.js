@@ -1,5 +1,5 @@
 const API = window.location.origin + '/api';
-const WS_URL = 'ws://' + window.location.host + '/ws/logs';
+const WS_URL = (window.location.protocol === 'https:' ? 'wss://' : 'ws://') + window.location.host + '/ws/logs';
 let TOKEN = localStorage.getItem('token') || '';
 let currentUser = localStorage.getItem('currentUser') || '';
 let vms = [];
@@ -8,6 +8,7 @@ let ws = null;
 let activeLogJobId = null;
 let autoRefreshTimer = null;
 let autoRefreshMs = parseInt(localStorage.getItem('autoRefreshMs') || '30000');
+let orchSettings = {};
 
 // -- Theme Manager --
 const THEMES = {
@@ -155,9 +156,50 @@ function showApp() {
   document.getElementById('appShell').classList.remove('hidden');
   var el = document.getElementById('userDisplay');
   if (el) el.textContent = currentUser;
+  loadOrcSettings();
   loadVMs();
   startAutoRefresh();
   showAdminTab();
+}
+
+async function loadOrcSettings() {
+  try {
+    var data = await api('/admin/settings');
+    orchSettings = data || {};
+    // Populate settings fields if Admin tab has been rendered
+    var fields = {
+      orchestrator_url: 'settingOrcUrl',
+      gi_base_zip_path: 'settingGiZip',
+      db_base_zip_path: 'settingDbZip',
+      gi_home_base: 'settingGiHomeBase',
+      db_home_base: 'settingDbHomeBase',
+      patches_base_path: 'settingPatchesBase'
+    };
+    Object.keys(fields).forEach(function(key) {
+      var el = document.getElementById(fields[key]);
+      if (el && orchSettings[key]) el.value = orchSettings[key];
+    });
+  } catch(e) { /* settings optional */ }
+}
+
+async function saveOrcSettings() {
+  var body = {
+    orchestrator_url: (document.getElementById('settingOrcUrl') || {}).value || '',
+    gi_base_zip_path: (document.getElementById('settingGiZip') || {}).value || '',
+    db_base_zip_path: (document.getElementById('settingDbZip') || {}).value || '',
+    gi_home_base: (document.getElementById('settingGiHomeBase') || {}).value || '',
+    db_home_base: (document.getElementById('settingDbHomeBase') || {}).value || '',
+    patches_base_path: (document.getElementById('settingPatchesBase') || {}).value || ''
+  };
+  try {
+    await api('/admin/settings', { method: 'PUT', body: JSON.stringify(body) });
+    orchSettings = body;
+    var msg = document.getElementById('settingsMsg');
+    if (msg) { msg.textContent = 'Saved'; setTimeout(function() { msg.textContent = ''; }, 3000); }
+    showToast('Orchestrator settings saved', 'success');
+  } catch(e) {
+    showToast('Failed to save settings: ' + e.message, 'error');
+  }
 }
 
 // -- Tab Navigation --
@@ -167,7 +209,7 @@ document.querySelectorAll('.nav-btn').forEach(function(btn) {
     document.querySelectorAll('.tab-content').forEach(function(t) { t.classList.remove('active'); });
     btn.classList.add('active');
     document.getElementById('tab-' + btn.dataset.tab).classList.add('active');
-    if (btn.dataset.tab === 'jobs') loadJobs(); if (btn.dataset.tab === 'admin') loadUsers(); if (btn.dataset.tab === 'patches') loadPatches();
+    if (btn.dataset.tab === 'jobs') loadJobs(); if (btn.dataset.tab === 'admin') { loadUsers(); loadOrcSettings(); } if (btn.dataset.tab === 'patches') loadPatches();
   });
 });
 
@@ -194,21 +236,33 @@ function renderVMs(list) {
     return;
   }
   grid.innerHTML = list.map(function(vm) {
+    var mode = vm.execution_mode || 'agent';
+    var agentOnline = false;
+    if (mode === 'agent' && vm.agent_last_seen) {
+      var seenMs = new Date(vm.agent_last_seen + 'Z').getTime();
+      agentOnline = (Date.now() - seenMs) < 30000;
+    }
+    var agentBadge = mode === 'agent'
+      ? '<span class="agent-status-dot ' + (agentOnline ? 'agent-online' : 'agent-offline') + '" title="Agent ' + (agentOnline ? 'online' : 'offline') + '">&#9679;</span>'
+      : '';
+    var modeBadge = '<span class="exec-mode-badge exec-mode-' + mode + '">' + mode.toUpperCase() + '</span>';
     return '<div class="vm-card" data-id="' + vm.id + '">' +
       '<div class="vm-card-header">' +
         '<span class="vm-hostname">' + esc(vm.hostname) + '</span>' +
-        '<span class="vm-env env-' + vm.environment + '">' + vm.environment + '</span>' +
+        '<div style="display:flex;gap:6px;align-items:center">' + agentBadge + modeBadge + '<span class="vm-env env-' + vm.environment + '">' + vm.environment + '</span></div>' +
       '</div>' +
       '<div class="vm-details">' +
         '<span class="vm-detail-label">IP</span><span class="vm-detail-value">' + esc(vm.ip) + '</span>' +
         '<span class="vm-detail-label">Role</span><span class="vm-detail-value">' + (vm.node_role || '\u2014') + '</span>' +
-        '<span class="vm-detail-label">SSH User</span><span class="vm-detail-value">' + (vm.ssh_user || 'oracle') + '</span>' +
         '<span class="vm-detail-label">Patch</span><span class="vm-detail-value"><span class="patch-badge">' + (vm.patch_target || '19.26') + '</span></span>' +
         '<span class="vm-detail-label">Last Job</span><span class="vm-detail-value">' + (vm.last_status ? statusBadge(vm.last_status) : '\u2014') + '</span>' +
       '</div>' +
       '<div class="vm-card-actions">' +
         '<button class="btn btn-sm btn-secondary" onclick="deleteVm(\'' + vm.id + '\',\'' + esc(vm.hostname) + '\')" title="Delete VM">' +
           '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>' +
+          '</button>' +
+        '<button class="btn btn-sm btn-secondary" onclick="deployAgent(\'' + vm.id + '\',\'' + esc(vm.hostname) + '\')" title="Deploy/Update Agent">' +
+          '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 16 12 12 8 16"/><line x1="12" y1="12" x2="12" y2="21"/><path d="M20.39 18.39A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.3"/></svg>' +
           '</button>' +
         '<button class="btn btn-sm btn-primary" onclick="openModal(\'' + vm.id + '\')">' +
           '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>' +
@@ -396,6 +450,7 @@ function openLogViewer(jobId, hostname, operation) {
   document.getElementById('logModal').classList.remove('hidden');
   loadLogs(jobId);
   connectLogWS(jobId);
+  startLogPolling(jobId);
 }
 
 function closeLogModal() {
@@ -426,15 +481,18 @@ function appendLogLine(log) {
 
 function connectLogWS(jobId) {
   if (ws) ws.close();
-  ws = new WebSocket(WS_URL + '/' + jobId);
-  ws.onopen = function() { updateConnStatus(true); };
+  ws = new WebSocket(WS_URL + '?token=' + encodeURIComponent(TOKEN));
+  ws.onopen = function() {
+    updateConnStatus(true);
+    ws.send(JSON.stringify({ action: 'subscribe', jobId: jobId }));
+  };
   ws.onclose = function() { updateConnStatus(false); checkJobStatus(jobId); };
   ws.onerror = function() { updateConnStatus(false); };
   ws.onmessage = function(evt) {
     try {
       var msg = JSON.parse(evt.data);
       if (msg.type === 'log') { appendLogLine(msg); }
-      else if (msg.type === 'status') {
+      else if (msg.type === 'done') {
         updateJobStatus(msg.status);
         if (msg.status === 'success') { showToast('Job completed successfully', 'success'); if (ws) ws.close(); }
         else if (msg.status === 'failed') { showToast('Job failed', 'error'); if (ws) ws.close(); }
@@ -463,6 +521,50 @@ function updateConnStatus(connected) {
 }
 
 // -- Job History --
+function openClearHistoryModal() {
+  // Populate VM checkboxes from loaded vms list
+  var list = document.getElementById('clearVmList');
+  list.innerHTML = vms.length
+    ? vms.map(function(v) {
+        return '<label style="display:flex;align-items:center;gap:8px;font-weight:normal">' +
+          '<input type="checkbox" class="clear-vm-check" value="' + v.id + '" />' +
+          esc(v.hostname) + ' <span style="color:var(--text-muted);font-size:12px">(' + esc(v.ip) + ')</span></label>';
+      }).join('')
+    : '<span style="color:var(--text-muted);font-size:13px">No VMs loaded</span>';
+  document.getElementById('clearHistoryError').textContent = '';
+  document.getElementById('clearHistoryModal').classList.remove('hidden');
+}
+
+function closeClearHistoryModal() {
+  document.getElementById('clearHistoryModal').classList.add('hidden');
+}
+
+async function confirmClearHistory() {
+  var errEl = document.getElementById('clearHistoryError');
+  errEl.textContent = '';
+
+  var statuses = [];
+  if (document.getElementById('clearStatusSuccess').checked) statuses.push('success');
+  if (document.getElementById('clearStatusFailed').checked) statuses.push('failed');
+  if (document.getElementById('clearStatusCancelled').checked) statuses.push('cancelled');
+  if (!statuses.length) { errEl.textContent = 'Select at least one status to clear.'; return; }
+
+  var before = document.getElementById('clearBeforeDate').value || null;
+  var checkedVms = Array.from(document.querySelectorAll('.clear-vm-check:checked')).map(function(c) { return c.value; });
+
+  try {
+    var result = await api('/jobs/history', {
+      method: 'DELETE',
+      body: JSON.stringify({ before: before, vmIds: checkedVms.length ? checkedVms : null, statuses: statuses })
+    });
+    closeClearHistoryModal();
+    showToast('Deleted ' + result.deleted + ' job record(s)', 'success');
+    loadJobs();
+  } catch(e) {
+    errEl.textContent = e.message || 'Failed to clear history';
+  }
+}
+
 async function loadJobs() {
   var tbody = document.getElementById('jobsBody');
   tbody.innerHTML = '<tr><td colspan="6" class="loading"><div class="spinner" style="margin:0 auto"></div></td></tr>';
@@ -611,7 +713,9 @@ async function addSingleVm() {
         ssh_port: parseInt(document.getElementById('addVmSshPort').value) || 22,
         node_role: document.getElementById('addVmRole').value,
         environment: document.getElementById('addVmEnv').value,
-        patch_target: document.getElementById('addVmPatch').value
+        patch_target: document.getElementById('addVmPatch').value,
+        execution_mode: document.getElementById('addVmExecMode').value || 'agent',
+        stage_path: document.getElementById('addVmStagePath').value.trim() || null
       })
     });
     showToast('VM ' + hostname + ' added', 'success');
@@ -656,6 +760,18 @@ async function bulkImportVms() {
   } catch (e) {
     errEl.textContent = 'Import failed: ' + e.message;
     showToast('Bulk import failed: ' + e.message, 'error');
+  }
+}
+
+async function deployAgent(vmId, hostname) {
+  if (!confirm('Deploy/update agent on ' + hostname + '?\n\nThis will upload the latest insight-agent.py and restart the service.')) return;
+  showToast('Deploying agent to ' + hostname + '...', 'info');
+  try {
+    var result = await api('/admin/vms/' + vmId + '/deploy-agent', { method: 'POST', body: '{}' });
+    showToast('Agent deployed to ' + hostname + ' — status: ' + (result.serviceStatus || result.output || 'ok'), 'success');
+    setTimeout(loadVMs, 3000);
+  } catch(e) {
+    showToast('Deploy failed: ' + e.message, 'error');
   }
 }
 
@@ -747,30 +863,15 @@ function stopLogPolling() {
 async function fetchLogsIncremental() {
   if (!logPollJobId) return;
   try {
-    var logs = await api('/jobs/' + logPollJobId + '/logs');
-    if (!logs || !logs.length) return;
-    var container = document.getElementById('logOutput');
-    container.innerHTML = '';
-    for (var i = 0; i < logs.length; i++) {
-      var cls = logs[i].stream === 'stderr' ? 'log-line-stderr' : 'log-line-stdout';
-      container.innerHTML += '<span class="' + cls + '">' + esc(logs[i].line) + '</span>\n';
+    var logs = await api('/logs/' + logPollJobId + '?offset=' + logPollOffset);
+    if (Array.isArray(logs) && logs.length) {
+      logs.forEach(function(l) { appendLogLine(l); });
+      logPollOffset += logs.length;
     }
-    // Auto-scroll to bottom
-    var lc = document.getElementById('logContainer');
-    lc.scrollTop = lc.scrollHeight;
-
-    // Also update job status in meta
     var job = await api('/jobs/' + logPollJobId);
-    if (job) {
-      document.getElementById('jobMeta').innerHTML =
-        '<span>' + esc(job.operation) + '</span>' +
-        '<span>' + statusBadge(job.status) + '</span>' +
-        '<span>' + (job.started_at || '') + '</span>' +
-        (job.duration_s ? '<span>' + job.duration_s + 's</span>' : '<span class="status-running">Running...</span>');
-      // Stop polling if job is done
-      if (job.status === 'success' || job.status === 'failed') {
-        stopLogPolling();
-      }
+    if (job && (job.status === 'success' || job.status === 'failed' || job.status === 'cancelled')) {
+      updateJobStatus(job.status);
+      stopLogPolling();
     }
   } catch(e) { /* silent */ }
 }
@@ -1000,6 +1101,24 @@ function openAddPatchModal() {
     document.getElementById('patchPrereqOpatch').value = '';
     document.getElementById('patchPrereqPatches').value = '';
     document.getElementById('patchModalError').textContent = '';
+    // Pre-fill base binary paths from orchestrator settings (falls back to known defaults)
+    var giZipDefault = orchSettings.gi_base_zip_path || '/backup/oracle_install/gi/V982068-01.zip';
+    var dbZipDefault = orchSettings.db_base_zip_path || '/backup/oracle_install/db/V982063-01.zip';
+    var giHomeBase   = orchSettings.gi_home_base      || '/grid/oracle/product';
+    var dbHomeBase   = orchSettings.db_home_base      || '/app/oracle/product';
+    var patchesBase  = orchSettings.patches_base_path || '/backup/patches';
+    document.getElementById('patchGiBaseZip').value = giZipDefault;
+    document.getElementById('patchDbBaseZip').value = dbZipDefault;
+    // Auto-populate new homes when version is typed
+    var versionInput = document.getElementById('patchVersion');
+    versionInput.oninput = function() {
+        var v = versionInput.value.trim();
+        if (v) {
+            document.getElementById('patchNewGiHome').value = giHomeBase + '/' + v;
+            document.getElementById('patchNewDbHome').value = dbHomeBase + '/' + v;
+            document.getElementById('patchSearchRoot').value = patchesBase + '/p' + v;
+        }
+    };
     document.getElementById('patchModal').classList.remove('hidden');
 }
 
@@ -1013,8 +1132,10 @@ function openEditPatchModal(id) {
     document.getElementById('patchDescription').value = p.description || '';
     document.getElementById('patchPlatform').value = p.platform || 'Linux-x86-64';
     document.getElementById('patchReleaseDate').value = p.release_date || '';
-    document.getElementById('patchGiBaseZip').value = p.gi_base_zip || '';
-    document.getElementById('patchDbBaseZip').value = p.db_base_zip || '';
+    document.getElementById('patchGiBaseZip').value = p.gi_base_zip || orchSettings.gi_base_zip_path || '/backup/oracle_install/gi/V982068-01.zip';
+    document.getElementById('patchDbBaseZip').value = p.db_base_zip || orchSettings.db_base_zip_path || '/backup/oracle_install/db/V982063-01.zip';
+    document.getElementById('patchNewGiHome').value = p.new_gi_home || (orchSettings.gi_home_base || '/grid/oracle/product') + '/' + (p.version || '');
+    document.getElementById('patchNewDbHome').value = p.new_db_home || (orchSettings.db_home_base || '/app/oracle/product') + '/' + (p.version || '');
     document.getElementById('patchSearchRoot').value = p.patch_search_root || '';
     document.getElementById('patchRuDir').value = p.ru_dir || '';
     document.getElementById('patchOpatchZip').value = p.opatch_zip || '';
@@ -1054,6 +1175,8 @@ async function savePatch() {
         release_date: document.getElementById('patchReleaseDate').value || null,
         gi_base_zip: document.getElementById('patchGiBaseZip').value.trim(),
         db_base_zip: document.getElementById('patchDbBaseZip').value.trim(),
+        new_gi_home: document.getElementById('patchNewGiHome').value.trim(),
+        new_db_home: document.getElementById('patchNewDbHome').value.trim(),
         patch_search_root: document.getElementById('patchSearchRoot').value.trim(),
         ru_dir: document.getElementById('patchRuDir').value.trim(),
         opatch_zip: document.getElementById('patchOpatchZip').value.trim(),

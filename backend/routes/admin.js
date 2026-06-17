@@ -4,6 +4,9 @@ const bcrypt = require('bcryptjs');
 const { v4: uuidv4 } = require('uuid');
 const { getDB } = require('../lib/db');
 const { requireAdmin } = require('../lib/auth');
+const { Client } = require('ssh2');
+const fs = require('fs');
+const path = require('path');
 
 // All admin routes require admin role
 router.use(requireAdmin);
@@ -103,6 +106,109 @@ router.put('/change-password', (req, res) => {
     const hash = bcrypt.hashSync(newPassword, 10);
     db.prepare('UPDATE users SET password = ?, updated_at = datetime(\'now\') WHERE id = ?').run(hash, user.id);
     res.json({ message: 'Password changed successfully' });
+});
+
+// GET /api/admin/settings - orchestrator-level configuration
+router.get('/settings', (req, res) => {
+    const db = getDB();
+    try {
+        db.exec("CREATE TABLE IF NOT EXISTS app_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT DEFAULT (datetime('now')))");
+    } catch(_) {}
+    const keys = ['orchestrator_url','gi_base_zip_path','db_base_zip_path','gi_home_base','db_home_base','patches_base_path'];
+    const result = {};
+    for (const key of keys) {
+        const row = db.prepare('SELECT value FROM app_settings WHERE key = ?').get(key);
+        result[key] = row ? row.value : '';
+    }
+    res.json(result);
+});
+
+// PUT /api/admin/settings
+router.put('/settings', (req, res) => {
+    const db = getDB();
+    try {
+        db.exec("CREATE TABLE IF NOT EXISTS app_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT DEFAULT (datetime('now')))");
+    } catch(_) {}
+    const allowed = ['orchestrator_url','gi_base_zip_path','db_base_zip_path','gi_home_base','db_home_base','patches_base_path'];
+    const stmt = db.prepare("INSERT OR REPLACE INTO app_settings (key, value, updated_at) VALUES (?, ?, datetime('now'))");
+    const tx = db.transaction(() => {
+        for (const key of allowed) {
+            if (req.body[key] !== undefined) stmt.run(key, (req.body[key] || '').trim());
+        }
+    });
+    try {
+        tx();
+        res.json({ message: 'Settings saved' });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// Deploy/update agent on a VM via SSH (SCP + systemd)
+router.post('/vms/:id/deploy-agent', requireAdmin, (req, res) => {
+    const db = getDB();
+    const vm = db.prepare('SELECT * FROM vms WHERE id = ?').get(req.params.id);
+    if (!vm) return res.status(404).json({ error: 'VM not found' });
+
+    const agentSrc = path.join(__dirname, '..', '..', 'frontend', 'agent-download', 'insight-agent.py');
+    const agentToken = process.env.AGENT_SECRET || '';
+    // Prefer DB setting, then env var, then fallback
+    let orchestratorUrl = process.env.ORCHESTRATOR_URL || '';
+    try {
+        const row = db.prepare("SELECT value FROM app_settings WHERE key = 'orchestrator_url'").get();
+        if (row && row.value) orchestratorUrl = row.value;
+    } catch(_) {}
+    if (!orchestratorUrl) orchestratorUrl = `http://172.16.36.95:${process.env.PORT || 4000}`;
+    const keyPath = process.env.SSH_KEY_PATH || '/root/.ssh/id_rsa';
+
+    let privateKey;
+    try { privateKey = fs.readFileSync(keyPath); }
+    catch (e) { return res.status(500).json({ error: 'Cannot read SSH key: ' + e.message }); }
+
+    const agentContent = fs.readFileSync(agentSrc);
+
+    const serviceUnit = [
+        '[Unit]', 'Description=Insight Patch Agent', 'After=network.target', '',
+        '[Service]', 'Type=simple', 'User=oracle',
+        'ExecStart=/usr/bin/python3 /home/oracle/insight-agent.py',
+        'Restart=always', 'RestartSec=5',
+        `Environment=INSIGHT_API_URL=${orchestratorUrl}`,
+        `Environment=INSIGHT_AGENT_TOKEN=${agentToken}`,
+        `Environment=INSIGHT_HOSTNAME=${vm.hostname}`,
+        'StandardOutput=journal', 'StandardError=journal', '',
+        '[Install]', 'WantedBy=multi-user.target'
+    ].join('\n');
+
+    const conn = new Client();
+    conn.on('ready', () => {
+        conn.sftp((err, sftp) => {
+            if (err) { conn.end(); return res.status(500).json({ error: 'SFTP error: ' + err.message }); }
+            const writeStream = sftp.createWriteStream('/home/oracle/insight-agent.py');
+            writeStream.on('close', () => {
+                const cmds = [
+                    'chown oracle /home/oracle/insight-agent.py',
+                    'chmod 750 /home/oracle/insight-agent.py',
+                    `sudo tee /etc/systemd/system/insight-agent.service > /dev/null << 'SVCEOF'\n${serviceUnit}\nSVCEOF`,
+                    'sudo systemctl daemon-reload',
+                    'sudo systemctl enable insight-agent',
+                    'sudo systemctl restart insight-agent',
+                    'sleep 2 && sudo systemctl is-active insight-agent'
+                ].join(' && ');
+                conn.exec(cmds, (err2, stream) => {
+                    if (err2) { conn.end(); return res.status(500).json({ error: err2.message }); }
+                    let out = '';
+                    stream.on('data', d => { out += d; });
+                    stream.stderr.on('data', d => { out += d; });
+                    stream.on('close', () => {
+                        conn.end();
+                        res.json({ ok: true, hostname: vm.hostname, output: out.trim() });
+                    });
+                });
+            });
+            writeStream.end(agentContent);
+        });
+    }).on('error', err => res.status(500).json({ error: err.message }))
+      .connect({ host: vm.ip, port: vm.ssh_port || 22, username: vm.ssh_user || 'oracle', privateKey, readyTimeout: 10000 });
 });
 
 module.exports = router;

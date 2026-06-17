@@ -24,6 +24,9 @@ router.get('/poll', (req, res) => {
     const vm = db.prepare('SELECT * FROM vms WHERE hostname = ?').get(hostname);
     if (vm === undefined) return res.status(404).json({ error: 'VM not found' });
 
+    // Record heartbeat so dashboard can show agent online/offline status
+    db.prepare(`UPDATE vms SET agent_last_seen = datetime('now') WHERE id = ?`).run(vm.id);
+
     const job = db.prepare(
         'SELECT j.*, v.script_path, v.node_role FROM jobs j JOIN vms v ON j.vm_id = v.id WHERE j.vm_id = ? AND j.status = ? ORDER BY j.created_at ASC LIMIT 1'
     ).get(vm.id, 'queued');
@@ -35,7 +38,8 @@ router.get('/poll', (req, res) => {
     ).run('running', 'now', job.id);
 
     var phaseArg = job.phase;
-    if (['db_switch', 'db_rollback'].indexOf(job.operation) >= 0 && job.db_unique_name) {
+    const needsDbName = ['db_switch', 'db_rollback', 'db_switch_scheduled', 'db_upgrade_upgrade', 'db_upgrade_rollback'];
+    if (needsDbName.indexOf(job.operation) >= 0 && job.db_unique_name) {
         phaseArg = job.phase + ' ' + job.db_unique_name;
     }
 
@@ -65,6 +69,7 @@ router.get('/poll', (req, res) => {
         phaseArg: phaseArg,
         dryRun: job.dry_run,
         nodeRole: job.node_role,
+        stagePath: vm.stage_path || null,
         env: env
     });
 });

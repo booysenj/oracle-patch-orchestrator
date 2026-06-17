@@ -102,7 +102,7 @@ module.exports = function (authenticateToken) {
             params.push(q, q, q, q, q);
         }
 
-        sql += ' ORDER BY created_at DESC';
+        sql += ' ORDER BY CAST(REPLACE(version, ".", "") AS INTEGER) ASC';
         try {
             const rows = db.prepare(sql).all(...params);
             const result = rows.map(r => ({

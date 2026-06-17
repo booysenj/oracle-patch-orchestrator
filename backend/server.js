@@ -16,7 +16,7 @@ const { initDB } = require('./lib/db');
 const { initAuditTable } = require('./lib/audit');
 const { attachWSS } = require('./lib/ws-relay');
 const { setupTransferRoutes } = require('./lib/transfer-api');
-const { checkDueSchedules } = require('./lib/scheduler-jobs');
+const { checkDueSchedules, timeoutStaleJobs } = require('./lib/scheduler-jobs');
 
 const app = express();
 const server = http.createServer(app);
@@ -52,4 +52,11 @@ app.use('/api/schedules', schedulerRoutes(getDBFn, authenticateToken));
 server.listen(PORT, '0.0.0.0', () => {
     console.log('[insight-patch-ui] API listening on :' + PORT);
     console.log('[insight-patch-ui] WebSocket: ws://0.0.0.0:' + PORT + '/ws/logs');
+
+    // Run immediately on startup to clear any stale jobs, then every 5 minutes
+    timeoutStaleJobs();
+    setInterval(timeoutStaleJobs, 5 * 60 * 1000);
+
+    setInterval(() => checkDueSchedules(), 30 * 1000);
+    console.log('[SCHEDULER] Tick started (30s interval)');
 });

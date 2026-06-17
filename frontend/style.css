@@ -326,6 +326,17 @@ main { padding: 28px; max-width: 1440px; margin: 0 auto; }
 .env-DEV { background: var(--success-bg); color: var(--success); }
 .env-DR { background: var(--running-bg); color: var(--running); }
 
+.agent-status-dot { font-size: 11px; }
+.agent-online  { color: var(--success); }
+.agent-offline { color: var(--text-muted); }
+
+.exec-mode-badge {
+  font-size: 9px; padding: 2px 7px; border-radius: 4px;
+  font-weight: 700; letter-spacing: 0.6px;
+}
+.exec-mode-agent { background: #1a3a5c; color: #58a6ff; }
+.exec-mode-ssh   { background: #2d2b1a; color: #e3b341; }
+
 .vm-details {
   display: grid; grid-template-columns: auto 1fr;
   gap: 6px 16px; margin-bottom: 18px; font-size: 13px;
