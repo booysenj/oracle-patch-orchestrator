@@ -72,6 +72,12 @@ function initDB() {
     try { d.exec(`ALTER TABLE vms ADD COLUMN preferred_staging_mount TEXT`); } catch(_) {}
     try { d.exec(`ALTER TABLE vms ADD COLUMN static_json TEXT`); } catch(_) {}
     try { d.exec(`ALTER TABLE vms ADD COLUMN dynamic_json TEXT`); } catch(_) {}
+    // Populated by [DISCOVERY_JSON] lines emitted during precheck
+    try { d.exec(`ALTER TABLE vms ADD COLUMN switchover_status TEXT`); } catch(_) {}
+    try { d.exec(`ALTER TABLE vms ADD COLUMN cluster_type TEXT`); } catch(_) {}
+    try { d.exec(`ALTER TABLE vms ADD COLUMN db_version TEXT`); } catch(_) {}
+    try { d.exec(`ALTER TABLE vms ADD COLUMN crs_version TEXT`); } catch(_) {}
+    try { d.exec(`ALTER TABLE vms ADD COLUMN nodes_json TEXT`); } catch(_) {}
     // patch_reports: stores full HTML reports emitted by the shell script via [HTML_REPORT] log lines
     d.exec(`
         CREATE TABLE IF NOT EXISTS patch_reports (

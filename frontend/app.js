@@ -258,10 +258,13 @@ function renderVMs(list) {
         discAgeStr + '</span>';
     }
     if (vm.db_unique_name || vm.database_role || vm.old_gi_home || vm.old_db_home) {
+      var roleColor = vm.database_role === 'PRIMARY' ? '#4caf50' : vm.database_role ? '#e3b341' : '';
       discRow = '<div class="vm-discovery-row">' +
         (vm.db_unique_name ? '<span class="disc-tag" title="DB Unique Name">' + esc(vm.db_unique_name) + '</span>' : '') +
-        (vm.database_role ? '<span class="disc-tag disc-role" title="Database Role">' + esc(vm.database_role) + '</span>' : '') +
+        (vm.database_role ? '<span class="disc-tag" title="Database Role" style="' + (roleColor ? 'background:#1a2a1a;color:' + roleColor : '') + '">' + esc(vm.database_role) + '</span>' : '') +
+        (vm.switchover_status && vm.switchover_status !== 'NOT ALLOWED' ? '<span class="disc-tag" title="Switchover Status" style="background:#1a1a2a;color:#7c9ef8">' + esc(vm.switchover_status) + '</span>' : '') +
         (vm.cluster_name ? '<span class="disc-tag" title="Cluster">' + esc(vm.cluster_name) + '</span>' : '') +
+        (vm.crs_version ? '<span class="disc-tag" title="CRS Version" style="color:var(--text-muted)">CRS ' + esc(vm.crs_version) + '</span>' : '') +
       '</div>';
     }
     // Best staging mount
@@ -865,23 +868,32 @@ async function openDiscoveryPanel(vmId) {
       '<small style="color:var(--text-muted)">Last discovery: ' + lastSeen + '</small>' +
     '</div>' +
     '<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">' +
-      '<div><div class="disc-section-title">Oracle Identity</div>' +
+      '<div><div class="disc-section-title">Database Identity</div>' +
         '<table class="disc-table">' +
-          '<tr><td>DB Unique Name</td><td>' + esc(disc && disc.db_unique_name || '—') + '</td></tr>' +
-          '<tr><td>Database Role</td><td>' + esc(disc && disc.database_role || '—') + '</td></tr>' +
-          '<tr><td>Cluster Name</td><td>' + esc(disc && disc.cluster_name || '—') + '</td></tr>' +
-          '<tr><td>GI Home</td><td style="font-size:10px;word-break:break-all">' + esc(disc && disc.old_gi_home || vm.old_gi_home || '—') + '</td></tr>' +
+          '<tr><td>DB Unique Name</td><td><strong>' + esc(disc && disc.db_unique_name || '—') + '</strong></td></tr>' +
+          '<tr><td>Database Role</td><td><span style="color:' + (disc && disc.database_role === 'PRIMARY' ? '#4caf50' : disc && disc.database_role ? '#e3b341' : 'var(--text-muted)') + '">' + esc(disc && disc.database_role || '—') + '</span></td></tr>' +
+          '<tr><td>Switchover Status</td><td>' + esc(disc && disc.switchover_status || '—') + '</td></tr>' +
+          '<tr><td>Cluster Type</td><td>' + esc(disc && disc.cluster_type || '—') + '</td></tr>' +
+          '<tr><td>DB Version</td><td>' + esc(disc && disc.db_version || '—') + '</td></tr>' +
           '<tr><td>DB Home</td><td style="font-size:10px;word-break:break-all">' + esc(disc && disc.old_db_home || vm.old_db_home || '—') + '</td></tr>' +
           '<tr><td>Running DBs</td><td>' + (runningDbs.length ? esc(runningDbs.join(', ')) : '—') + '</td></tr>' +
         '</table>' +
       '</div>' +
-      '<div><div class="disc-section-title">Orchestrator Config</div>' +
+      '<div>' +
+        '<div class="disc-section-title">Grid Infrastructure</div>' +
+        '<table class="disc-table" style="margin-bottom:12px">' +
+          '<tr><td>GI Home</td><td style="font-size:10px;word-break:break-all">' + esc(disc && disc.old_gi_home || vm.old_gi_home || '—') + '</td></tr>' +
+          '<tr><td>CRS Version</td><td>' + esc(disc && disc.crs_version || '—') + '</td></tr>' +
+          '<tr><td>Cluster Name</td><td>' + esc(disc && disc.cluster_name || '—') + '</td></tr>' +
+          '<tr><td>Nodes</td><td>' + ((disc && disc.nodes && disc.nodes.length) ? esc(disc.nodes.join(', ')) : '—') + '</td></tr>' +
+        '</table>' +
+        '<div class="disc-section-title">Runtime Config (generated per job)</div>' +
         '<table class="disc-table">' +
           '<tr><td>OLD_GI_HOME</td><td style="font-size:10px;word-break:break-all">' + esc(vm.old_gi_home || '—') + '</td></tr>' +
-          '<tr><td>NEW_GI_HOME</td><td style="font-size:10px;word-break:break-all">' + esc(vm.new_gi_home || '—') + '</td></tr>' +
+          '<tr><td>NEW_GI_HOME</td><td style="font-size:10px;word-break:break-all;color:' + (vm.new_gi_home ? 'var(--text-dim)' : 'var(--text-muted)') + '">' + esc(vm.new_gi_home || '⚠ not set') + '</td></tr>' +
           '<tr><td>OLD_DB_HOME</td><td style="font-size:10px;word-break:break-all">' + esc(vm.old_db_home || '—') + '</td></tr>' +
-          '<tr><td>NEW_DB_HOME</td><td style="font-size:10px;word-break:break-all">' + esc(vm.new_db_home || '—') + '</td></tr>' +
-          '<tr><td>Staging Mount</td><td style="color:var(--accent)">' + esc(vm.preferred_staging_mount || '—') + '</td></tr>' +
+          '<tr><td>NEW_DB_HOME</td><td style="font-size:10px;word-break:break-all;color:' + (vm.new_db_home ? 'var(--text-dim)' : 'var(--text-muted)') + '">' + esc(vm.new_db_home || '⚠ not set') + '</td></tr>' +
+          '<tr><td>Staging</td><td style="color:var(--accent)">' + esc(vm.preferred_staging_mount || '—') + '</td></tr>' +
         '</table>' +
       '</div>' +
     '</div>' +

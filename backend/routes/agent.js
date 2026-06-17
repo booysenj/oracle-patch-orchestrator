@@ -223,13 +223,64 @@ router.post('/:jobId/logs', (req, res) => {
                 continue; // don't add to job_logs
             }
 
-            // Intercept [DISCOVERY_JSON] lines — store in discoveries table, skip from log view
+            // Intercept [DISCOVERY_JSON] lines — store in discoveries table AND update vm inventory
             if (line.startsWith('[DISCOVERY_JSON] ')) {
                 try {
                     var jsonStr = line.slice('[DISCOVERY_JSON] '.length);
                     var parsed = JSON.parse(jsonStr);
-                    var discJob = db.prepare('SELECT j.*, v.hostname FROM jobs j LEFT JOIN vms v ON j.vm_id = v.id WHERE j.id = ?').get(jobId);
+                    var discJob = db.prepare('SELECT j.*, v.* FROM jobs j LEFT JOIN vms v ON j.vm_id = v.id WHERE j.id = ?').get(jobId);
                     discoveryStmt.run(uuidv4(), jobId, discJob ? discJob.hostname : null, parsed.type || 'unknown', jsonStr);
+
+                    // Feed discovery back into vm inventory — only overwrite if not yet set
+                    if (discJob) {
+                        var vmUpdates = {};
+                        var type = parsed.type || '';
+
+                        if (type === 'db_discovery') {
+                            // DB home: oracle_home from discovery populates old_db_home
+                            if (!discJob.old_db_home && parsed.oracle_home) vmUpdates.old_db_home = parsed.oracle_home;
+                            if (!discJob.db_unique_name && parsed.db_unique_name) vmUpdates.db_unique_name = parsed.db_unique_name;
+                            // Database role always refreshed (changes during switchover)
+                            if (parsed.database_role) vmUpdates.database_role = parsed.database_role;
+                            if (parsed.switchover_status) vmUpdates.switchover_status = parsed.switchover_status;
+                            if (parsed.cluster_type) vmUpdates.cluster_type = parsed.cluster_type;
+                            if (parsed.db_version) vmUpdates.db_version = parsed.db_version;
+                            // Store full static identity
+                            vmUpdates.static_json = JSON.stringify({
+                                db_name: parsed.db_name,
+                                db_unique_name: parsed.db_unique_name,
+                                database_role: parsed.database_role,
+                                open_mode: parsed.open_mode,
+                                switchover_status: parsed.switchover_status,
+                                protection_mode: parsed.protection_mode,
+                                oracle_home: parsed.oracle_home,
+                                db_version: parsed.db_version,
+                                cluster_type: parsed.cluster_type,
+                                instances: parsed.instances || [],
+                                services: parsed.services || []
+                            });
+                        } else if (type === 'gi_discovery') {
+                            if (!discJob.old_gi_home && parsed.grid_home) vmUpdates.old_gi_home = parsed.grid_home;
+                            if (!discJob.cluster_name && parsed.cluster_name) vmUpdates.cluster_name = parsed.cluster_name;
+                            if (parsed.crs_active_version) vmUpdates.crs_version = parsed.crs_active_version;
+                            if (parsed.nodes && parsed.nodes.length) vmUpdates.nodes_json = JSON.stringify(parsed.nodes);
+                        }
+
+                        if (Object.keys(vmUpdates).length > 0) {
+                            var setCols = Object.keys(vmUpdates).map(function(k) { return k + ' = ?'; }).join(', ');
+                            var setVals = Object.values(vmUpdates);
+                            setVals.push(discJob.vm_id);
+                            try {
+                                db.prepare('UPDATE vms SET ' + setCols + ' WHERE id = ?').run(...setVals);
+                            } catch(ue) {
+                                // Column may not exist yet on old DBs — add it and retry
+                                Object.keys(vmUpdates).forEach(function(col) {
+                                    try { db.exec('ALTER TABLE vms ADD COLUMN ' + col + ' TEXT'); } catch(_) {}
+                                });
+                                db.prepare('UPDATE vms SET ' + setCols + ' WHERE id = ?').run(...setVals);
+                            }
+                        }
+                    }
                 } catch(e) {
                     console.error('[agent] Failed to store discovery JSON:', e.message);
                 }
