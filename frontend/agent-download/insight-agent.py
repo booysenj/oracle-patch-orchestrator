@@ -26,7 +26,8 @@ API_URL = os.environ.get('INSIGHT_API_URL', 'http://172.16.36.95:4000')
 AGENT_TOKEN = os.environ.get('INSIGHT_AGENT_TOKEN', '')
 HOSTNAME = os.environ.get('INSIGHT_HOSTNAME', os.uname()[1].split('.')[0])
 POLL_INTERVAL = int(os.environ.get('INSIGHT_POLL_INTERVAL', '5'))
-LOG_BATCH_SIZE = 20
+LOG_BATCH_SIZE = 5
+LOG_FLUSH_INTERVAL = 2  # seconds — flush partial batches so UI stays live
 
 HEADERS = {
     'Authorization': 'Bearer ' + AGENT_TOKEN,
@@ -105,6 +106,7 @@ def execute_job(job):
         )
 
         log_buffer = []
+        job_done = threading.Event()
 
         def stream_output(pipe, stream_name):
             for line in pipe:
@@ -116,14 +118,24 @@ def execute_job(job):
                         del log_buffer[:]
                         send_logs(job_id, batch)
 
+        def flush_periodically():
+            while not job_done.wait(timeout=LOG_FLUSH_INTERVAL):
+                if log_buffer:
+                    batch = log_buffer[:]
+                    del log_buffer[:]
+                    send_logs(job_id, batch)
+
         t_out = threading.Thread(target=stream_output, args=(proc.stdout, 'stdout'))
         t_err = threading.Thread(target=stream_output, args=(proc.stderr, 'stderr'))
+        t_flush = threading.Thread(target=flush_periodically, daemon=True)
         t_out.start()
         t_err.start()
+        t_flush.start()
 
         proc.wait()
         t_out.join()
         t_err.join()
+        job_done.set()
 
         if log_buffer:
             send_logs(job_id, log_buffer)
