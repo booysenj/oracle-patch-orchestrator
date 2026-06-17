@@ -63,6 +63,15 @@ function initDB() {
     try { d.exec(`ALTER TABLE jobs ADD COLUMN db_unique_name TEXT`); } catch(_) {}
     try { d.exec(`ALTER TABLE vms ADD COLUMN stage_path TEXT`); } catch(_) {}
     try { d.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_patch_versions_unique ON patch_versions(version, patch_type)`); } catch(_) {}
+    // VM discovery columns — auto-populated by agent on each poll
+    try { d.exec(`ALTER TABLE vms ADD COLUMN db_unique_name TEXT`); } catch(_) {}
+    try { d.exec(`ALTER TABLE vms ADD COLUMN database_role TEXT`); } catch(_) {}
+    try { d.exec(`ALTER TABLE vms ADD COLUMN cluster_name TEXT`); } catch(_) {}
+    try { d.exec(`ALTER TABLE vms ADD COLUMN mounts_json TEXT`); } catch(_) {}
+    try { d.exec(`ALTER TABLE vms ADD COLUMN last_discovery_at TEXT`); } catch(_) {}
+    try { d.exec(`ALTER TABLE vms ADD COLUMN preferred_staging_mount TEXT`); } catch(_) {}
+    try { d.exec(`ALTER TABLE vms ADD COLUMN static_json TEXT`); } catch(_) {}
+    try { d.exec(`ALTER TABLE vms ADD COLUMN dynamic_json TEXT`); } catch(_) {}
     // patch_reports: stores full HTML reports emitted by the shell script via [HTML_REPORT] log lines
     d.exec(`
         CREATE TABLE IF NOT EXISTS patch_reports (

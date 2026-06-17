@@ -62,7 +62,20 @@ set -euo pipefail
 IFS=$'\n\t'
 
 # ------------------------------------------------------------
-# CONFIGURATION (defaults – can be overridden in MANUAL mode)
+# RUNTIME CONFIG — sourced from orchestrator before any defaults
+# Agent writes /tmp/oop-runtime-${JOB_ID}.conf before execution.
+# Variables set here take precedence over the defaults below.
+# ------------------------------------------------------------
+if [[ -n "${OOP_RUNTIME_CONF:-}" && -f "${OOP_RUNTIME_CONF}" ]]; then
+    # shellcheck source=/dev/null
+    source "${OOP_RUNTIME_CONF}"
+elif [[ -n "${JOB_ID:-}" && -f "/tmp/oop-runtime-${JOB_ID}.conf" ]]; then
+    # shellcheck source=/dev/null
+    source "/tmp/oop-runtime-${JOB_ID}.conf"
+fi
+
+# ------------------------------------------------------------
+# CONFIGURATION (defaults – overridden by runtime conf above)
 # ------------------------------------------------------------
 ORACLE_USER=oracle
 GRID_USER=oracle
@@ -72,10 +85,10 @@ OLD_GI_OSOPER_GROUP=""
 MAIL_TO="ps.devops@4cgroup.co.za"
 MAIL_FROM="oop-orchestrator@4cgroup.co.za"
 
-# Make sure these match /etc/oratab on the host
-OLD_GI_HOME=/grid/oracle/product/c19
+# Oracle homes — set by runtime conf from orchestrator; fallback defaults kept for manual runs
+OLD_GI_HOME=${OLD_GI_HOME:-/grid/oracle/product/c19}
 NEW_GI_HOME=${NEW_GI_HOME:-/grid/oracle/product/c19.29.1}
-OLD_DB_HOME=/app/oracle/product/19.28
+OLD_DB_HOME=${OLD_DB_HOME:-/app/oracle/product/19.28}
 NEW_DB_HOME=${NEW_DB_HOME:-/app/oracle/product/19.30}
 
 # Precheck-only homes

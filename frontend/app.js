@@ -246,18 +246,48 @@ function renderVMs(list) {
       ? '<span class="agent-status-dot ' + (agentOnline ? 'agent-online' : 'agent-offline') + '" title="Agent ' + (agentOnline ? 'online' : 'offline') + '">&#9679;</span>'
       : '';
     var modeBadge = '<span class="exec-mode-badge exec-mode-' + mode + '">' + mode.toUpperCase() + '</span>';
+    // Discovery info
+    var discBadge = '';
+    var discRow = '';
+    if (vm.last_discovery_at) {
+      var discMs = new Date(vm.last_discovery_at).getTime();
+      var discAge = Math.round((Date.now() - discMs) / 60000);
+      var discAgeStr = discAge < 2 ? 'just now' : discAge + 'm ago';
+      discBadge = '<span class="disc-badge" title="Last discovery: ' + discAgeStr + '">' +
+        '<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg> ' +
+        discAgeStr + '</span>';
+    }
+    if (vm.db_unique_name || vm.database_role || vm.old_gi_home || vm.old_db_home) {
+      discRow = '<div class="vm-discovery-row">' +
+        (vm.db_unique_name ? '<span class="disc-tag" title="DB Unique Name">' + esc(vm.db_unique_name) + '</span>' : '') +
+        (vm.database_role ? '<span class="disc-tag disc-role" title="Database Role">' + esc(vm.database_role) + '</span>' : '') +
+        (vm.cluster_name ? '<span class="disc-tag" title="Cluster">' + esc(vm.cluster_name) + '</span>' : '') +
+      '</div>';
+    }
+    // Best staging mount
+    var stagingHint = '';
+    if (vm.preferred_staging_mount) {
+      stagingHint = '<span class="vm-detail-label">Staging</span><span class="vm-detail-value" style="color:var(--accent);font-size:11px">' + esc(vm.preferred_staging_mount) + '</span>';
+    }
     return '<div class="vm-card" data-id="' + vm.id + '">' +
       '<div class="vm-card-header">' +
         '<span class="vm-hostname">' + esc(vm.hostname) + '</span>' +
-        '<div style="display:flex;gap:6px;align-items:center">' + agentBadge + modeBadge + '<span class="vm-env env-' + vm.environment + '">' + vm.environment + '</span></div>' +
+        '<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">' + agentBadge + modeBadge + '<span class="vm-env env-' + vm.environment + '">' + vm.environment + '</span>' + discBadge + '</div>' +
       '</div>' +
+      discRow +
       '<div class="vm-details">' +
         '<span class="vm-detail-label">IP</span><span class="vm-detail-value">' + esc(vm.ip) + '</span>' +
         '<span class="vm-detail-label">Role</span><span class="vm-detail-value">' + (vm.node_role || '\u2014') + '</span>' +
+        '<span class="vm-detail-label">GI Home</span><span class="vm-detail-value" style="font-size:10px;word-break:break-all">' + (vm.old_gi_home || '\u2014') + '</span>' +
+        '<span class="vm-detail-label">DB Home</span><span class="vm-detail-value" style="font-size:10px;word-break:break-all">' + (vm.old_db_home || '\u2014') + '</span>' +
+        stagingHint +
         '<span class="vm-detail-label">Patch</span><span class="vm-detail-value"><span class="patch-badge">' + (vm.patch_target || '19.26') + '</span></span>' +
         '<span class="vm-detail-label">Last Job</span><span class="vm-detail-value">' + (vm.last_status ? statusBadge(vm.last_status) : '\u2014') + '</span>' +
       '</div>' +
       '<div class="vm-card-actions">' +
+        '<button class="btn btn-sm btn-secondary" onclick="openDiscoveryPanel(\'' + vm.id + '\')" title="View discovery inventory">' +
+          '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>' +
+          '</button>' +
         '<button class="btn btn-sm btn-secondary" onclick="deleteVm(\'' + vm.id + '\',\'' + esc(vm.hostname) + '\')" title="Delete VM">' +
           '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>' +
           '</button>' +
@@ -793,6 +823,119 @@ async function bulkImportVms() {
   } catch (e) {
     errEl.textContent = 'Import failed: ' + e.message;
     showToast('Bulk import failed: ' + e.message, 'error');
+  }
+}
+
+// -- VM Discovery Panel --
+async function openDiscoveryPanel(vmId) {
+  var vm = vms.find(function(v) { return v.id === vmId; });
+  if (!vm) return;
+
+  var disc = null;
+  try {
+    var r = await fetch(API + '/vms/' + vmId + '/discovery', { headers: { 'Authorization': 'Bearer ' + TOKEN } });
+    disc = await r.json();
+  } catch(e) { disc = null; }
+
+  var mounts = (disc && disc.mounts) || [];
+  var staticInfo = (disc && disc.static) || {};
+  var oratab = staticInfo.oratab || [];
+  var runningDbs = staticInfo.running_dbs || [];
+
+  var mountRows = mounts.length
+    ? mounts.map(function(m) {
+        var pct = m.free_gb > 500 ? 'disc-mount-good' : m.free_gb > 100 ? 'disc-mount-warn' : 'disc-mount-low';
+        var isBest = disc && disc.preferred_staging_mount && disc.preferred_staging_mount.startsWith(m.mount);
+        return '<tr><td style="font-family:monospace">' + esc(m.mount) + (isBest ? ' <span style="color:var(--accent)">&#9733;</span>' : '') + '</td>' +
+               '<td class="' + pct + '">' + m.free_gb + ' GB free</td></tr>';
+      }).join('')
+    : '<tr><td colspan="2" style="color:var(--text-muted)">No mount data yet — waiting for agent discovery</td></tr>';
+
+  var oratabRows = oratab.length
+    ? oratab.map(function(o) { return '<tr><td>' + esc(o.sid) + '</td><td style="font-family:monospace;font-size:11px">' + esc(o.home) + '</td></tr>'; }).join('')
+    : '<tr><td colspan="2" style="color:var(--text-muted)">No oratab entries</td></tr>';
+
+  var lastSeen = disc && disc.last_discovery_at
+    ? new Date(disc.last_discovery_at).toLocaleString()
+    : 'Never';
+
+  var html = '<div style="padding:16px;min-width:560px;max-width:720px">' +
+    '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">' +
+      '<h3 style="margin:0">' + esc(vm.hostname) + ' — Inventory</h3>' +
+      '<small style="color:var(--text-muted)">Last discovery: ' + lastSeen + '</small>' +
+    '</div>' +
+    '<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">' +
+      '<div><div class="disc-section-title">Oracle Identity</div>' +
+        '<table class="disc-table">' +
+          '<tr><td>DB Unique Name</td><td>' + esc(disc && disc.db_unique_name || '—') + '</td></tr>' +
+          '<tr><td>Database Role</td><td>' + esc(disc && disc.database_role || '—') + '</td></tr>' +
+          '<tr><td>Cluster Name</td><td>' + esc(disc && disc.cluster_name || '—') + '</td></tr>' +
+          '<tr><td>GI Home</td><td style="font-size:10px;word-break:break-all">' + esc(disc && disc.old_gi_home || vm.old_gi_home || '—') + '</td></tr>' +
+          '<tr><td>DB Home</td><td style="font-size:10px;word-break:break-all">' + esc(disc && disc.old_db_home || vm.old_db_home || '—') + '</td></tr>' +
+          '<tr><td>Running DBs</td><td>' + (runningDbs.length ? esc(runningDbs.join(', ')) : '—') + '</td></tr>' +
+        '</table>' +
+      '</div>' +
+      '<div><div class="disc-section-title">Orchestrator Config</div>' +
+        '<table class="disc-table">' +
+          '<tr><td>OLD_GI_HOME</td><td style="font-size:10px;word-break:break-all">' + esc(vm.old_gi_home || '—') + '</td></tr>' +
+          '<tr><td>NEW_GI_HOME</td><td style="font-size:10px;word-break:break-all">' + esc(vm.new_gi_home || '—') + '</td></tr>' +
+          '<tr><td>OLD_DB_HOME</td><td style="font-size:10px;word-break:break-all">' + esc(vm.old_db_home || '—') + '</td></tr>' +
+          '<tr><td>NEW_DB_HOME</td><td style="font-size:10px;word-break:break-all">' + esc(vm.new_db_home || '—') + '</td></tr>' +
+          '<tr><td>Staging Mount</td><td style="color:var(--accent)">' + esc(vm.preferred_staging_mount || '—') + '</td></tr>' +
+        '</table>' +
+      '</div>' +
+    '</div>' +
+    '<div style="margin-bottom:16px"><div class="disc-section-title">Mount Points <small style="color:var(--text-muted)">(&#9733; = recommended staging)</small></div>' +
+      '<table class="disc-table" style="width:100%"><tr><th>Mount</th><th>Free</th></tr>' + mountRows + '</table>' +
+    '</div>' +
+    '<div style="margin-bottom:16px"><div class="disc-section-title">/etc/oratab</div>' +
+      '<table class="disc-table" style="width:100%"><tr><th>SID</th><th>ORACLE_HOME</th></tr>' + oratabRows + '</table>' +
+    '</div>' +
+    '<div style="display:flex;gap:8px;justify-content:flex-end">' +
+      '<button class="btn btn-sm btn-secondary" onclick="closeDiscoveryPanel()">Close</button>' +
+      '<button class="btn btn-sm btn-primary" onclick="openVmConfigOverride(\'' + vmId + '\')">Override Config</button>' +
+    '</div>' +
+  '</div>';
+
+  var overlay = document.createElement('div');
+  overlay.id = 'discoveryOverlay';
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:2000;display:flex;align-items:center;justify-content:center';
+  overlay.innerHTML = '<div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;max-height:90vh;overflow-y:auto">' + html + '</div>';
+  overlay.addEventListener('click', function(e) { if (e.target === overlay) closeDiscoveryPanel(); });
+  document.body.appendChild(overlay);
+}
+
+function closeDiscoveryPanel() {
+  var el = document.getElementById('discoveryOverlay');
+  if (el) el.remove();
+}
+
+async function openVmConfigOverride(vmId) {
+  var vm = vms.find(function(v) { return v.id === vmId; });
+  if (!vm) return;
+  var newGI = prompt('NEW_GI_HOME (target GI home after patching):', vm.new_gi_home || '');
+  if (newGI === null) return;
+  var newDB = prompt('NEW_DB_HOME (target DB home after patching):', vm.new_db_home || '');
+  if (newDB === null) return;
+  var staging = prompt('Preferred staging mount (e.g. /staging/software):', vm.preferred_staging_mount || '');
+  if (staging === null) return;
+
+  try {
+    var r = await fetch(API + '/vms/' + vmId + '/config', {
+      method: 'PATCH',
+      headers: { 'Authorization': 'Bearer ' + TOKEN, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ new_gi_home: newGI, new_db_home: newDB, preferred_staging_mount: staging })
+    });
+    var d = await r.json();
+    if (d.ok) {
+      showToast('VM config updated', 'success');
+      closeDiscoveryPanel();
+      loadVMs();
+    } else {
+      showToast('Update failed: ' + (d.error || 'unknown'), 'error');
+    }
+  } catch(e) {
+    showToast('Update failed: ' + e.message, 'error');
   }
 }
 

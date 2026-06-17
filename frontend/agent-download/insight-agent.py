@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-import os, sys, time, json as json_mod, subprocess, threading, signal
+import os, sys, time, json as json_mod, subprocess, threading, signal, re
 
 try:
     import requests
@@ -11,6 +11,9 @@ except ImportError:
             self._body = r.read().decode()
         def json(self):
             return json_mod.loads(self._body)
+        @property
+        def text(self):
+            return self._body
     class requests:
         @staticmethod
         def get(url, **kw):
@@ -44,6 +47,156 @@ def signal_handler(sig, frame):
 signal.signal(signal.SIGTERM, signal_handler)
 signal.signal(signal.SIGINT, signal_handler)
 
+# ---------------------------------------------------------------------------
+# Discovery — runs on every poll cycle, POSTs system inventory to orchestrator
+# ---------------------------------------------------------------------------
+def _run(cmd, timeout=10):
+    """Run a shell command, return stdout string or '' on error."""
+    try:
+        return subprocess.check_output(cmd, shell=True, text=True,
+                                       stderr=subprocess.DEVNULL, timeout=timeout).strip()
+    except Exception:
+        return ''
+
+def discover():
+    """Collect lightweight system inventory and return a dict."""
+    result = {
+        'hostname': HOSTNAME,
+        'mounts': [],
+        'oratab': [],
+        'grid_home': None,
+        'running_dbs': [],
+        'db_unique_name': None,
+        'database_role': None,
+        'cluster_name': None,
+    }
+
+    # Mount points with free space (GB)
+    df_out = _run("df -BG --output=target,avail 2>/dev/null || df -k")
+    skip_prefixes = ('/', '/boot', '/dev', '/proc', '/sys', '/run', 'tmpfs', 'devtmpfs', 'udev')
+    for line in df_out.splitlines()[1:]:
+        parts = line.split()
+        if len(parts) >= 2:
+            mount = parts[0]
+            free_raw = parts[1].replace('G', '').replace('K', '')
+            if mount.startswith('/') and not any(mount == s or mount.startswith(s + '/') for s in ('/boot', '/dev', '/proc', '/sys', '/run')):
+                try:
+                    free_gb = int(free_raw) if 'G' in parts[1] else max(0, int(free_raw) // (1024 * 1024))
+                    result['mounts'].append({'mount': mount, 'free_gb': free_gb})
+                except ValueError:
+                    pass
+
+    # /etc/oratab — static DB registrations
+    try:
+        with open('/etc/oratab') as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith('#'):
+                    parts = line.split(':')
+                    if len(parts) >= 2:
+                        sid = parts[0].strip()
+                        home = parts[1].strip()
+                        if sid and home and sid not in ('+ASM', 'MGMTDB', '*') and not sid.startswith('+'):
+                            result['oratab'].append({'sid': sid, 'home': home})
+    except Exception:
+        pass
+
+    # Running DB instances from pmon processes
+    pmon_out = _run("ps -eo args 2>/dev/null | grep 'pmon_' | grep -v grep")
+    for line in pmon_out.splitlines():
+        m = re.search(r'pmon_([A-Za-z0-9_]+)', line)
+        if m:
+            sid = m.group(1)
+            if not sid.startswith('+') and sid not in ('MGMTDB',):
+                if sid not in result['running_dbs']:
+                    result['running_dbs'].append(sid)
+
+    # Grid home — detect from running CRS processes
+    crs_out = _run("ps -eo args 2>/dev/null | grep -E 'ocssd\\.bin|crsd\\.bin|cssdagent' | grep -v grep | head -1")
+    if crs_out:
+        m = re.match(r'(/[^\s]+/bin/)', crs_out)
+        if m:
+            result['grid_home'] = m.group(1).rstrip('/').rsplit('/bin', 1)[0]
+
+    # DB unique name + role — query first running DB via sqlplus
+    if result['running_dbs'] and result['oratab']:
+        sid = result['running_dbs'][0]
+        home = next((o['home'] for o in result['oratab'] if o['sid'] == sid), None)
+        if not home and result['oratab']:
+            home = result['oratab'][0]['home']
+        if home and os.path.isfile(home + '/bin/sqlplus'):
+            env = os.environ.copy()
+            env['ORACLE_SID'] = sid
+            env['ORACLE_HOME'] = home
+            env['PATH'] = home + '/bin:' + env.get('PATH', '')
+            sql = (
+                "SET PAGESIZE 0 FEEDBACK OFF VERIFY OFF HEADING OFF\n"
+                "WHENEVER SQLERROR CONTINUE\n"
+                "SELECT 'UNIQUE='||db_unique_name FROM v$database;\n"
+                "SELECT 'ROLE='||database_role FROM v$database;\n"
+                "EXIT\n"
+            )
+            try:
+                out = subprocess.check_output(
+                    [home + '/bin/sqlplus', '-S', '/ as sysdba'],
+                    input=sql, text=True, env=env, timeout=15,
+                    stderr=subprocess.DEVNULL
+                )
+                for line in out.splitlines():
+                    line = line.strip()
+                    if line.startswith('UNIQUE='):
+                        result['db_unique_name'] = line[7:]
+                    elif line.startswith('ROLE='):
+                        result['database_role'] = line[5:]
+            except Exception:
+                pass
+
+    # Cluster name — olsnodes or cemutlo
+    gi = result['grid_home']
+    if gi:
+        cn = _run('%s/bin/olsnodes -c 2>/dev/null | head -1' % gi) or \
+             _run('%s/bin/cemutlo -n 2>/dev/null | head -1' % gi)
+        if cn:
+            result['cluster_name'] = cn
+
+    return result
+
+def post_discovery(payload):
+    try:
+        r = requests.post(
+            API_URL + '/api/agent/discover',
+            json=payload, headers=HEADERS, timeout=10
+        )
+        if r.status_code != 200:
+            print('[agent] Discovery POST error: HTTP %d' % r.status_code)
+    except Exception as e:
+        print('[agent] Discovery POST failed: %s' % e)
+
+# ---------------------------------------------------------------------------
+# Runtime config — fetch per-job conf file and write to /tmp
+# ---------------------------------------------------------------------------
+def fetch_runtime_config(job_id):
+    """Download per-job runtime conf and write to /tmp/oop-runtime-{jobId}.conf"""
+    conf_path = '/tmp/oop-runtime-%s.conf' % job_id
+    try:
+        r = requests.get(
+            API_URL + '/api/agent/' + job_id + '/runtime-config',
+            headers=HEADERS, timeout=10
+        )
+        if r.status_code == 200:
+            with open(conf_path, 'w') as f:
+                f.write(r.text)
+            print('[agent] Runtime config written to %s' % conf_path)
+            return conf_path
+        else:
+            print('[agent] Runtime config fetch error: HTTP %d' % r.status_code)
+    except Exception as e:
+        print('[agent] Runtime config fetch failed: %s' % e)
+    return None
+
+# ---------------------------------------------------------------------------
+# Core agent loop
+# ---------------------------------------------------------------------------
 def poll():
     try:
         r = requests.get(
@@ -88,16 +241,23 @@ def execute_job(job):
     dry_run = job.get('dryRun', False)
     node_role = job.get('nodeRole', '')
 
+    # Fetch per-job runtime config — script will source it
+    conf_path = fetch_runtime_config(job_id)
+
     env = os.environ.copy()
+    env['JOB_ID'] = job_id
     if dry_run:
         env['DRYRUN'] = 'true'
     if node_role:
         env['INSIGHT_NODE_ROLE'] = node_role
+    if conf_path:
+        env['OOP_RUNTIME_CONF'] = conf_path
+    # Also pass env vars directly (backward compat)
     if job.get('env'):
         env.update(job['env'])
 
     cmd = 'bash %s %s' % (script, phase_arg)
-    print('[agent] Executing: %s' % cmd)
+    print('[agent] Executing: %s (conf: %s)' % (cmd, conf_path or 'none'))
 
     try:
         proc = subprocess.Popen(
@@ -140,6 +300,13 @@ def execute_job(job):
         if log_buffer:
             send_logs(job_id, log_buffer)
 
+        # Clean up conf file
+        if conf_path and os.path.exists(conf_path):
+            try:
+                os.remove(conf_path)
+            except Exception:
+                pass
+
         print('[agent] Job %s finished with exit code %d' % (job_id, proc.returncode))
         complete_job(job_id, proc.returncode)
 
@@ -154,8 +321,32 @@ def main():
         print('[agent] ERROR: INSIGHT_AGENT_TOKEN not set')
         sys.exit(1)
 
+    print('[agent] Running initial system discovery...')
+    try:
+        payload = discover()
+        post_discovery(payload)
+        print('[agent] Discovery: gi=%s db_unique=%s role=%s mounts=%d' % (
+            payload.get('grid_home') or 'none',
+            payload.get('db_unique_name') or 'none',
+            payload.get('database_role') or 'none',
+            len(payload.get('mounts', []))
+        ))
+    except Exception as e:
+        print('[agent] Initial discovery error: %s' % e)
+
+    poll_count = 0
     while running:
         job = poll()
+        poll_count += 1
+
+        # Re-run discovery every 12 polls (~60s at 5s interval)
+        if poll_count % 12 == 0:
+            try:
+                payload = discover()
+                post_discovery(payload)
+            except Exception as e:
+                print('[agent] Discovery error: %s' % e)
+
         if job:
             execute_job(job)
         else:

@@ -54,6 +54,41 @@ router.put('/:id', (req, res) => {
     res.json({ updated: true });
 });
 
+// Discovery snapshot for a VM — returns parsed mounts + static inventory
+router.get('/:id/discovery', (req, res) => {
+    const vm = getDB().prepare('SELECT * FROM vms WHERE id = ?').get(req.params.id);
+    if (!vm) return res.status(404).json({ error: 'VM not found' });
+    res.json({
+        id: vm.id,
+        hostname: vm.hostname,
+        last_discovery_at: vm.last_discovery_at || null,
+        db_unique_name: vm.db_unique_name || null,
+        database_role: vm.database_role || null,
+        cluster_name: vm.cluster_name || null,
+        old_gi_home: vm.old_gi_home || null,
+        old_db_home: vm.old_db_home || null,
+        preferred_staging_mount: vm.preferred_staging_mount || null,
+        mounts: vm.mounts_json ? JSON.parse(vm.mounts_json) : [],
+        static: vm.static_json ? JSON.parse(vm.static_json) : {},
+        dynamic: vm.dynamic_json ? JSON.parse(vm.dynamic_json) : {},
+    });
+});
+
+// Allow DBA to manually override discovery-populated fields
+router.patch('/:id/config', (req, res) => {
+    const allowed = ['old_gi_home', 'new_gi_home', 'old_db_home', 'new_db_home',
+                     'db_unique_name', 'preferred_staging_mount', 'cluster_name'];
+    const updates = {};
+    for (const k of allowed) {
+        if (req.body[k] !== undefined) updates[k] = req.body[k];
+    }
+    if (!Object.keys(updates).length) return res.status(400).json({ error: 'Nothing to update' });
+    const cols = Object.keys(updates).map(k => k + ' = ?').join(', ');
+    const vals = [...Object.values(updates), req.params.id];
+    getDB().prepare('UPDATE vms SET ' + cols + ' WHERE id = ?').run(...vals);
+    res.json({ ok: true, updated: Object.keys(updates) });
+});
+
 router.delete('/:id', (req, res) => {
     const result = getDB().prepare('DELETE FROM vms WHERE id = ?').run(req.params.id);
     if (result.changes === 0) return res.status(404).json({ error: 'VM not found' });
