@@ -448,7 +448,6 @@ function openLogViewer(jobId, hostname, operation) {
     '<span>Op: ' + operation + '</span>' +
     '<span id="logJobStatus" class="status-badge status-running">\u25CF Running</span>';
   document.getElementById('logModal').classList.remove('hidden');
-  loadLogs(jobId);
   connectLogWS(jobId);
   startLogPolling(jobId);
 }
