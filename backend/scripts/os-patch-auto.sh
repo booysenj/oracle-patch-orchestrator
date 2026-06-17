@@ -1237,6 +1237,20 @@ log() {
     echo "$msg" >&2
 }
 
+# Stream a spool file's content through log() so it appears in the UI log viewer.
+# The file is still kept and emailed as an attachment — this just makes the same
+# content visible in the orchestrator without SSH access.
+log_file_content() {
+    local file="$1"
+    local label="${2:-$(basename "$file")}"
+    [[ -f "$file" ]] || return 0
+    log "=== ${label} (start) ==="
+    while IFS= read -r _fc_line; do
+        log "  ${_fc_line}"
+    done < "$file"
+    log "=== ${label} (end) ==="
+}
+
 run_cmd() {
     if [[ "$DRYRUN" == true ]]; then
         log "[DRYRUN] $*"
@@ -2579,6 +2593,7 @@ check_gi_cvu_preinstall() {
         if [[ -x "$home/runcluvfy.sh" ]]; then
             run_cmd "\"$home/runcluvfy.sh\" stage -pre crsinst -n $(hostname -s) > \"$cvulog\" 2>&1 || true"
             add_attachment "$cvulog"
+            log_file_content "$cvulog" "GI: CVU precheck CRS"
             if grep -qi "FAILED" "$cvulog" 2>/dev/null; then
                 add_html_row "GI CVU precheck (CRS)" "FAIL" \
                     "runcluvfy.sh stage -pre crsinst reported failures. See $cvulog"
@@ -2594,6 +2609,7 @@ check_gi_cvu_preinstall() {
         if [[ -x "$home/bin/cluvfy" ]]; then
             run_cmd "\"$home/bin/cluvfy\" stage -pre hacfg -verbose > \"$cvulog\" 2>&1 || true"
             add_attachment "$cvulog"
+            log_file_content "$cvulog" "GI: CVU precheck HAS"
             if grep -qi "FAILED" "$cvulog" 2>/dev/null; then
                 add_html_row "GI CVU precheck (HAS)" "FAIL" \
                     "cluvfy stage -pre hacfg reported failures. See $cvulog"
@@ -3561,12 +3577,14 @@ os_precheck_html() {
         cat /etc/os-release 2>&1 || true
     } > "$uname_log"
     add_attachment "$uname_log"
+    log_file_content "$uname_log" "OS: uname + release"
 
     {
         echo "==== RPM kernel packages ===="
         rpm -qa | grep -Ei 'kernel(|-core|-uek)' | sort || true
     } > "$rpm_log"
     add_attachment "$rpm_log"
+    log_file_content "$rpm_log" "OS: kernel RPMs"
 
     if command -v yum >/dev/null 2>&1 || command -v dnf >/dev/null 2>&1; then
         {
@@ -3578,6 +3596,7 @@ os_precheck_html() {
             fi
         } > "$yum_log"
         add_attachment "$yum_log"
+        log_file_content "$yum_log" "OS: pending yum/dnf updates"
         add_html_row "OS precheck - packages" "INFO" "Captured OS/kernel package snapshot. See attachments:<br/>$(basename "$uname_log"), $(basename "$rpm_log"), $(basename "$yum_log")"
     else
         add_html_row "OS precheck - packages" "WARN" "yum/dnf not found; OS package precheck limited to kernel rpm list. See $(basename "$rpm_log")."
@@ -4003,6 +4022,7 @@ gi_precheck() {
                 "crsctl stat res -t (OLD_GI_HOME) output saved to $crs_log"
         fi
         add_attachment "$crs_log"
+        log_file_content "$crs_log" "GI: CRS/HAS resource status"
     else
         add_html_row "CRS/HAS status" "WARN" \
             "crsctl not found in OLD_GI_HOME; cannot report CRS/HAS resources."
@@ -6132,6 +6152,7 @@ EOF
                 > \"$db_prereq_log\" 2>&1 || true"
 
             add_attachment "$db_prereq_log"
+            log_file_content "$db_prereq_log" "DB: runInstaller executePrereqs"
 
             # Attach detailed OUI logs (InstallActions / prereq logs) created after the marker
             attach_latest_oui_logs_since_marker "$oui_marker" "DB executePrereqs" 8
@@ -7683,6 +7704,7 @@ os_repo_snapshot_html() {
     } > "$repo_log"
 
     add_attachment "$repo_log"
+    log_file_content "$repo_log" "OS: repo & kernel snapshot"
     add_html_row "OS precheck - repo & kernel snapshot" "INFO" "Captured OS release, repo list and kernel packages. See $(basename "$repo_log")."
 }
 is_valid_cluster_db_name() {
@@ -7930,6 +7952,7 @@ package_manager_health_check_html() {
         fi
     } > "$pm_log"
     add_attachment "$pm_log"
+    log_file_content "$pm_log" "OS: package manager health"
     if [[ "$warn" == true ]]; then
         add_html_row "Package manager health" "WARN" "Potential package manager lock/activity detected. See $(basename "$pm_log")."
     else
