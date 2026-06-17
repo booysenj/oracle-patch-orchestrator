@@ -51,4 +51,31 @@ function checkDueSchedules(wsBroadcast) {
     return due.length;
 }
 
-module.exports = { fireScheduleAsJob, checkDueSchedules };
+// Auto-fail jobs that have been running or queued longer than the timeout.
+// Queued timeout: 30 min (agent not reachable / never picked up)
+// Running timeout: 120 min (script hung or agent died mid-job)
+function timeoutStaleJobs() {
+    const db = getDB();
+
+    const stuckRunning = db.prepare(`
+        UPDATE jobs SET status = 'failed', exit_code = -1,
+            finished_at = datetime('now')
+        WHERE status = 'running'
+          AND started_at < datetime('now', '-120 minutes')
+    `).run();
+
+    const stuckQueued = db.prepare(`
+        UPDATE jobs SET status = 'failed', exit_code = -1,
+            finished_at = datetime('now')
+        WHERE status = 'queued'
+          AND created_at < datetime('now', '-30 minutes')
+    `).run();
+
+    const total = stuckRunning.changes + stuckQueued.changes;
+    if (total > 0) {
+        console.log(`[SCHEDULER] Timed out ${stuckRunning.changes} running + ${stuckQueued.changes} queued stale job(s)`);
+    }
+    return total;
+}
+
+module.exports = { fireScheduleAsJob, checkDueSchedules, timeoutStaleJobs };

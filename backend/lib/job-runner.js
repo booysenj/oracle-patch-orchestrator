@@ -4,7 +4,8 @@ const sshManager = require('./ssh-manager');
 const EventEmitter = require('events');
 const jobEvents = new EventEmitter();
 jobEvents.setMaxListeners(100);
-// Maps UI operation names to the exact phase args your script expects
+
+// Maps UI operation names to the exact phase args the shell script expects
 const OPERATION_PHASES = {
     gi_precheck: 'gi_precheck', gi_install: 'gi_install', gi_switch: 'gi_switch',
     gi_switch_scheduled: 'gi_switch_scheduled', gi_rollback: 'gi_rollback',
@@ -19,12 +20,13 @@ const OPERATION_PHASES = {
     gi_upgrade_precheck: 'gi_upgrade_precheck', gi_upgrade_install: 'gi_upgrade_install',
     gi_upgrade_upgrade: 'gi_upgrade_upgrade',
     db_upgrade_precheck: 'db_upgrade_precheck', db_upgrade_install: 'db_upgrade_install',
-    db_upgrade_upgrade: 'db_upgrade_upgrade',
+    db_upgrade_upgrade: 'db_upgrade_upgrade', db_upgrade_rollback: 'db_upgrade_rollback',
     setup_patchuser: 'setup_patchuser',
     remote_shutdown_apps_then_db: 'remote_shutdown_apps_then_db',
     batched_startup: 'batched_startup'
 };
-function createJob({ vmId, operation, dryRun = false, createdBy = 'system' }) {
+
+function createJob({ vmId, operation, dryRun = false, createdBy = 'system', dbUniqueName = '' }) {
     const db = getDB();
     const vm = db.prepare('SELECT * FROM vms WHERE id = ?').get(vmId);
     if (!vm) throw new Error(`VM not found: ${vmId}`);
@@ -32,9 +34,21 @@ function createJob({ vmId, operation, dryRun = false, createdBy = 'system' }) {
     const phase = OPERATION_PHASES[operation];
     if (!phase) throw new Error(`Unknown operation: ${operation}`);
     const jobId = uuidv4();
-    db.prepare(`INSERT INTO jobs (id, vm_id, operation, phase, status, dry_run, created_by) VALUES (?, ?, ?, ?, 'pending', ?, ?)`)
-      .run(jobId, vmId, operation, phase, dryRun ? 1 : 0, createdBy);
-    // Build the remote command  same as running ./os-patching-auto-1.sh <phase> on the VM
+
+    // Agent mode: insert as 'queued' — the Python agent polls and picks it up
+    if ((vm.execution_mode || 'agent') === 'agent') {
+        db.prepare(
+            `INSERT INTO jobs (id, vm_id, operation, phase, status, dry_run, created_by, db_unique_name)
+             VALUES (?, ?, ?, ?, 'queued', ?, ?, ?)`
+        ).run(jobId, vmId, operation, phase, dryRun ? 1 : 0, createdBy, dbUniqueName || '');
+        return { jobId, vmId, operation, phase, dryRun, mode: 'agent' };
+    }
+
+    // SSH mode: execute immediately via SSH (legacy / direct-network environments)
+    db.prepare(
+        `INSERT INTO jobs (id, vm_id, operation, phase, status, dry_run, created_by, db_unique_name)
+         VALUES (?, ?, ?, ?, 'pending', ?, ?, ?)`
+    ).run(jobId, vmId, operation, phase, dryRun ? 1 : 0, createdBy, dbUniqueName || '');
     const envVars = [];
     if (dryRun) envVars.push('DRYRUN=true');
     envVars.push(`INSIGHT_NODE_ROLE=${vm.node_role}`);
@@ -63,18 +77,21 @@ function createJob({ vmId, operation, dryRun = false, createdBy = 'system' }) {
         db.prepare(`UPDATE jobs SET status = ?, exit_code = ?, finished_at = datetime('now') WHERE id = ?`).run(status, exitCode, jobId);
         jobEvents.emit(`done:${jobId}`, { status, exitCode });
     });
-    return { jobId, vmId, operation, phase, dryRun };
+    return { jobId, vmId, operation, phase, dryRun, mode: 'ssh' };
 }
+
 function cancelJob(jobId) {
     const db = getDB();
     const job = db.prepare('SELECT * FROM jobs WHERE id = ?').get(jobId);
     if (!job) throw new Error(`Job not found: ${jobId}`);
-    if (job.status !== 'running') throw new Error(`Job is not running (status: ${job.status})`);
-    sshManager.cancel(job.vm_id);
+    if (!['running', 'queued'].includes(job.status)) throw new Error(`Job cannot be cancelled (status: ${job.status})`);
+    if (job.status === 'running') sshManager.cancel(job.vm_id);
     db.prepare(`UPDATE jobs SET status = 'cancelled', finished_at = datetime('now') WHERE id = ?`).run(jobId);
     return { cancelled: true, jobId };
 }
+
 function getJob(jobId) { return getDB().prepare('SELECT * FROM jobs WHERE id = ?').get(jobId); }
+
 function listJobs({ vmId, status, limit = 50 } = {}) {
     let sql = 'SELECT j.*, v.hostname, v.ip FROM jobs j JOIN vms v ON j.vm_id = v.id WHERE 1=1';
     const params = [];
@@ -84,12 +101,14 @@ function listJobs({ vmId, status, limit = 50 } = {}) {
     params.push(limit);
     return getDB().prepare(sql).all(...params);
 }
-function getJobLogs(jobId, { since, limit = 500 } = {}) {
+
+function getJobLogs(jobId, { since, limit = 500, offset = 0 } = {}) {
     let sql = 'SELECT * FROM job_logs WHERE job_id = ?';
     const params = [jobId];
     if (since) { sql += ' AND ts > ?'; params.push(since); }
-    sql += ' ORDER BY id ASC LIMIT ?';
-    params.push(limit);
+    sql += ' ORDER BY id ASC LIMIT ? OFFSET ?';
+    params.push(limit, offset);
     return getDB().prepare(sql).all(...params);
 }
+
 module.exports = { createJob, cancelJob, getJob, listJobs, getJobLogs, jobEvents, OPERATION_PHASES };

@@ -154,6 +154,10 @@
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
             Refresh
           </button>
+          <button class="btn btn-sm btn-danger" onclick="openClearHistoryModal()" style="margin-left:auto">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/></svg>
+            Clear History
+          </button>
         </div>
         <div class="table-wrap">
           <table id="jobsTable" class="data-table">
@@ -171,6 +175,27 @@
             <thead><tr><th>Username</th><th>Role</th><th>Status</th><th>Last Login</th><th>Actions</th></tr></thead>
             <tbody></tbody>
           </table>
+        </div>
+
+        <div class="section-header" style="margin-top:32px"><h2>Orchestrator Settings</h2></div>
+        <div style="max-width:640px">
+          <p style="color:var(--text-dim);font-size:13px;margin-bottom:12px">These values are stored in the database and used as defaults when adding patch versions. Change them here if mount points or the server IP changes.</p>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+            <div class="form-group" style="grid-column:1/-1"><label>Orchestrator URL <span style="font-size:11px;color:var(--text-dim)">(used in agent deploy scripts)</span></label>
+              <input type="text" id="settingOrcUrl" placeholder="http://172.16.36.95:4000" /></div>
+            <div class="form-group"><label>GI Base ZIP Path <span style="font-size:11px;color:var(--text-dim)">(full path on server)</span></label>
+              <input type="text" id="settingGiZip" placeholder="/backup/oracle_install/gi/V982068-01.zip" /></div>
+            <div class="form-group"><label>DB Base ZIP Path</label>
+              <input type="text" id="settingDbZip" placeholder="/backup/oracle_install/db/V982063-01.zip" /></div>
+            <div class="form-group"><label>GI Home Base Directory</label>
+              <input type="text" id="settingGiHomeBase" placeholder="/grid/oracle/product" /></div>
+            <div class="form-group"><label>DB Home Base Directory</label>
+              <input type="text" id="settingDbHomeBase" placeholder="/app/oracle/product" /></div>
+            <div class="form-group" style="grid-column:1/-1"><label>Patches Search Root <span style="font-size:11px;color:var(--text-dim)">(patch version p19.29 appended automatically)</span></label>
+              <input type="text" id="settingPatchesBase" placeholder="/backup/patches" /></div>
+          </div>
+          <button class="btn btn-primary" onclick="saveOrcSettings()">Save Settings</button>
+          <span id="settingsMsg" style="margin-left:12px;font-size:13px;color:var(--success)"></span>
         </div>
 
         <div class="section-header" style="margin-top:32px"><h2>Change My Password</h2></div>
@@ -333,6 +358,40 @@
       </div>
     </div>
 
+    <!-- Clear History Modal -->
+    <div id="clearHistoryModal" class="modal hidden">
+      <div class="modal-content" style="max-width:480px">
+        <div class="modal-header">
+          <h3>Clear Job History</h3>
+          <button class="modal-close" onclick="closeClearHistoryModal()">&#x2715;</button>
+        </div>
+        <div class="modal-body">
+          <div class="form-group">
+            <label>Clear jobs older than</label>
+            <input type="date" id="clearBeforeDate" />
+            <small style="color:var(--text-muted)">Leave blank to clear all matching records</small>
+          </div>
+          <div class="form-group">
+            <label>Statuses to clear</label>
+            <div style="display:flex;gap:16px;margin-top:6px">
+              <label style="display:flex;align-items:center;gap:6px;font-weight:normal"><input type="checkbox" id="clearStatusSuccess" checked /> Success</label>
+              <label style="display:flex;align-items:center;gap:6px;font-weight:normal"><input type="checkbox" id="clearStatusFailed" checked /> Failed</label>
+              <label style="display:flex;align-items:center;gap:6px;font-weight:normal"><input type="checkbox" id="clearStatusCancelled" /> Cancelled</label>
+            </div>
+          </div>
+          <div class="form-group">
+            <label>VMs (leave unselected for all)</label>
+            <div id="clearVmList" style="max-height:160px;overflow-y:auto;border:1px solid var(--border);border-radius:6px;padding:8px;margin-top:6px;display:flex;flex-direction:column;gap:6px"></div>
+          </div>
+          <p id="clearHistoryError" style="color:var(--danger);font-size:13px;margin-top:8px"></p>
+        </div>
+        <div class="modal-footer" style="display:flex;gap:10px;justify-content:flex-end">
+          <button class="btn btn-secondary" onclick="closeClearHistoryModal()">Cancel</button>
+          <button class="btn btn-danger" onclick="confirmClearHistory()">Delete Records</button>
+        </div>
+      </div>
+    </div>
+
     <!-- Add VM Modal -->
     <div id="addVmModal" class="modal hidden">
       <div class="modal-content" style="max-width:560px">
@@ -377,16 +436,28 @@
                   <option value="DR">DR</option>
                 </select></div>
             </div>
-            <div class="form-group"><label for="addVmPatch">Patch Target</label>
-              <select id="addVmPatch" class="patch-select">
-                <option value="19.26">Oracle 19.26 (Jan 2025 RU)</option>
-                <option value="19.27">Oracle 19.27 (Apr 2025 RU)</option>
-                <option value="19.28">Oracle 19.28 (Jul 2025 RU)</option>
-                <option value="19.29">Oracle 19.29 (Oct 2025 RU)</option>
-                <option value="19.30">Oracle 19.30 (Jan 2026 RU)</option>
-                <option value="23ai">Oracle 23ai Upgrade</option>
-                <option value="26ai">Oracle 26ai Upgrade</option>
-              </select>
+            <div class="form-row">
+              <div class="form-group"><label for="addVmPatch">Patch Target</label>
+                <select id="addVmPatch" class="patch-select">
+                  <option value="19.26">Oracle 19.26 (Jan 2025 RU)</option>
+                  <option value="19.27">Oracle 19.27 (Apr 2025 RU)</option>
+                  <option value="19.28">Oracle 19.28 (Jul 2025 RU)</option>
+                  <option value="19.29">Oracle 19.29 (Oct 2025 RU)</option>
+                  <option value="19.30">Oracle 19.30 (Jan 2026 RU)</option>
+                  <option value="23ai">Oracle 23ai Upgrade</option>
+                  <option value="26ai">Oracle 26ai Upgrade</option>
+                </select>
+              </div>
+              <div class="form-group"><label for="addVmExecMode">Execution Mode</label>
+                <select id="addVmExecMode">
+                  <option value="agent" selected>Agent (recommended)</option>
+                  <option value="ssh">SSH (direct)</option>
+                </select>
+              </div>
+              <div class="form-group"><label for="addVmStagePath">Stage Path</label>
+                <input type="text" id="addVmStagePath" placeholder="/app/software/patches" />
+                <small style="color:var(--text-muted)">Where patch ZIPs are staged on this VM (e.g. /app, /grid, /backup)</small>
+              </div>
             </div>
             <button class="btn btn-primary btn-block" onclick="addSingleVm()">Add VM</button>
           </div>
@@ -560,8 +631,10 @@
                     <div class="form-group"><label>Platform</label><input type="text" id="patchPlatform" value="Linux-x86-64"></div>
                     <div class="form-group"><label>Release Date</label><input type="date" id="patchReleaseDate"></div>
                     <div class="form-group" style="grid-column:1/-1;border-top:1px solid var(--border);padding-top:12px;margin-top:4px"><strong style="color:var(--text-dim)">Software Paths</strong></div>
-                    <div class="form-group"><label>GI Base ZIP</label><input type="text" id="patchGiBaseZip" placeholder="/backup/patches/GI_SOFT/V982068-01.zip"></div>
-                    <div class="form-group"><label>DB Base ZIP</label><input type="text" id="patchDbBaseZip" placeholder="/backup/patches/DB_BASE/V982063-01.zip"></div>
+                    <div class="form-group"><label>GI Base ZIP</label><input type="text" id="patchGiBaseZip" placeholder="/backup/oracle_install/gi/V982068-01.zip"></div>
+                    <div class="form-group"><label>DB Base ZIP</label><input type="text" id="patchDbBaseZip" placeholder="/backup/oracle_install/db/V982063-01.zip"></div>
+                    <div class="form-group"><label>New GI Home</label><input type="text" id="patchNewGiHome" placeholder="/grid/oracle/product/19.26"></div>
+                    <div class="form-group"><label>New DB Home</label><input type="text" id="patchNewDbHome" placeholder="/app/oracle/product/19.26"></div>
                     <div class="form-group"><label>Patch Search Root</label><input type="text" id="patchSearchRoot" placeholder="/backup/patches/p19.29"></div>
                     <div class="form-group"><label>RU Dir</label><input type="text" id="patchRuDir" placeholder="auto or /backup/patches/p19.29/36909058"></div>
                     <div class="form-group"><label>OPatch ZIP</label><input type="text" id="patchOpatchZip" placeholder="/backup/patches/p19.29/p6880880.zip"></div>

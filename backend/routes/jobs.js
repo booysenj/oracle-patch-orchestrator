@@ -115,6 +115,50 @@ router.post('/', (req, res) => {
     }
 });
 
+// DELETE /api/jobs/history — purge completed/failed jobs matching filters
+// Body: { before: 'YYYY-MM-DD', vmIds: ['id1',...], statuses: ['success','failed'] }
+router.delete('/history', (req, res) => {
+    const { before, vmIds, statuses } = req.body;
+    const db = require('../lib/db').getDB();
+
+    const allowedStatuses = ['success', 'failed', 'cancelled'];
+    const filterStatuses = (Array.isArray(statuses) && statuses.length)
+        ? statuses.filter(s => allowedStatuses.includes(s))
+        : allowedStatuses;
+
+    if (!filterStatuses.length) return res.status(400).json({ error: 'No valid statuses specified' });
+
+    const placeholders = filterStatuses.map(() => '?').join(',');
+    const params = [...filterStatuses];
+    let where = `status IN (${placeholders})`;
+
+    if (before) {
+        where += ` AND created_at < ?`;
+        params.push(before);
+    }
+
+    if (Array.isArray(vmIds) && vmIds.length) {
+        const vmPlaceholders = vmIds.map(() => '?').join(',');
+        where += ` AND vm_id IN (${vmPlaceholders})`;
+        params.push(...vmIds);
+    }
+
+    const jobIds = db.prepare(`SELECT id FROM jobs WHERE ${where}`).all(...params).map(r => r.id);
+    if (!jobIds.length) return res.json({ deleted: 0 });
+
+    const idPlaceholders = jobIds.map(() => '?').join(',');
+    db.prepare(`DELETE FROM job_logs WHERE job_id IN (${idPlaceholders})`).run(...jobIds);
+    const result = db.prepare(`DELETE FROM jobs WHERE id IN (${idPlaceholders})`).run(...jobIds);
+
+    logAudit({
+        username: req.user?.username || 'admin', action: 'job_history_cleared',
+        details: `Deleted ${result.changes} job(s) — before: ${before || 'any'}, statuses: ${filterStatuses.join(',')}`,
+        ipAddress: req.ip
+    });
+
+    res.json({ deleted: result.changes });
+});
+
 router.post('/:id/cancel', (req, res) => {
     try {
         const result = cancelJob(req.params.id);
