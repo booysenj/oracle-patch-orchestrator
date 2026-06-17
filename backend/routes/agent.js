@@ -62,47 +62,24 @@ router.get('/poll', (req, res) => {
         }
     }
 
-    // Compute SHA256 of the orchestrator script so agent knows when to re-download
-    var fs = require('fs'), path = require('path'), crypto = require('crypto');
+    var crypto = require('crypto'), fs = require('fs'), path = require('path');
     var scriptFile = path.join(__dirname, '..', 'scripts', 'os-patch-auto.sh');
     var scriptHash = null;
     try {
-        var scriptBytes = fs.readFileSync(scriptFile);
-        scriptHash = crypto.createHash('sha256').update(scriptBytes).digest('hex');
-        // Record hash against this job so we know exactly which version ran
-        db.prepare('UPDATE jobs SET script_hash = ? WHERE id = ?').run(scriptHash, job.id);
+        scriptHash = crypto.createHash('sha256').update(fs.readFileSync(scriptFile)).digest('hex');
     } catch(_) {}
 
     res.json({
         jobId: job.id,
         operation: job.operation,
         phase: job.phase,
-        scriptPath: job.script_path,        // legacy fallback if orchestrator unreachable
-        scriptUrl: '/api/agent/script',     // agent should prefer this
-        scriptHash: scriptHash,             // SHA256 — skip download if hash matches cached
+        scriptHash: scriptHash,
         phaseArg: phaseArg,
         dryRun: job.dry_run,
         nodeRole: job.node_role,
         stagePath: vm.stage_path || null,
         env: env
     });
-});
-
-// Script delivery — agent downloads this before each job; no local copy needed on VM
-router.get('/script', (req, res) => {
-    var fs = require('fs');
-    var path = require('path');
-    var scriptPath = path.join(__dirname, '..', 'scripts', 'os-patch-auto.sh');
-    if (!fs.existsSync(scriptPath)) {
-        return res.status(404).json({ error: 'Script not found on orchestrator' });
-    }
-    res.setHeader('Content-Type', 'text/x-shellscript; charset=utf-8');
-    res.setHeader('Content-Disposition', 'inline; filename="os-patch-auto.sh"');
-    var scriptBytes = fs.readFileSync(scriptPath);
-    var hash = require('crypto').createHash('sha256').update(scriptBytes).digest('hex');
-    res.setHeader('X-Script-Hash', hash);
-    res.send(scriptBytes);
-});
 
 // Discovery — agent POSTs system inventory on every poll cycle
 router.post('/discover', (req, res) => {
