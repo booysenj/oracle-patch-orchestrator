@@ -62,17 +62,41 @@ router.get('/poll', (req, res) => {
         }
     }
 
+    // Include script URL so agent downloads the latest from orchestrator
+    var fs = require('fs'), path = require('path');
+    var scriptFile = path.join(__dirname, '..', 'scripts', 'os-patch-auto.sh');
+    var scriptMtime = null;
+    try { scriptMtime = fs.statSync(scriptFile).mtimeMs; } catch(_) {}
+
     res.json({
         jobId: job.id,
         operation: job.operation,
         phase: job.phase,
-        scriptPath: job.script_path,
+        scriptPath: job.script_path,        // legacy fallback if orchestrator unreachable
+        scriptUrl: '/api/agent/script',     // agent should prefer this
+        scriptMtime: scriptMtime,
         phaseArg: phaseArg,
         dryRun: job.dry_run,
         nodeRole: job.node_role,
         stagePath: vm.stage_path || null,
         env: env
     });
+});
+
+// Script delivery — agent downloads this before each job; no local copy needed on VM
+router.get('/script', (req, res) => {
+    var fs = require('fs');
+    var path = require('path');
+    var scriptPath = path.join(__dirname, '..', 'scripts', 'os-patch-auto.sh');
+    if (!fs.existsSync(scriptPath)) {
+        return res.status(404).json({ error: 'Script not found on orchestrator' });
+    }
+    res.setHeader('Content-Type', 'text/x-shellscript; charset=utf-8');
+    res.setHeader('Content-Disposition', 'inline; filename="os-patch-auto.sh"');
+    // Send script version as header so agent can skip download if already current
+    var stat = fs.statSync(scriptPath);
+    res.setHeader('X-Script-Mtime', stat.mtimeMs.toString());
+    res.sendFile(scriptPath);
 });
 
 // Discovery — agent POSTs system inventory on every poll cycle

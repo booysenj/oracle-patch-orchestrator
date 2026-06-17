@@ -1509,8 +1509,11 @@ send_html_report() {
     fi
 
     # Emit full HTML to the log stream so the UI can store and display it
+    # Strip all newlines from b64 — the fallback `base64` (BSD/old GNU) wraps at 76 chars,
+    # which would split the log line and break the [HTML_REPORT] parser on the backend.
     local _b64
     _b64=$(printf '%s' "$html_body" | base64 -w0 2>/dev/null || printf '%s' "$html_body" | base64 2>/dev/null || true)
+    _b64=$(printf '%s' "$_b64" | tr -d '\n\r')
     if [[ -n "$_b64" ]]; then
         log "[HTML_REPORT] ${subject}|${_b64}"
     fi

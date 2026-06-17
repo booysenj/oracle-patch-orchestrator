@@ -38,6 +38,8 @@ HEADERS = {
 }
 
 running = True
+_cached_script_path = None
+_cached_script_mtime = None
 
 def signal_handler(sig, frame):
     global running
@@ -175,6 +177,50 @@ def post_discovery(payload):
 # ---------------------------------------------------------------------------
 # Runtime config — fetch per-job conf file and write to /tmp
 # ---------------------------------------------------------------------------
+def fetch_script(script_url, script_mtime, legacy_path):
+    """
+    Download the orchestration script from the orchestrator.
+    Returns the local path to execute. Falls back to legacy_path if download fails.
+    Caches by mtime — only re-downloads when the script changes on the orchestrator.
+    """
+    global _cached_script_path, _cached_script_mtime
+
+    # If orchestrator hasn't provided a URL, fall back to local copy
+    if not script_url:
+        return legacy_path or '/home/oracle/os-patch-auto.sh'
+
+    script_dest = '/tmp/oop-script.sh'
+
+    # Skip re-download if mtime matches cached version
+    if script_mtime and _cached_script_mtime == script_mtime and _cached_script_path and os.path.exists(_cached_script_path):
+        print('[agent] Script unchanged (mtime=%s), using cached %s' % (script_mtime, _cached_script_path))
+        return _cached_script_path
+
+    full_url = API_URL + script_url
+    print('[agent] Downloading script from %s' % full_url)
+    try:
+        r = requests.get(full_url, headers=HEADERS, timeout=30)
+        if r.status_code == 200:
+            content = r.text if hasattr(r, 'text') else r._body
+            with open(script_dest, 'w') as f:
+                f.write(content)
+            os.chmod(script_dest, 0o755)
+            _cached_script_path = script_dest
+            _cached_script_mtime = script_mtime
+            print('[agent] Script downloaded to %s (%d bytes)' % (script_dest, len(content)))
+            return script_dest
+        else:
+            print('[agent] Script download failed: HTTP %d — falling back to %s' % (r.status_code, legacy_path or 'none'))
+    except Exception as e:
+        print('[agent] Script download error: %s — falling back to %s' % (e, legacy_path or 'none'))
+
+    # Fallback: use previously cached version if available
+    if _cached_script_path and os.path.exists(_cached_script_path):
+        print('[agent] Using previously cached script: %s' % _cached_script_path)
+        return _cached_script_path
+
+    return legacy_path or '/home/oracle/os-patch-auto.sh'
+
 def fetch_runtime_config(job_id):
     """Download per-job runtime conf and write to /tmp/oop-runtime-{jobId}.conf"""
     conf_path = '/tmp/oop-runtime-%s.conf' % job_id
@@ -236,10 +282,16 @@ def complete_job(job_id, exit_code):
 
 def execute_job(job):
     job_id = job['jobId']
-    script = job['scriptPath']
     phase_arg = job['phaseArg']
     dry_run = job.get('dryRun', False)
     node_role = job.get('nodeRole', '')
+
+    # Download script from orchestrator (or use cached if unchanged)
+    script = fetch_script(
+        job.get('scriptUrl'),
+        job.get('scriptMtime'),
+        job.get('scriptPath')  # legacy fallback
+    )
 
     # Fetch per-job runtime config — script will source it
     conf_path = fetch_runtime_config(job_id)
