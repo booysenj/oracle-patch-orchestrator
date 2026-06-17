@@ -62,11 +62,16 @@ router.get('/poll', (req, res) => {
         }
     }
 
-    // Include script URL so agent downloads the latest from orchestrator
-    var fs = require('fs'), path = require('path');
+    // Compute SHA256 of the orchestrator script so agent knows when to re-download
+    var fs = require('fs'), path = require('path'), crypto = require('crypto');
     var scriptFile = path.join(__dirname, '..', 'scripts', 'os-patch-auto.sh');
-    var scriptMtime = null;
-    try { scriptMtime = fs.statSync(scriptFile).mtimeMs; } catch(_) {}
+    var scriptHash = null;
+    try {
+        var scriptBytes = fs.readFileSync(scriptFile);
+        scriptHash = crypto.createHash('sha256').update(scriptBytes).digest('hex');
+        // Record hash against this job so we know exactly which version ran
+        db.prepare('UPDATE jobs SET script_hash = ? WHERE id = ?').run(scriptHash, job.id);
+    } catch(_) {}
 
     res.json({
         jobId: job.id,
@@ -74,7 +79,7 @@ router.get('/poll', (req, res) => {
         phase: job.phase,
         scriptPath: job.script_path,        // legacy fallback if orchestrator unreachable
         scriptUrl: '/api/agent/script',     // agent should prefer this
-        scriptMtime: scriptMtime,
+        scriptHash: scriptHash,             // SHA256 — skip download if hash matches cached
         phaseArg: phaseArg,
         dryRun: job.dry_run,
         nodeRole: job.node_role,
@@ -93,10 +98,10 @@ router.get('/script', (req, res) => {
     }
     res.setHeader('Content-Type', 'text/x-shellscript; charset=utf-8');
     res.setHeader('Content-Disposition', 'inline; filename="os-patch-auto.sh"');
-    // Send script version as header so agent can skip download if already current
-    var stat = fs.statSync(scriptPath);
-    res.setHeader('X-Script-Mtime', stat.mtimeMs.toString());
-    res.sendFile(scriptPath);
+    var scriptBytes = fs.readFileSync(scriptPath);
+    var hash = require('crypto').createHash('sha256').update(scriptBytes).digest('hex');
+    res.setHeader('X-Script-Hash', hash);
+    res.send(scriptBytes);
 });
 
 // Discovery — agent POSTs system inventory on every poll cycle

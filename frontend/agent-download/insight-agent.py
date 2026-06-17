@@ -39,7 +39,7 @@ HEADERS = {
 
 running = True
 _cached_script_path = None
-_cached_script_mtime = None
+_cached_script_hash = None
 
 def signal_handler(sig, frame):
     global running
@@ -175,51 +175,76 @@ def post_discovery(payload):
         print('[agent] Discovery POST failed: %s' % e)
 
 # ---------------------------------------------------------------------------
-# Runtime config — fetch per-job conf file and write to /tmp
+# Script delivery and runtime config
 # ---------------------------------------------------------------------------
-def fetch_script(script_url, script_mtime, legacy_path):
+def sha256_file(path):
+    """Return hex SHA256 of a local file, or None if unreadable."""
+    try:
+        import hashlib
+        h = hashlib.sha256()
+        with open(path, 'rb') as f:
+            for chunk in iter(lambda: f.read(65536), b''):
+                h.update(chunk)
+        return h.hexdigest()
+    except Exception:
+        return None
+
+def fetch_script(script_url, script_hash, legacy_path):
     """
     Download the orchestration script from the orchestrator.
-    Returns the local path to execute. Falls back to legacy_path if download fails.
-    Caches by mtime — only re-downloads when the script changes on the orchestrator.
+    Cache key is SHA256 — only re-downloads when content actually changes.
+    Falls back to cached copy on disk, then to legacy_path on the VM.
     """
-    global _cached_script_path, _cached_script_mtime
+    global _cached_script_path, _cached_script_hash
 
-    # If orchestrator hasn't provided a URL, fall back to local copy
     if not script_url:
+        print('[agent] No scriptUrl — using legacy: %s' % (legacy_path or 'none'))
         return legacy_path or '/home/oracle/os-patch-auto.sh'
 
     script_dest = '/tmp/oop-script.sh'
 
-    # Skip re-download if mtime matches cached version
-    if script_mtime and _cached_script_mtime == script_mtime and _cached_script_path and os.path.exists(_cached_script_path):
-        print('[agent] Script unchanged (mtime=%s), using cached %s' % (script_mtime, _cached_script_path))
-        return _cached_script_path
+    # Skip download if orchestrator hash matches cached hash AND file is still on disk
+    if (script_hash and _cached_script_hash == script_hash
+            and _cached_script_path and os.path.exists(_cached_script_path)):
+        local_hash = sha256_file(_cached_script_path)
+        if local_hash == script_hash:
+            print('[agent] Script hash unchanged (%s...) — using cached' % script_hash[:16])
+            return _cached_script_path
+        print('[agent] Hash mismatch on disk — re-downloading')
 
     full_url = API_URL + script_url
-    print('[agent] Downloading script from %s' % full_url)
+    print('[agent] Downloading script from orchestrator (expected SHA256: %s...)' % (script_hash or 'unknown')[:16])
     try:
-        r = requests.get(full_url, headers=HEADERS, timeout=30)
+        r = requests.get(full_url, headers=HEADERS, timeout=60)
         if r.status_code == 200:
             content = r.text if hasattr(r, 'text') else r._body
             with open(script_dest, 'w') as f:
                 f.write(content)
             os.chmod(script_dest, 0o755)
+            actual_hash = sha256_file(script_dest)
+            if script_hash and actual_hash and actual_hash != script_hash:
+                print('[agent] WARNING: script hash mismatch — got %s expected %s' % (
+                    actual_hash[:16], script_hash[:16]))
             _cached_script_path = script_dest
-            _cached_script_mtime = script_mtime
-            print('[agent] Script downloaded to %s (%d bytes)' % (script_dest, len(content)))
+            _cached_script_hash = actual_hash or script_hash
+            print('[agent] Script ready: %s  SHA256=%s  size=%d' % (
+                script_dest, (_cached_script_hash or '?')[:16], len(content)))
             return script_dest
         else:
-            print('[agent] Script download failed: HTTP %d — falling back to %s' % (r.status_code, legacy_path or 'none'))
+            print('[agent] Script download HTTP %d' % r.status_code)
     except Exception as e:
-        print('[agent] Script download error: %s — falling back to %s' % (e, legacy_path or 'none'))
+        print('[agent] Script download error: %s' % e)
 
-    # Fallback: use previously cached version if available
+    # Fallback hierarchy
     if _cached_script_path and os.path.exists(_cached_script_path):
-        print('[agent] Using previously cached script: %s' % _cached_script_path)
+        print('[agent] Using cached script (hash %s): %s' % ((_cached_script_hash or '?')[:12], _cached_script_path))
         return _cached_script_path
+    if legacy_path and os.path.exists(legacy_path):
+        print('[agent] Falling back to VM local script: %s' % legacy_path)
+        return legacy_path
 
-    return legacy_path or '/home/oracle/os-patch-auto.sh'
+    print('[agent] ERROR: no script available')
+    return None
 
 def fetch_runtime_config(job_id):
     """Download per-job runtime conf and write to /tmp/oop-runtime-{jobId}.conf"""
@@ -286,12 +311,16 @@ def execute_job(job):
     dry_run = job.get('dryRun', False)
     node_role = job.get('nodeRole', '')
 
-    # Download script from orchestrator (or use cached if unchanged)
+    # Download script from orchestrator (or use cached if SHA256 unchanged)
     script = fetch_script(
         job.get('scriptUrl'),
-        job.get('scriptMtime'),
+        job.get('scriptHash'),
         job.get('scriptPath')  # legacy fallback
     )
+    if not script:
+        send_logs(job_id, [{'stream': 'stderr', 'line': 'ERROR: no script available — cannot execute job'}])
+        complete_job(job_id, 1)
+        return
 
     # Fetch per-job runtime config — script will source it
     conf_path = fetch_runtime_config(job_id)

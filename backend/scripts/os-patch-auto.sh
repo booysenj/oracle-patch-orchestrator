@@ -7702,7 +7702,18 @@ cluster_get_db_home_for_sid() {
     local sid="$1"
     local home=""
     home=$(get_home_from_pmon_sid "$sid")
+    if [[ -z "$home" ]]; then
+        log "DEBUG: get_home_from_pmon_sid('$sid') returned empty — trying /proc/pid/exe path"
+        local pids
+        pids=$(pgrep -f "pmon_${sid}" 2>/dev/null || true)
+        if [[ -z "$pids" ]]; then
+            log "DEBUG: pgrep found no processes matching pmon_${sid}"
+        else
+            log "DEBUG: pgrep found pids: $(echo "$pids" | tr '\n' ' ')"
+        fi
+    fi
     if [[ -z "$home" && -n "${OLD_DB_HOME:-}" && -d "${OLD_DB_HOME}" ]]; then
+        log "DEBUG: falling back to OLD_DB_HOME='$OLD_DB_HOME' for sid=$sid"
         home="$OLD_DB_HOME"
     fi
     printf '%s' "$home"
@@ -7728,23 +7739,68 @@ discover_databases_for_cluster() {
     DB_NAME_TO_SID_MAP=""
 
     local sids sid home db_name raw already existing existing2
+
+    # ---- Step 1: inventory the environment ----
+    log "DEBUG: discover_databases_for_cluster: starting discovery on host $(hostname)"
+    log "DEBUG: ORACLE_USER=${ORACLE_USER:-<unset>}  OLD_DB_HOME=${OLD_DB_HOME:-<unset>}"
+
+    # Log /etc/oratab contents so we can see what the script sees
+    if [[ -f "${ORATAB_FILE:-/etc/oratab}" ]]; then
+        log "DEBUG: ${ORATAB_FILE:-/etc/oratab} contents (non-comment lines):"
+        grep -v '^[[:space:]]*#' "${ORATAB_FILE:-/etc/oratab}" | grep -v '^[[:space:]]*$' | while IFS= read -r oratab_line; do
+            log "DEBUG:   oratab: $oratab_line"
+        done || log "DEBUG:   (no active entries in oratab)"
+    else
+        log "DEBUG: ${ORATAB_FILE:-/etc/oratab} NOT FOUND"
+    fi
+
+    # Log all pmon processes visible to this user
+    local raw_pmons
+    raw_pmons=$(ps -eo args 2>/dev/null | grep -E 'pmon_' | grep -v grep || true)
+    if [[ -n "$raw_pmons" ]]; then
+        log "DEBUG: PMON processes found:"
+        echo "$raw_pmons" | while IFS= read -r pline; do
+            log "DEBUG:   $pline"
+        done
+    else
+        log "DEBUG: No PMON processes visible to current user ($(id -un))"
+        log "DEBUG: This is the most common cause of empty DB_UNIQUES"
+        log "DEBUG: Check: ps -eo args | grep pmon_ — if processes exist but are invisible,"
+        log "DEBUG: the agent may need to run as oracle or oracle sudo access must be granted"
+    fi
+
+    # ---- Step 2: PMON-based discovery ----
     sids=$(cluster_local_pmon_sids)
+    log "DEBUG: cluster_local_pmon_sids returned: '$(echo "$sids" | tr '\n' ' ' | sed "s/ *$//")'"
 
     if [[ -n "$sids" ]]; then
         while IFS= read -r sid; do
-            [[ -z "$sid" || "$sid" == +ASM* ]] && continue
+            [[ -z "$sid" ]] && continue
+            if [[ "$sid" == +ASM* || "$sid" == "MGMTDB" ]]; then
+                log "DEBUG: skipping non-DB SID: $sid"
+                continue
+            fi
 
             home=$(cluster_get_db_home_for_sid "$sid")
-            [[ -z "$home" || ! -d "$home" ]] && continue
+            if [[ -z "$home" ]]; then
+                log "DEBUG: SID=$sid — could not determine ORACLE_HOME, skipping"
+                continue
+            fi
+            if [[ ! -d "$home" ]]; then
+                log "DEBUG: SID=$sid — home='$home' does not exist on disk, skipping"
+                continue
+            fi
+            log "DEBUG: SID=$sid — ORACLE_HOME=$home"
 
             db_name=""
             if [[ -x "$home/bin/sqlplus" ]]; then
+                log "DEBUG: SID=$sid — querying v\$database via sqlplus"
                 raw=$(
                     sudo -u "$ORACLE_USER" bash -c "
-                        ORACLE_HOME="$home"
-                        ORACLE_SID="$sid"
-                        PATH="$home/bin:\$PATH"
-                        "$home/bin/sqlplus" -s / as sysdba 2>&1 <<'EOF'
+                        ORACLE_HOME=\"$home\"
+                        ORACLE_SID=\"$sid\"
+                        PATH=\"$home/bin:\$PATH\"
+                        \"$home/bin/sqlplus\" -s / as sysdba 2>&1 <<'EOF'
 set heading off feedback off pages 0 verify off echo off termout off
 whenever sqlerror exit 1
 select name from v\$database;
@@ -7753,17 +7809,20 @@ EOF
                     "
                 ) || true
 
-                db_name=$(printf '%s
-' "$raw" | tr -d '
-' | sed '/^[[:space:]]*$/d' | grep -Ev '^(SQL\*Plus|Copyright|(Connected to)|(Disconnected from)|ERROR:|ORA-|SP2-|SP-)[[:space:]]' | sed -n '1p' | xargs)
+                db_name=$(printf '%s\n' "$raw" | tr -d '\r' | sed '/^[[:space:]]*$/d' | grep -Ev '^(SQL\*Plus|Copyright|(Connected to)|(Disconnected from)|ERROR:|ORA-|SP2-|SP-)[[:space:]]' | sed -n '1p' | xargs)
+                log "DEBUG: SID=$sid — sqlplus returned db_name='$db_name'  (raw: $(printf '%s' "$raw" | head -3 | tr '\n' '|'))"
+            else
+                log "DEBUG: SID=$sid — sqlplus not found at $home/bin/sqlplus, deriving name from SID"
             fi
 
             if ! is_valid_cluster_db_name "$db_name"; then
+                log "DEBUG: SID=$sid — db_name='$db_name' failed validation, deriving from SID"
                 if [[ "$sid" =~ ^(.+)_([0-9]+)$ ]]; then
                     db_name="${BASH_REMATCH[1]}"
                 else
                     db_name="$sid"
                 fi
+                log "DEBUG: SID=$sid — derived db_name='$db_name'"
             fi
 
             if ! is_valid_cluster_db_name "$db_name"; then
@@ -7773,13 +7832,11 @@ EOF
 
             already=false
             for existing in "${DB_UNIQUES[@]}"; do
-                if [[ "$existing" == "$db_name" ]]; then
-                    already=true
-                    break
-                fi
+                [[ "$existing" == "$db_name" ]] && already=true && break
             done
             if [[ "$already" != true ]]; then
                 DB_UNIQUES+=( "$db_name" )
+                log "DEBUG: added '$db_name' to DB_UNIQUES"
             fi
 
             _add_sid_mapping_cluster "$sid"
@@ -7787,20 +7844,42 @@ EOF
         done <<< "$sids"
     fi
 
-    if [[ ${#DB_UNIQUES[@]} -eq 0 && -n "$SRVCTL_BIN" ]]; then
+    # ---- Step 3: oratab fallback — if PMON gave nothing, trust oratab ----
+    if [[ ${#DB_UNIQUES[@]} -eq 0 ]]; then
+        log "DEBUG: PMON discovery found nothing — trying /etc/oratab fallback"
+        if [[ -f "${ORATAB_FILE:-/etc/oratab}" ]]; then
+            while IFS=: read -r ot_sid ot_home _rest; do
+                [[ "$ot_sid" =~ ^[[:space:]]*# ]] && continue
+                [[ -z "$ot_sid" || -z "$ot_home" ]] && continue
+                ot_sid=$(printf '%s' "$ot_sid" | xargs)
+                ot_home=$(printf '%s' "$ot_home" | xargs)
+                [[ "$ot_sid" == "*" || "$ot_sid" == "+ASM"* || "$ot_sid" == "MGMTDB" ]] && continue
+                is_valid_cluster_db_name "$ot_sid" || continue
+                if [[ -d "$ot_home" ]]; then
+                    log "DEBUG: oratab fallback: adding SID=$ot_sid HOME=$ot_home"
+                    DB_UNIQUES+=( "$ot_sid" )
+                    DB_NAME_TO_SID_MAP+="${DB_NAME_TO_SID_MAP:+ }${ot_sid}=${ot_sid}"
+                else
+                    log "DEBUG: oratab fallback: SID=$ot_sid home '$ot_home' not on disk, skipping"
+                fi
+            done < "${ORATAB_FILE:-/etc/oratab}"
+        fi
+    fi
+
+    # ---- Step 4: srvctl fallback ----
+    if [[ ${#DB_UNIQUES[@]} -eq 0 && -n "${SRVCTL_BIN:-}" ]]; then
+        log "DEBUG: trying srvctl fallback via $SRVCTL_BIN"
         local gi_home_for_srvctl srvctl_out db
         gi_home_for_srvctl="$(cd "$(dirname "$SRVCTL_BIN")/.." && pwd 2>/dev/null || echo "")"
         if [[ -n "$gi_home_for_srvctl" && -d "$gi_home_for_srvctl" ]]; then
             srvctl_out=$(ORACLE_HOME="$gi_home_for_srvctl" "$SRVCTL_BIN" config database 2>&1 || true)
+            log "DEBUG: srvctl config database output: $(printf '%s' "$srvctl_out" | head -5 | tr '\n' '|')"
             while IFS= read -r db; do
                 db=$(echo "$db" | xargs)
                 is_valid_cluster_db_name "$db" || continue
                 already=false
                 for existing2 in "${DB_UNIQUES[@]}"; do
-                    if [[ "$existing2" == "$db" ]]; then
-                        already=true
-                        break
-                    fi
+                    [[ "$existing2" == "$db" ]] && already=true && break
                 done
                 [[ "$already" == true ]] && continue
                 DB_UNIQUES+=( "$db" )
@@ -7809,7 +7888,11 @@ EOF
         fi
     fi
 
-    log "INFO: discover_databases_for_cluster: final DB_UNIQUES=(${DB_UNIQUES[*]})"
+    log "INFO: discover_databases_for_cluster: final DB_UNIQUES=(${DB_UNIQUES[*]:-<empty>})"
+    if [[ ${#DB_UNIQUES[@]} -eq 0 ]]; then
+        log "WARN: No databases discovered. Checked: PMON processes, /etc/oratab, srvctl config database."
+        log "WARN: If a database is running, verify the agent runs as root or oracle, and /etc/oratab is populated."
+    fi
 }
 
 package_manager_health_check_html() {
