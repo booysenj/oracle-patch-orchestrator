@@ -555,7 +555,7 @@ function appendLogLine(log) {
     return;
   }
   // Classify line
-  var isTrace = /^\s*\++/.test(line);
+  var isTrace = /^\s*\++ /.test(line);
   var filter = isTrace ? 'trace' :
                line.indexOf('[AutoUpgrade]') >= 0 ? 'autoupg' :
                log.stream === 'stderr' ? 'stderr' :
