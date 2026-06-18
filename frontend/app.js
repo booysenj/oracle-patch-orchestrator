@@ -1494,6 +1494,8 @@ function renderTransfers() {
         else if (fileTypeLabel === 'gi_base') fileTypeBadge = '<span class="patch-type-badge ptype-gi_base">GI Base</span>';
         else if (fileTypeLabel === 'db_base') fileTypeBadge = '<span class="patch-type-badge ptype-db_base">DB Base</span>';
         else if (srcFile)                     fileTypeBadge = '<span class="patch-type-badge ptype-ru">RU</span>';
+        var dateStr = t.completed_at || t.started_at || t.created_at || '';
+        var dateFmt = dateStr ? formatDate(dateStr) : '\u2014';
         return '<tr>' +
             '<td><span class="mono">' + esc(t.patch_version || '\u2014') + '</span> ' +
                 '<span class="patch-type-badge ptype-' + (t.patch_type || 'ru').toLowerCase() + '">' + esc(t.patch_type || '') + '</span></td>' +
@@ -1504,6 +1506,7 @@ function renderTransfers() {
             '<td><span class="mono" title="' + esc(t.source_path || '') + ' \u2192 ' + esc(t.target_stage_path || '') + '">' +
                 esc(t.target_stage_path || '\u2014') + '</span></td>' +
             '<td>' + esc(t.transfer_method || 'SCP') + '</td>' +
+            '<td style="font-size:11px;color:var(--text-muted)">' + dateFmt + '</td>' +
             '<td class="action-btns">' +
                 (t.status === 'FAILED' ? '<button class="btn btn-xs btn-secondary" onclick="retryTransfer(\'' + t.id + '\')">Retry</button> ' : '') +
                 '<button class="btn btn-xs btn-danger" onclick="cancelTransfer(\'' + t.id + '\')" title="Cancel">\u2716</button>' +
@@ -1531,7 +1534,6 @@ async function cancelTransfer(id) {
 async function openCreateTransferModal() {
     document.getElementById("createTransferModal").classList.remove("hidden");
     document.getElementById("createTransferError").textContent = "";
-    document.getElementById("transferStagePath").value = "/grid/stage/patches";
     document.getElementById("transferMethod").value = "API";
 
     // Populate patch version dropdown from API
@@ -1552,19 +1554,29 @@ async function openCreateTransferModal() {
         sel.innerHTML = "<option value=\"\">Failed to load patches</option>";
     }
 
-    // Populate target host dropdown from loaded VMs
-    var hostSel = document.getElementById("transferTargetHost");
-    hostSel.innerHTML = "<option value=\"\">-- Select Target VM --</option>";
+    // Populate multi-VM checklist with per-VM staging path
+    var vmListEl = document.getElementById("transferVmList");
+    vmListEl.innerHTML = '<div class="loading" style="padding:8px">Loading VMs...</div>';
     var vmList = typeof vms !== "undefined" ? vms : [];
     if (!vmList.length) {
         try { vmList = await api("/vms"); } catch(e) { vmList = []; }
     }
-    vmList.forEach(function(vm) {
-        var opt = document.createElement("option");
-        opt.value = vm.hostname;
-        opt.textContent = vm.hostname + " (" + vm.ip + ") \u2014 " + (vm.environment || "dev");
-        hostSel.appendChild(opt);
-    });
+    vmListEl.innerHTML = vmList.map(function(vm) {
+        var stagingDefault = vm.preferred_staging_mount ? (vm.preferred_staging_mount + '/patches') : '/grid/stage/patches';
+        return '<div class="xfer-vm-row" style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:0.5px solid var(--color-border-tertiary)">' +
+            '<input type="checkbox" id="xvm_' + vm.hostname + '" value="' + esc(vm.hostname) + '" style="width:16px;height:16px;flex-shrink:0" onchange="toggleXferVmRow(this)">' +
+            '<label for="xvm_' + vm.hostname + '" style="flex:1;font-size:13px;cursor:pointer">' +
+                '<span style="font-weight:500">' + esc(vm.hostname) + '</span>' +
+                '<span style="color:var(--color-text-secondary);font-size:11px;margin-left:6px">' + esc(vm.ip || '') + ' \u00b7 ' + esc(vm.environment || '') + '</span>' +
+            '</label>' +
+            '<input type="text" id="xpath_' + vm.hostname + '" placeholder="Stage path" value="' + esc(stagingDefault) + '" ' +
+                'style="width:200px;font-size:12px;opacity:0.4;pointer-events:none" disabled>' +
+        '</div>';
+    }).join('');
+}
+function toggleXferVmRow(cb) {
+    var pathEl = document.getElementById('xpath_' + cb.value);
+    if (pathEl) { pathEl.disabled = !cb.checked; pathEl.style.opacity = cb.checked ? '1' : '0.4'; pathEl.style.pointerEvents = cb.checked ? '' : 'none'; }
 }
 function closeCreateTransferModal() {
     document.getElementById('createTransferModal').classList.add('hidden');
@@ -1574,53 +1586,48 @@ async function createTransfer() {
     var errEl = document.getElementById('createTransferError');
     errEl.textContent = '';
     var patchId = document.getElementById('transferPatchSelect').value;
-    var targetHost = document.getElementById('transferTargetHost').value.trim();
     var fileTypeEl = document.getElementById('transferFileType');
     var fileType = fileTypeEl ? fileTypeEl.value : 'ru_patch';
-    if (!patchId || !targetHost) { errEl.textContent = 'Patch and target host are required'; return; }
 
-    if (fileType === 'all') {
-        var patch = (typeof patchCatalog !== 'undefined' ? patchCatalog : []).find(function(p) { return p.id === patchId; });
-        var types = [];
-        if (patch && patch.patch_search_root) types.push('ru_patch');
-        if (patch && patch.opatch_zip) types.push('opatch');
-        if (patch && patch.gi_base_zip) types.push('gi_base');
-        if (patch && patch.db_base_zip) types.push('db_base');
-        if (!types.length) { errEl.textContent = 'No files available for this patch version'; return; }
-        try {
-            for (var i = 0; i < types.length; i++) {
+    // Collect checked VMs with their individual stage paths
+    var selectedVms = [];
+    document.querySelectorAll('#transferVmList input[type=checkbox]:checked').forEach(function(cb) {
+        var pathEl = document.getElementById('xpath_' + cb.value);
+        selectedVms.push({ hostname: cb.value, stagePath: (pathEl && pathEl.value.trim()) || '/grid/stage/patches' });
+    });
+
+    if (!patchId) { errEl.textContent = 'Select a patch version'; return; }
+    if (!selectedVms.length) { errEl.textContent = 'Select at least one target VM'; return; }
+
+    var patch = (typeof patchCatalog !== 'undefined' ? patchCatalog : []).find(function(p) { return p.id === patchId; });
+    var types = fileType === 'all'
+        ? [patch && patch.patch_search_root && 'ru_patch', patch && patch.opatch_zip && 'opatch',
+           patch && patch.gi_base_zip && 'gi_base', patch && patch.db_base_zip && 'db_base'].filter(Boolean)
+        : [fileType];
+    if (!types.length) { errEl.textContent = 'No files available for this patch version'; return; }
+
+    var method = document.getElementById('transferMethod').value;
+    var created = 0;
+    try {
+        for (var vi = 0; vi < selectedVms.length; vi++) {
+            for (var ti = 0; ti < types.length; ti++) {
                 await api('/patches/transfers', {
                     method: 'POST',
                     body: JSON.stringify({
                         patch_id: patchId,
-                        target_host: targetHost,
-                        target_stage_path: document.getElementById('transferStagePath').value.trim() || '/grid/stage/patches',
-                        transfer_method: document.getElementById('transferMethod').value,
-                        file_type: types[i]
+                        target_host: selectedVms[vi].hostname,
+                        target_stage_path: selectedVms[vi].stagePath,
+                        transfer_method: method,
+                        file_type: types[ti]
                     })
                 });
+                created++;
             }
-            showToast(types.length + ' transfers created', 'success');
-            closeCreateTransferModal();
-            loadTransfers();
-        } catch (e) { errEl.textContent = 'Failed: ' + e.message; }
-    } else {
-        try {
-            await api('/patches/transfers', {
-                method: 'POST',
-                body: JSON.stringify({
-                    patch_id: patchId,
-                    target_host: targetHost,
-                    target_stage_path: document.getElementById('transferStagePath').value.trim() || '/grid/stage/patches',
-                    transfer_method: document.getElementById('transferMethod').value,
-                    file_type: fileType
-                })
-            });
-            showToast('Transfer created', 'success');
-            closeCreateTransferModal();
-            loadTransfers();
-        } catch (e) { errEl.textContent = 'Failed: ' + e.message; }
-    }
+        }
+        showToast(created + ' transfer' + (created !== 1 ? 's' : '') + ' created for ' + selectedVms.length + ' VM' + (selectedVms.length !== 1 ? 's' : ''), 'success');
+        closeCreateTransferModal();
+        loadTransfers();
+    } catch (e) { errEl.textContent = 'Failed: ' + e.message; }
 }
 
 function switchPatchSubTab(tab) {
@@ -2118,12 +2125,10 @@ function updateTransferSourceInfo() {
 // Store patch catalog for lookup
 var patchCatalog = [];
 
-// Override openCreateTransferModal to store patches
-var _origOpenTransferModal = openCreateTransferModal;
+// Override openCreateTransferModal to store patches and populate multi-VM list
 openCreateTransferModal = async function() {
     document.getElementById("createTransferModal").classList.remove("hidden");
     document.getElementById("createTransferError").textContent = "";
-    document.getElementById("transferStagePath").value = "/grid/stage/patches";
     document.getElementById("transferMethod").value = "API";
     document.getElementById("transferFileType").value = "ru_patch";
     document.getElementById("transferFileInfo").textContent = "";
@@ -2140,7 +2145,7 @@ openCreateTransferModal = async function() {
             if (p.opatch_zip) files.push("OPatch");
             if (p.gi_base_zip) files.push("GI");
             if (p.db_base_zip) files.push("DB");
-            if (files.length) label += " � " + files.join(", ");
+            if (files.length) label += " — " + files.join(", ");
             var opt = document.createElement("option");
             opt.value = p.id;
             opt.textContent = label;
@@ -2149,21 +2154,26 @@ openCreateTransferModal = async function() {
     } catch(e) {
         sel.innerHTML = "<option value=\"\">Failed to load patches</option>";
     }
-
     sel.onchange = updateTransferSourceInfo;
 
-    var hostSel = document.getElementById("transferTargetHost");
-    hostSel.innerHTML = "<option value=\"\">-- Select Target VM --</option>";
+    var vmListEl = document.getElementById("transferVmList");
+    vmListEl.innerHTML = '<div style="padding:8px;color:var(--color-text-secondary)">Loading VMs...</div>';
     var vmList = typeof vms !== "undefined" ? vms : [];
     if (!vmList.length) {
         try { vmList = await api("/vms"); } catch(e) { vmList = []; }
     }
-    vmList.forEach(function(vm) {
-        var opt = document.createElement("option");
-        opt.value = vm.hostname;
-        opt.textContent = vm.hostname + " (" + vm.ip + ") � " + (vm.node_role || "unknown");
-        hostSel.appendChild(opt);
-    });
+    vmListEl.innerHTML = vmList.map(function(vm) {
+        var stagingDefault = vm.preferred_staging_mount ? (vm.preferred_staging_mount + '/patches') : '/grid/stage/patches';
+        return '<div class="xfer-vm-row" style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:0.5px solid var(--color-border-tertiary)">' +
+            '<input type="checkbox" id="xvm_' + vm.hostname + '" value="' + esc(vm.hostname) + '" style="width:16px;height:16px;flex-shrink:0" onchange="toggleXferVmRow(this)">' +
+            '<label for="xvm_' + vm.hostname + '" style="flex:1;font-size:13px;cursor:pointer">' +
+                '<span style="font-weight:500">' + esc(vm.hostname) + '</span>' +
+                '<span style="color:var(--color-text-secondary);font-size:11px;margin-left:6px">' + esc(vm.ip || '') + ' · ' + esc(vm.environment || '') + '</span>' +
+            '</label>' +
+            '<input type="text" id="xpath_' + vm.hostname + '" placeholder="Stage path" value="' + esc(stagingDefault) + '" ' +
+                'style="width:200px;font-size:12px;opacity:0.4;pointer-events:none" disabled>' +
+        '</div>';
+    }).join('');
 };
 
 // [CLEANED] duplicate createTransfer override removed

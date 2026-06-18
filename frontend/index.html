@@ -612,7 +612,7 @@
             <button class="btn btn-sm btn-secondary" onclick="loadTransfers()">Refresh</button>
         </div>
         <div class="table-wrap"><table class="data-table">
-            <thead><tr><th>Patch</th><th>Target Host</th><th>File</th><th>Status</th><th>Progress</th><th>Stage Path</th><th>Method</th><th>Actions</th></tr></thead>
+            <thead><tr><th>Patch</th><th>Target Host</th><th>File</th><th>Status</th><th>Progress</th><th>Stage Path</th><th>Method</th><th>Date</th><th>Actions</th></tr></thead>
             <tbody id="transfersBody"></tbody>
         </table></div>
     </div>
@@ -692,8 +692,7 @@
         <div class="modal-body">
             <div class="form-group"><label>Patch Version <span style="color:#e74c3c">*</span></label><select id="transferPatchSelect" style="width:100%"></select></div>
             <div class="form-group"><label>File Type <span style="color:#e74c3c">*</span></label><select id="transferFileType" style="width:100%" onchange="updateTransferSourceInfo()"><option value="ru_patch">RU Patch (Full Patch Bundle)</option><option value="opatch">OPatch Utility</option><option value="gi_base">GI Base Binaries</option><option value="db_base">DB Base Binaries</option><option value="all">All Available Files</option></select><div id="transferFileInfo" style="margin-top:4px;font-size:12px;color:var(--text-dim)"></div></div>
-            <div class="form-group"><label>Target Host <span style="color:#e74c3c">*</span></label><select id="transferTargetHost" style="width:100%"><option value="">-- Select Target VM --</option></select></div>
-            <div class="form-group"><label>Stage Path</label><input type="text" id="transferStagePath" value="/grid/stage/patches"></div>
+            <div class="form-group"><label>Target VMs <span style="color:#e74c3c">*</span></label><div id="transferVmList" style="max-height:220px;overflow-y:auto;border:1px solid var(--color-border-primary);border-radius:6px;padding:0 8px"></div></div>
             <div class="form-group"><label>Transfer Method</label><select id="transferMethod">
                 <option value="API" selected>API (Agent)</option><option value="SCP">SCP</option><option value="RSYNC">RSYNC</option><option value="CP">CP (local)</option><option value="NFS">NFS Mount</option>
             </select></div>
