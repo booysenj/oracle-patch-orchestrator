@@ -163,8 +163,8 @@ router.post('/vms/:id/deploy-agent', requireAdmin, (req, res) => {
     } catch(_) {}
     if (!orchestratorUrl) orchestratorUrl = `http://172.16.36.95:${process.env.PORT || 4000}`;
 
-    const { sshUser, sshPassword, useSudo } = req.body;
-    const sshUsername = (sshUser || 'root').trim();
+    const { sshUser, useSudo } = req.body;
+    const sshUsername = (sshUser || 'oracle').trim();
     const sudo = (useSudo || sshUsername !== 'root') ? 'sudo ' : '';
     const target = `${sshUsername}@${vm.ip}`;
     const port = vm.ssh_port || 22;
@@ -189,12 +189,8 @@ router.post('/vms/:id/deploy-agent', requireAdmin, (req, res) => {
     ].join('\n');
 
     // Build ssh/scp prefix — use sshpass for password auth, plain ssh for key auth
-    const batchMode = sshPassword ? 'no' : 'yes';
-    const sshOpts = `-o StrictHostKeyChecking=no -o BatchMode=${batchMode} -p ${port}`;
-    const scpOpts = `-o StrictHostKeyChecking=no -o BatchMode=${batchMode} -P ${port}`;
-    const sshPassPrefix = sshPassword ? `sshpass -p '${sshPassword.replace(/'/g, "'\\''")}' ` : '';
-    const sshCmd  = `${sshPassPrefix}ssh ${sshOpts}`;
-    const scpCmd  = `${sshPassPrefix}scp ${scpOpts}`;
+    const sshCmd = `ssh -o StrictHostKeyChecking=no -o BatchMode=yes -p ${port}`;
+    const scpCmd = `scp -o StrictHostKeyChecking=no -o BatchMode=yes -P ${port}`;
 
     const setupCmds = [
         `${sudo}mkdir -p ${agentDir}`,

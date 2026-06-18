@@ -964,14 +964,13 @@ async function deployAgent(vmId, hostname, savedSshUser) {
   modal.innerHTML = `
     <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:8px;padding:24px;width:380px;max-width:90vw">
       <h3 style="margin:0 0 4px">Deploy Agent — ${hostname}</h3>
-      <p style="font-size:12px;color:var(--text-muted);margin:0 0 16px">Files are uploaded to /tmp then moved into place — no direct root SFTP needed.</p>
+      <p style="font-size:12px;color:var(--text-muted);margin:0 0 4px">Uses SSH key auth from the orchestrator. Run once per VM to bootstrap:</p>
+      <code style="display:block;font-size:11px;background:var(--bg);padding:6px 8px;border-radius:4px;margin-bottom:16px;color:var(--accent)">ssh-copy-id -i /root/.ssh/id_ed25519.pub ${esc(savedSshUser || 'oracle')}@${esc(vm ? vm.ip : '')}</code>
       <label style="font-size:12px;display:block;margin-bottom:4px">SSH Username</label>
-      <input id="da-user" value="${esc(savedSshUser || 'root')}" style="width:100%;box-sizing:border-box;margin-bottom:12px;padding:6px 8px;background:var(--bg);border:1px solid var(--border);border-radius:4px;color:var(--text)"/>
-      <label style="font-size:12px;display:block;margin-bottom:4px">SSH Password <span style="color:var(--text-muted)">(leave blank to use key)</span></label>
-      <input id="da-pass" type="password" style="width:100%;box-sizing:border-box;margin-bottom:12px;padding:6px 8px;background:var(--bg);border:1px solid var(--border);border-radius:4px;color:var(--text)"/>
+      <input id="da-user" value="${esc(savedSshUser || 'oracle')}" style="width:100%;box-sizing:border-box;margin-bottom:12px;padding:6px 8px;background:var(--bg);border:1px solid var(--border);border-radius:4px;color:var(--text)"/>
       <label style="font-size:12px;display:flex;align-items:center;gap:8px;margin-bottom:20px;cursor:pointer">
-        <input id="da-sudo" type="checkbox" style="width:14px;height:14px"/>
-        Use sudo for privileged commands <span style="color:var(--text-muted)">(auto when not root)</span>
+        <input id="da-sudo" type="checkbox" checked style="width:14px;height:14px"/>
+        Use sudo for privileged commands <span style="color:var(--text-muted)">(required when not root)</span>
       </label>
       <div style="display:flex;gap:8px;justify-content:flex-end">
         <button id="da-cancel" class="btn btn-sm btn-secondary">Cancel</button>
@@ -981,18 +980,12 @@ async function deployAgent(vmId, hostname, savedSshUser) {
   document.body.appendChild(modal);
   document.getElementById('da-pass').focus();
 
-  // Auto-check sudo when username changes away from root
-  var daUser = document.getElementById('da-user');
-  var daSudo = document.getElementById('da-sudo');
-  daUser.addEventListener('input', () => { daSudo.checked = daUser.value.trim() !== 'root'; });
-
   await new Promise(resolve => {
     document.getElementById('da-cancel').onclick = () => { modal.remove(); resolve(false); };
     document.getElementById('da-ok').onclick = () => resolve(true);
-    document.getElementById('da-pass').onkeydown = e => { if (e.key === 'Enter') resolve(true); };
+    document.getElementById('da-user').onkeydown = e => { if (e.key === 'Enter') resolve(true); };
   }).then(async ok => {
-    var user = document.getElementById('da-user').value.trim() || 'root';
-    var pass = document.getElementById('da-pass').value;
+    var user = document.getElementById('da-user').value.trim() || 'oracle';
     var useSudo = document.getElementById('da-sudo').checked || user !== 'root';
     modal.remove();
     if (!ok) return;
@@ -1001,7 +994,7 @@ async function deployAgent(vmId, hostname, savedSshUser) {
     try {
       var result = await api('/admin/vms/' + vmId + '/deploy-agent', {
         method: 'POST',
-        body: JSON.stringify({ sshUser: user, sshPassword: pass, useSudo })
+        body: JSON.stringify({ sshUser: user, useSudo })
       });
       showToast('Agent deployed to ' + hostname + ' — ' + (result.output || 'ok'), 'success');
       setTimeout(loadVMs, 3000);
