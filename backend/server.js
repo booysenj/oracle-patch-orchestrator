@@ -24,7 +24,7 @@ const server = http.createServer(app);
 
 app.use(helmet({ contentSecurityPolicy: false, crossOriginEmbedderPolicy: false }));
 app.use(cors({ origin: process.env.CORS_ORIGIN || '*' }));
-app.use(express.json());
+app.use(express.json({ limit: '10mb' }));
 app.use(express.static(require("path").join(__dirname, "..", "frontend"), { setHeaders: function(res, p) { if (p.endsWith(".js")) res.setHeader("Cache-Control", "no-cache"); } }));
 
 app.get('/api/health', (_req, res) => res.json({

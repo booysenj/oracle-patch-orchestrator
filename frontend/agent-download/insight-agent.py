@@ -241,11 +241,13 @@ def poll():
 
 def send_logs(job_id, lines):
     try:
-        requests.post(
+        r = requests.post(
             API_URL + '/api/agent/' + job_id + '/logs',
             json={'lines': lines},
-            headers=HEADERS, timeout=10
+            headers=HEADERS, timeout=30
         )
+        if r.status_code != 200:
+            print('[agent] Log send HTTP %d: %s' % (r.status_code, r.text[:200]))
     except Exception as e:
         print('[agent] Log send failed: %s' % e)
 
@@ -281,7 +283,7 @@ def execute_job(job):
     if job.get('env'):
         env.update(job['env'])
 
-    cmd = 'bash %s %s' % (script, phase_arg)
+    cmd = 'bash -x %s %s' % (script, phase_arg)
     print('[agent] Executing: %s' % cmd)
 
     try:
