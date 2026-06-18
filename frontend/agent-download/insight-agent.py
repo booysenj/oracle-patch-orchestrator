@@ -73,16 +73,17 @@ def discover():
     }
 
     # Mount points with free space (GB)
-    df_out = _run("df -BG --output=target,avail 2>/dev/null || df -k")
-    skip_prefixes = ('/', '/boot', '/dev', '/proc', '/sys', '/run', 'tmpfs', 'devtmpfs', 'udev')
+    # df -BG output: Filesystem 1G-blocks Used Avail Use% Mounted-on
+    df_out = _run("df -BG 2>/dev/null")
+    skip_mounts = ('/boot', '/dev', '/proc', '/sys', '/run')
     for line in df_out.splitlines()[1:]:
         parts = line.split()
-        if len(parts) >= 2:
-            mount = parts[0]
-            free_raw = parts[1].replace('G', '').replace('K', '')
-            if mount.startswith('/') and not any(mount == s or mount.startswith(s + '/') for s in ('/boot', '/dev', '/proc', '/sys', '/run')):
+        if len(parts) >= 6:
+            mount = parts[5]
+            avail_raw = parts[3]  # e.g. "38G" or "0G"
+            if mount.startswith('/') and not any(mount == s or mount.startswith(s + '/') for s in skip_mounts):
                 try:
-                    free_gb = int(free_raw) if 'G' in parts[1] else max(0, int(free_raw) // (1024 * 1024))
+                    free_gb = int(avail_raw.rstrip('G'))
                     result['mounts'].append({'mount': mount, 'free_gb': free_gb})
                 except ValueError:
                     pass
