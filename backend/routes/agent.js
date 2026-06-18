@@ -28,6 +28,11 @@ router.get('/poll', (req, res) => {
     // Record heartbeat so dashboard can show agent online/offline status
     db.prepare(`UPDATE vms SET agent_last_seen = datetime('now') WHERE id = ?`).run(vm.id);
 
+    // Recover stuck TRANSFERRING transfers (agent died mid-transfer, >10 min ago)
+    db.prepare(
+        "UPDATE patch_transfers SET status='PENDING', started_at=NULL WHERE target_host=? AND status='TRANSFERRING' AND started_at < datetime('now', '-10 minutes')"
+    ).run(hostname);
+
     // Check for a pending file transfer first (transfers don't block jobs)
     const pendingTransfer = db.prepare(
         "SELECT * FROM patch_transfers WHERE target_host = ? AND status = 'PENDING' ORDER BY created_at ASC LIMIT 1"
