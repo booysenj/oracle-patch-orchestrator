@@ -30,6 +30,7 @@ AGENT_TOKEN = os.environ.get('INSIGHT_AGENT_TOKEN', '')
 HOSTNAME = os.environ.get('INSIGHT_HOSTNAME', os.uname()[1].split('.')[0])
 POLL_INTERVAL = int(os.environ.get('INSIGHT_POLL_INTERVAL', '5'))
 LOG_BATCH_SIZE = 5
+_cached_script_hash = None
 LOG_FLUSH_INTERVAL = 2  # seconds — flush partial batches so UI stays live
 
 HEADERS = {
@@ -85,10 +86,13 @@ signal.signal(signal.SIGINT, signal_handler)
 # Discovery — runs on every poll cycle, POSTs system inventory to orchestrator
 # ---------------------------------------------------------------------------
 def _run(cmd, timeout=10):
-    """Run a shell command, return stdout string or '' on error."""
+    """Run a shell command, return stdout string or '' on error.
+    Uses run() so partial output is captured even when exit code != 0 (e.g. stale NFS mount makes df exit 1)."""
     try:
-        return subprocess.check_output(cmd, shell=True, text=True,
-                                       stderr=subprocess.DEVNULL, timeout=timeout).strip()
+        r = subprocess.run(cmd, shell=True, text=True,
+                           stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                           timeout=timeout)
+        return (r.stdout or '').strip()
     except Exception:
         return ''
 
