@@ -82,6 +82,18 @@ router.get('/poll', (req, res) => {
     });
 });
 
+// Script delivery — agent downloads os-patch-auto.sh before each job
+router.get('/script', (req, res) => {
+    var fs = require('fs'), path = require('path'), crypto = require('crypto');
+    var scriptPath = path.join(__dirname, '..', 'scripts', 'os-patch-auto.sh');
+    if (!fs.existsSync(scriptPath)) return res.status(404).json({ error: 'Script not found on orchestrator' });
+    var scriptBytes = fs.readFileSync(scriptPath);
+    var hash = crypto.createHash('sha256').update(scriptBytes).digest('hex');
+    res.setHeader('Content-Type', 'text/x-shellscript; charset=utf-8');
+    res.setHeader('X-Script-Hash', hash);
+    res.send(scriptBytes);
+});
+
 // Discovery — agent POSTs system inventory on every poll cycle
 router.post('/discover', (req, res) => {
     var payload = req.body;
