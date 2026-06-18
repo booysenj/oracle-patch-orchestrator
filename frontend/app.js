@@ -531,14 +531,14 @@ function appendReportRow(label, status, details) {
 
 function appendLogLine(log) {
   var line = log.line || '';
-  // Parse structured check results emitted by add_html_row in the shell script
-  if (line.indexOf('[CHECK] ') === 0) {
-    var parts = line.slice(8).split('|');
-    if (parts.length >= 3) {
+  // Parse structured check results — log() prepends a timestamp so [CHECK] may not be at position 0
+  var checkIdx = line.indexOf('[CHECK] ');
+  if (checkIdx >= 0) {
+    var parts = line.slice(checkIdx + 8).split('|');
+    if (parts.length >= 2) {
       appendReportRow(parts[0].trim(), parts[1].trim(), parts.slice(2).join('|').trim());
     }
-    // Still show in raw log view (without the [CHECK] prefix for readability)
-    line = parts[0].trim() + ': ' + parts[1].trim();
+    line = line.slice(0, checkIdx) + parts[0].trim() + ': ' + parts[1].trim();
   }
   var pre = document.getElementById('logOutput');
   var cls = log.stream === 'stderr' ? 'log-line-stderr' :
