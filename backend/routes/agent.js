@@ -202,7 +202,7 @@ router.post('/:jobId/logs', (req, res) => {
     const db = getDB();
     const stmt = db.prepare('INSERT INTO job_logs (job_id, stream, line) VALUES (?, ?, ?)');
     const reportStmt = db.prepare(
-        'INSERT INTO patch_reports (id, job_id, hostname, operation, subject, result, html_content) VALUES (?, ?, ?, ?, ?, ?, ?)'
+        'INSERT INTO patch_reports (id, job_id, hostname, operation, result, content) VALUES (?, ?, ?, ?, ?, ?)'
     );
     const discoveryStmt = db.prepare(
         'INSERT INTO discoveries (id, job_id, hostname, type, payload) VALUES (?, ?, ?, ?, ?)'
@@ -223,7 +223,7 @@ router.post('/:jobId/logs', (req, res) => {
                     var job = db.prepare('SELECT j.*, v.hostname FROM jobs j LEFT JOIN vms v ON j.vm_id = v.id WHERE j.id = ?').get(jobId);
                     var result = subject.toLowerCase().includes('fail') ? 'failed'
                                : subject.toLowerCase().includes('incomplete') ? 'failed' : 'success';
-                    reportStmt.run(uuidv4(), jobId, job ? job.hostname : null, job ? job.operation : null, subject, result, html);
+                    reportStmt.run(uuidv4(), jobId, job ? job.hostname : null, job ? job.operation : null, result, html);
                 } catch(e) {
                     console.error('[agent] Failed to store HTML report:', e.message);
                 }
