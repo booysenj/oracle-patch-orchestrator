@@ -163,7 +163,7 @@ router.post('/vms/:id/deploy-agent', requireAdmin, (req, res) => {
     } catch(_) {}
     if (!orchestratorUrl) orchestratorUrl = `http://172.16.36.95:${process.env.PORT || 4000}`;
 
-    const { sshUser, useSudo } = req.body;
+    const { sshUser, sshPassword, useSudo } = req.body;
     const sshUsername = (sshUser || 'oracle').trim();
     const sudo = (useSudo || sshUsername !== 'root') ? 'sudo ' : '';
     const target = `${sshUsername}@${vm.ip}`;
@@ -189,8 +189,9 @@ router.post('/vms/:id/deploy-agent', requireAdmin, (req, res) => {
     ].join('\n');
 
     // Build ssh/scp prefix — use sshpass for password auth, plain ssh for key auth
-    const sshCmd = `ssh -o StrictHostKeyChecking=no -o BatchMode=yes -p ${port}`;
-    const scpCmd = `scp -o StrictHostKeyChecking=no -o BatchMode=yes -P ${port}`;
+    const keyFile = '/root/.ssh/id_ed25519';
+    const sshCmd = `ssh -o StrictHostKeyChecking=no -o BatchMode=yes -i ${keyFile} -p ${port}`;
+    const scpCmd = `scp -o StrictHostKeyChecking=no -o BatchMode=yes -i ${keyFile} -P ${port}`;
 
     const setupCmds = [
         `${sudo}mkdir -p ${agentDir}`,
@@ -205,17 +206,18 @@ router.post('/vms/:id/deploy-agent', requireAdmin, (req, res) => {
         'sleep 2 && systemctl is-active insight-agent'
     ].join(' && ');
 
-    // Step 1: scp both files to /tmp on target
     const copyCmd = `${scpCmd} '${agentSrc}' '${target}:${tmpAgent}' && ${scpCmd} '${scriptSrc}' '${target}:${tmpScript}'`;
 
-    exec(copyCmd, { timeout: 30000 }, (err1, stdout1, stderr1) => {
-        if (err1) return res.status(500).json({ error: 'File copy failed: ' + (stderr1 || err1.message) });
+    // Ensure SSH key exists on orchestrator
+    if (!fs.existsSync(keyFile)) {
+        try { require('child_process').execSync(`ssh-keygen -t ed25519 -f ${keyFile} -N ""`); }
+        catch(e) { return res.status(500).json({ error: 'Failed to generate SSH key: ' + e.message }); }
+    }
 
-        // Step 2: run setup commands over ssh
+    function doSetup() {
         exec(`${sshCmd} '${target}' "${setupCmds.replace(/"/g, '\\"')}"`, { timeout: 30000 }, (err2, stdout2, stderr2) => {
             const out = (stdout2 + stderr2).trim();
             if (err2) return res.status(500).json({ error: 'Setup failed: ' + (stderr2 || err2.message), output: out });
-
             try {
                 try { db.exec('ALTER TABLE vms ADD COLUMN deploy_ssh_user TEXT'); } catch(_) {}
                 db.prepare("UPDATE vms SET script_path = ?, deploy_ssh_user = ?, updated_at = datetime('now') WHERE id = ?")
@@ -223,6 +225,28 @@ router.post('/vms/:id/deploy-agent', requireAdmin, (req, res) => {
             } catch(_) {}
             res.json({ ok: true, hostname: vm.hostname, agentPath: agentDest, scriptPath: scriptDest, output: out });
         });
+    }
+
+    function doCopy(cb) {
+        exec(copyCmd, { timeout: 30000 }, cb);
+    }
+
+    function installKeyThenCopy(cb) {
+        // Use sshpass to run ssh-copy-id with the provided password — key installed, password discarded
+        const escaped = sshPassword.replace(/'/g, "'\\''");
+        const copyIdCmd = `sshpass -p '${escaped}' ssh-copy-id -i ${keyFile}.pub -o StrictHostKeyChecking=no -p ${port} '${target}'`;
+        exec(copyIdCmd, { timeout: 20000 }, (err) => {
+            if (err) return res.status(500).json({ error: 'SSH key install failed — check username/password' });
+            doCopy(cb);
+        });
+    }
+
+    // Step 1: try key auth; if it fails and password was provided, install key first
+    doCopy((err1, stdout1, stderr1) => {
+        if (err1 && sshPassword) { installKeyThenCopy(doSetup); return; }
+        if (err1) return res.status(500).json({ error: 'File copy failed: ' + (stderr1 || err1.message) });
+
+        doSetup();
     });
 });
 
