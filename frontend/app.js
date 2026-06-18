@@ -939,12 +939,16 @@ async function openVmConfigOverride(vmId) {
   if (newDB === null) return;
   var staging = prompt('Preferred staging mount (e.g. /staging/software):', vm.preferred_staging_mount || '');
   if (staging === null) return;
+  var mailTo = prompt('MAIL_TO (leave blank to use global setting):', vm.mail_to || '');
+  if (mailTo === null) return;
+  var mailFrom = prompt('MAIL_FROM (leave blank to use global setting):', vm.mail_from || '');
+  if (mailFrom === null) return;
 
   try {
     var r = await fetch(API + '/vms/' + vmId + '/config', {
       method: 'PATCH',
       headers: { 'Authorization': 'Bearer ' + TOKEN, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ new_gi_home: newGI, new_db_home: newDB, preferred_staging_mount: staging })
+      body: JSON.stringify({ new_gi_home: newGI, new_db_home: newDB, preferred_staging_mount: staging, mail_to: mailTo, mail_from: mailFrom })
     });
     var d = await r.json();
     if (d.ok) {

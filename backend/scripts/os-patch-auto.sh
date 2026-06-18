@@ -82,8 +82,8 @@ GRID_USER=oracle
 OINSTALL=oinstall
 OLD_GI_OSOPER_GROUP=""
 
-MAIL_TO="ps.devops@4cgroup.co.za"
-MAIL_FROM="oop-orchestrator@4cgroup.co.za"
+MAIL_TO="${MAIL_TO:-ps.devops@4cgroup.co.za}"
+MAIL_FROM="${MAIL_FROM:-oop-orchestrator@4cgroup.co.za}"
 
 # Oracle homes — injected by orchestrator runtime config (OLD from agent discovery,
 # NEW auto-derived from gi_home_base/db_home_base + patch version).

@@ -194,14 +194,21 @@ router.get('/:jobId/runtime-config', (req, res) => {
         pv = db.prepare('SELECT * FROM patch_versions WHERE id = ?').get(job.target_patch_version_id);
     }
 
-    // App-level base paths for auto-deriving new Oracle homes from patch version
-    var giHomeBase = '', dbHomeBase = '';
+    // App-level base paths + mail defaults from app_settings
+    var giHomeBase = '', dbHomeBase = '', globalMailTo = '', globalMailFrom = '';
     try {
         var r = db.prepare("SELECT value FROM app_settings WHERE key = 'gi_home_base'").get();
         if (r && r.value) giHomeBase = r.value.replace(/\/$/, '');
         r = db.prepare("SELECT value FROM app_settings WHERE key = 'db_home_base'").get();
         if (r && r.value) dbHomeBase = r.value.replace(/\/$/, '');
+        r = db.prepare("SELECT value FROM app_settings WHERE key = 'mail_to'").get();
+        if (r && r.value) globalMailTo = r.value;
+        r = db.prepare("SELECT value FROM app_settings WHERE key = 'mail_from'").get();
+        if (r && r.value) globalMailFrom = r.value;
     } catch(_) {}
+    // Per-VM override > global setting > script default
+    var mailTo   = job.mail_to   || globalMailTo   || '';
+    var mailFrom = job.mail_from || globalMailFrom  || '';
 
     // Derive new homes: explicit VM override > patch version explicit > auto from base+version
     function deriveHome(explicitVal, pvVal, base, version) {
@@ -243,6 +250,10 @@ router.get('/:jobId/runtime-config', (req, res) => {
         '# Staging',
         'STAGE_PATH=' + stagingRoot,
         'ORACLE_USER=oracle',
+        '',
+        '# Email (per-VM override > global setting > script default)',
+        'MAIL_TO=' + mailTo,
+        'MAIL_FROM=' + mailFrom,
     ];
 
     res.setHeader('Content-Type', 'text/plain; charset=utf-8');

@@ -82,7 +82,8 @@ router.get('/:id/discovery', (req, res) => {
 // Allow DBA to manually override discovery-populated fields
 router.patch('/:id/config', (req, res) => {
     const allowed = ['old_gi_home', 'new_gi_home', 'old_db_home', 'new_db_home',
-                     'db_unique_name', 'preferred_staging_mount', 'cluster_name'];
+                     'db_unique_name', 'preferred_staging_mount', 'cluster_name',
+                     'mail_to', 'mail_from'];
     const updates = {};
     for (const k of allowed) {
         if (req.body[k] !== undefined) updates[k] = req.body[k];
