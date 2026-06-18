@@ -46,7 +46,14 @@ def _self_hash():
         return hashlib.sha256(f.read()).hexdigest()
 
 def check_for_update():
-    """Download and apply a newer agent version if available, then re-exec."""
+    """Download and apply a newer agent version if available, then re-exec.
+    INSIGHT_JUST_UPDATED env var breaks infinite-exec loops when hashes diverge
+    due to encoding differences (CRLF vs LF). Cleared after one guarded startup."""
+    if os.environ.get('INSIGHT_JUST_UPDATED') == '1':
+        # We just applied an update — skip the check this time to avoid loops
+        del os.environ['INSIGHT_JUST_UPDATED']
+        print('[agent] Skipping update check (just updated)')
+        return
     try:
         r = requests.get(API_URL + '/api/agent/self/version', headers=HEADERS, timeout=10)
         if r.status_code != 200:
@@ -61,11 +68,15 @@ def check_for_update():
             print('[agent] Update download failed: HTTP %d' % r2.status_code)
             return
         tmp = __file__ + '.new'
-        with open(tmp, 'w', encoding='utf-8') as f:
-            f.write(r2.text)
+        # Write binary to preserve exact bytes — avoids CRLF/LF hash mismatch
+        with open(tmp, 'wb') as f:
+            f.write(r2.content)
         os.replace(tmp, __file__)
+        os.chmod(__file__, 0o755)
         print('[agent] Update applied — restarting...')
-        os.execv(sys.executable, [sys.executable] + sys.argv)
+        env = os.environ.copy()
+        env['INSIGHT_JUST_UPDATED'] = '1'
+        os.execve(sys.executable, [sys.executable] + sys.argv, env)
     except Exception as e:
         print('[agent] Update check failed: %s' % e)
 
