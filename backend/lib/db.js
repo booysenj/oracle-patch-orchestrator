@@ -79,6 +79,7 @@ function initDB() {
     try { d.exec(`ALTER TABLE vms ADD COLUMN db_version TEXT`); } catch(_) {}
     try { d.exec(`ALTER TABLE vms ADD COLUMN crs_version TEXT`); } catch(_) {}
     try { d.exec(`ALTER TABLE vms ADD COLUMN nodes_json TEXT`); } catch(_) {}
+    try { d.exec(`ALTER TABLE vms ADD COLUMN current_db_home TEXT`); } catch(_) {}
     // patch_reports: stores full HTML reports emitted by the shell script via [HTML_REPORT] log lines
     d.exec(`
         CREATE TABLE IF NOT EXISTS patch_reports (

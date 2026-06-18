@@ -130,7 +130,10 @@ router.post('/discover', (req, res) => {
     // Static values — always update GI home from agent (null clears it for DB-only VMs)
     var updates = {};
     updates.old_gi_home = gridHome || '';
-    updates.old_db_home = oratab.length > 0 ? oratab[0].home : (vm.old_db_home || '');
+    // old_db_home = pre-patch baseline — write-once so rollback always knows where to return
+    if ((!vm.old_db_home || vm.old_db_home === '') && oratab.length > 0) updates.old_db_home = oratab[0].home;
+    // current_db_home = live oratab value — always updated so card reflects post-switch state
+    if (oratab.length > 0) updates.current_db_home = oratab[0].home;
     if (!vm.db_unique_name && dbUniqueName) updates.db_unique_name = dbUniqueName;
     if (!vm.cluster_name && clusterName) updates.cluster_name = clusterName;
     if (!vm.preferred_staging_mount && preferredStaging) updates.preferred_staging_mount = preferredStaging;
