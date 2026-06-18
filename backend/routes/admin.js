@@ -160,11 +160,15 @@ router.post('/vms/:id/deploy-agent', requireAdmin, (req, res) => {
         if (row && row.value) orchestratorUrl = row.value;
     } catch(_) {}
     if (!orchestratorUrl) orchestratorUrl = `http://172.16.36.95:${process.env.PORT || 4000}`;
+    const { sshUser, sshPassword } = req.body;
+    const sshUsername = (sshUser || 'root').trim();
     const keyPath = process.env.SSH_KEY_PATH || '/root/.ssh/id_rsa';
 
     let privateKey;
-    try { privateKey = fs.readFileSync(keyPath); }
-    catch (e) { return res.status(500).json({ error: 'Cannot read SSH key: ' + e.message }); }
+    if (!sshPassword) {
+        try { privateKey = fs.readFileSync(keyPath); }
+        catch (e) { return res.status(500).json({ error: 'No SSH password provided and cannot read SSH key: ' + e.message }); }
+    }
 
     let agentContent, scriptContent;
     try { agentContent  = fs.readFileSync(agentSrc); }
@@ -234,7 +238,11 @@ router.post('/vms/:id/deploy-agent', requireAdmin, (req, res) => {
             });
         });
     }).on('error', err => res.status(500).json({ error: err.message }))
-      .connect({ host: vm.ip, port: vm.ssh_port || 22, username: 'root', privateKey, readyTimeout: 10000 });
+      .connect({
+          host: vm.ip, port: vm.ssh_port || 22, username: sshUsername,
+          ...(sshPassword ? { password: sshPassword } : { privateKey }),
+          readyTimeout: 10000
+      });
 });
 
 module.exports = router;

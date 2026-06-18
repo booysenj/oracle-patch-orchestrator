@@ -952,15 +952,47 @@ async function openVmConfigOverride(vmId) {
 }
 
 async function deployAgent(vmId, hostname) {
-  if (!confirm('Deploy/update agent on ' + hostname + '?\n\nThis will upload the latest insight-agent.py and restart the service.')) return;
-  showToast('Deploying agent to ' + hostname + '...', 'info');
-  try {
-    var result = await api('/admin/vms/' + vmId + '/deploy-agent', { method: 'POST', body: '{}' });
-    showToast('Agent deployed to ' + hostname + ' — status: ' + (result.serviceStatus || result.output || 'ok'), 'success');
-    setTimeout(loadVMs, 3000);
-  } catch(e) {
-    showToast('Deploy failed: ' + e.message, 'error');
-  }
+  // Collect SSH credentials via modal
+  var modal = document.createElement('div');
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:9999;display:flex;align-items:center;justify-content:center';
+  modal.innerHTML = `
+    <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:8px;padding:24px;width:360px;max-width:90vw">
+      <h3 style="margin:0 0 16px">Deploy Agent — ${hostname}</h3>
+      <p style="font-size:13px;color:var(--text-muted);margin:0 0 16px">SSH credentials to connect to this VM as root (or a sudo-enabled user).</p>
+      <label style="font-size:12px;display:block;margin-bottom:4px">SSH Username</label>
+      <input id="da-user" value="root" style="width:100%;box-sizing:border-box;margin-bottom:12px;padding:6px 8px;background:var(--bg);border:1px solid var(--border);border-radius:4px;color:var(--text)"/>
+      <label style="font-size:12px;display:block;margin-bottom:4px">SSH Password <span style="color:var(--text-muted)">(leave blank to use key)</span></label>
+      <input id="da-pass" type="password" style="width:100%;box-sizing:border-box;margin-bottom:20px;padding:6px 8px;background:var(--bg);border:1px solid var(--border);border-radius:4px;color:var(--text)"/>
+      <div style="display:flex;gap:8px;justify-content:flex-end">
+        <button id="da-cancel" class="btn btn-sm btn-secondary">Cancel</button>
+        <button id="da-ok" class="btn btn-sm btn-primary">Deploy</button>
+      </div>
+    </div>`;
+  document.body.appendChild(modal);
+  document.getElementById('da-pass').focus();
+
+  await new Promise(resolve => {
+    document.getElementById('da-cancel').onclick = () => { modal.remove(); resolve(false); };
+    document.getElementById('da-ok').onclick = () => resolve(true);
+    document.getElementById('da-pass').onkeydown = e => { if (e.key === 'Enter') resolve(true); };
+  }).then(async ok => {
+    var user = document.getElementById('da-user').value.trim() || 'root';
+    var pass = document.getElementById('da-pass').value;
+    modal.remove();
+    if (!ok) return;
+
+    showToast('Deploying agent to ' + hostname + '...', 'info');
+    try {
+      var result = await api('/admin/vms/' + vmId + '/deploy-agent', {
+        method: 'POST',
+        body: JSON.stringify({ sshUser: user, sshPassword: pass })
+      });
+      showToast('Agent deployed to ' + hostname + ' — ' + (result.output || 'ok'), 'success');
+      setTimeout(loadVMs, 3000);
+    } catch(e) {
+      showToast('Deploy failed: ' + e.message, 'error');
+    }
+  });
 }
 
 async function deleteVm(vmId, hostname) {
