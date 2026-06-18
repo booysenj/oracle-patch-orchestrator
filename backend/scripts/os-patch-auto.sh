@@ -1110,21 +1110,24 @@ stage_software() {
     log "SOFTWARE STAGING"
 
     local drop="${STAGING_DROP_DIR:-/home/oracle/staging}"
-    # FIX: Call without args — derive_patchset_version checks DB_ONLY_MODE internally
     local target_version
     target_version=$(derive_patchset_version)
 
-    add_html_row "Staging directory" "INFO" "$drop"
-    # FIX: Show correct source based on DB_ONLY_MODE
+    # ── Environment summary ──────────────────────────────────────────────────
+    add_html_row "Staging drop directory" "INFO" "$drop"
+    add_report_step "Staging drop directory" "INFO" "$drop"
+
     if [[ "${DB_ONLY_MODE:-false}" == true ]]; then
-        add_html_row "Target patchset" "INFO" \
-            "p${target_version:-UNKNOWN} (from NEW_DB_HOME=$NEW_DB_HOME) [DB-only mode]"
+        local pv_detail="p${target_version:-UNKNOWN} (NEW_DB_HOME=$NEW_DB_HOME) [DB-only mode]"
+        add_html_row "Target patchset" "INFO" "$pv_detail"
+        add_report_step "Target patchset" "INFO" "$pv_detail"
     else
-        add_html_row "Target patchset" "INFO" \
-            "p${target_version:-UNKNOWN} (from NEW_GI_HOME=$NEW_GI_HOME / NEW_DB_HOME=$NEW_DB_HOME)"
+        local pv_detail="p${target_version:-UNKNOWN} (NEW_GI_HOME=$NEW_GI_HOME / NEW_DB_HOME=$NEW_DB_HOME)"
+        add_html_row "Target patchset" "INFO" "$pv_detail"
+        add_report_step "Target patchset" "INFO" "$pv_detail"
     fi
 
-    # Show current staging contents
+    # ── Show what is currently in the drop directory ─────────────────────────
     if [[ -d "$drop" ]]; then
         shopt -s nullglob
         local all_files=( "$drop"/*.zip )
@@ -1138,40 +1141,53 @@ stage_software() {
                 sz=$(du -h "$f" 2>/dev/null | awk '{print $1}' || echo "?")
 
                 if [[ "$fname" == V982068* ]]; then
-                    detected="→ GI Base Media"
+                    detected="GI Base Media"
                 elif [[ "$fname" == V982063* ]]; then
-                    detected="→ DB Base Media"
-                # FIX: Match both p688088 and p6880880
+                    detected="DB Base Media"
                 elif [[ "$fname" == p688088* ]]; then
-                    detected="→ OPatch Utility"
+                    detected="OPatch Utility"
                 else
-                    detected="→ RU or OJVM (sorted by size)"
+                    detected="RU or OJVM patch"
                 fi
 
-                file_list+="${fname} (${sz}) <b>${detected}</b><br/>"
+                log "Found in drop dir: $fname ($sz) — $detected"
+                add_report_step "Drop dir: $fname" "INFO" "$sz — $detected"
+                file_list+="${fname} (${sz}) <b>→ ${detected}</b><br/>"
             done
-            add_html_row "Files in staging" "INFO" "$file_list"
+            add_html_row "Files in staging drop" "INFO" "$file_list"
         else
-            add_html_row "Files in staging" "WARN" \
-                "No ZIP files found in $drop — download your patches and drop them here"
+            add_html_row "Files in staging drop" "WARN" \
+                "No ZIP files found in $drop — upload your patches via the UI Software Staging tab"
+            add_report_step "Files in staging drop" "WARN" \
+                "No ZIP files found in $drop"
         fi
     else
-        add_html_row "Files in staging" "WARN" \
-            "$drop does not exist — will be created"
+        add_html_row "Staging drop directory" "WARN" "$drop does not exist — will be created"
+        add_report_step "Staging drop directory" "WARN" "$drop does not exist — will be created"
     fi
 
-    add_html_row "Phase" "INFO" "<b>Step 1:</b> Create target directories"
+    # ── Step 1: Create target directories ────────────────────────────────────
+    log "Step 1: Creating target directories"
+    add_html_row "Step 1" "INFO" "Creating target directories"
+    add_report_step "Step 1: Create directories" "INFO" "Running ensure_staging_dirs"
     ensure_staging_dirs
+    add_report_step "Step 1: Create directories" "PASS" "Target directories ready"
 
-    add_html_row "Phase" "INFO" "<b>Step 2:</b> Identify, distribute, and extract software"
+    # ── Step 2: Identify, distribute, and extract ─────────────────────────────
+    log "Step 2: Distributing and extracting software"
+    add_html_row "Step 2" "INFO" "Distributing and extracting software from drop directory"
+    add_report_step "Step 2: Distribute files" "INFO" "Running distribute_staged_files"
     distribute_staged_files
+    add_report_step "Step 2: Distribute files" "PASS" "File distribution complete"
 
-    add_html_row "Phase" "INFO" "<b>Step 3:</b> Validate all software is in place"
+    # ── Step 3: Validate ──────────────────────────────────────────────────────
+    log "Step 3: Validating staged software"
+    add_html_row "Step 3" "INFO" "Validating all software is in place"
+    add_report_step "Step 3: Validate software" "INFO" "Running validate_staged_software_html"
     local staging_ok=true
     validate_staged_software_html all || staging_ok=false
 
     if [[ "$staging_ok" != true ]]; then
-        # FIX: Use correct patchset dir for instructions based on DB_ONLY_MODE
         local instr_patchset_dir
         if [[ "${DB_ONLY_MODE:-false}" == true ]]; then
             instr_patchset_dir="$(dirname "$DB_BASE_ZIP")/patches/p${target_version}"
@@ -1180,12 +1196,11 @@ stage_software() {
         fi
 
         local instructions=""
-        instructions+="<b>Download all patches and drop them into one directory:</b><br/>"
-        instructions+="<code>$drop</code><br/><br/>"
+        instructions+="<b>Upload all patch ZIPs via the UI → Software Staging tab → Transfer Files,<br/>"
+        instructions+="or drop them manually into:</b> <code>$drop</code><br/><br/>"
         instructions+="<b>File identification (automatic by filename):</b><br/>"
         instructions+="<table border='1' cellpadding='4' cellspacing='0' style='font-size:11px;'>"
         instructions+="<tr style='background:#343a40;color:#fff;'><th>Filename pattern</th><th>Detected as</th><th>Moved to</th></tr>"
-        # FIX: Only show GI row if not DB-only
         if [[ "${DB_ONLY_MODE:-false}" != true ]]; then
             instructions+="<tr><td>V982068*.zip</td><td>GI Base Media</td><td>$(dirname "$GI_BASE_ZIP")/</td></tr>"
         fi
@@ -1194,19 +1209,21 @@ stage_software() {
         instructions+="<tr><td>p*_190000_*.zip (largest)</td><td>RU Patch</td><td>${instr_patchset_dir}/ (auto-extracted)</td></tr>"
         instructions+="<tr><td>p*_190000_*.zip (smaller)</td><td>OJVM One-off</td><td>${OJVM_ZIP_DIR}/ (auto-extracted)</td></tr>"
         instructions+="</table><br/>"
-        instructions+="<b>Then re-run:</b> <code>$0 stage_software</code>"
+        instructions+="<b>Then re-run Stage Software from the UI.</b>"
 
         add_html_row "Staging instructions" "WARN" "$instructions"
-        add_html_row "Overall staging" "FAIL" \
-            "Software staging incomplete — see instructions above"
+        add_html_row "Overall staging" "FAIL" "Software staging incomplete — see instructions above"
+        add_report_step "Step 3: Validate software" "FAIL" "Staging incomplete — missing files"
+        add_report_step "Overall staging" "FAIL" "Re-run after uploading missing software"
 
         send_html_report "Software Staging INCOMPLETE - $HOST" "Software Staging Report"
         log "Software staging incomplete."
         return 1
     fi
 
-    # FIX: Removed duplicate "local drop=" declaration
-    # All validated — now safe to clean up staging directory
+    add_report_step "Step 3: Validate software" "PASS" "All required software validated in target locations"
+
+    # ── Cleanup drop directory ────────────────────────────────────────────────
     if [[ -d "$drop" ]]; then
         shopt -s nullglob
         local staged_zips=( "$drop"/*.zip )
@@ -1216,13 +1233,16 @@ stage_software() {
                 rm -f "$f"
                 log "Cleaned up staging file: $(basename "$f")"
             done
-            add_html_row "Staging cleanup" "PASS" \
-                "Removed ${#staged_zips[@]} ZIP file(s) from $drop (all validated in target locations)"
+            local cleanup_msg="Removed ${#staged_zips[@]} ZIP file(s) from $drop (all validated in target locations)"
+            add_html_row "Staging cleanup" "PASS" "$cleanup_msg"
+            add_report_step "Staging cleanup" "PASS" "$cleanup_msg"
         fi
     fi
 
     add_html_row "Overall staging" "PASS" \
         "All required software staged and ready. Proceed with gi_precheck / db_precheck."
+    add_report_step "Overall staging" "PASS" \
+        "All software staged. Proceed with gi_precheck / db_precheck."
     send_html_report "Software Staging OK - $HOST" "Software Staging Report"
     log "All software staged successfully."
     return 0
