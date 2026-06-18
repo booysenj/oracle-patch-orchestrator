@@ -172,12 +172,14 @@ router.post('/vms/:id/deploy-agent', requireAdmin, (req, res) => {
     try { scriptContent = fs.readFileSync(scriptSrc); }
     catch (e) { return res.status(500).json({ error: 'Cannot read script: ' + e.message }); }
 
-    const scriptDest = '/home/oracle/os-patch-auto.sh';
+    const agentDir  = '/opt/insight-agent';
+    const agentDest = `${agentDir}/insight-agent.py`;
+    const scriptDest = `${agentDir}/os-patch-auto.sh`;
 
     const serviceUnit = [
         '[Unit]', 'Description=Insight Patch Agent', 'After=network.target', '',
         '[Service]', 'Type=simple', 'User=oracle',
-        'ExecStart=/usr/bin/python3 /home/oracle/insight-agent.py',
+        `ExecStart=/usr/bin/python3 ${agentDest}`,
         'Restart=always', 'RestartSec=5',
         `Environment=INSIGHT_API_URL=${orchestratorUrl}`,
         `Environment=INSIGHT_AGENT_TOKEN=${agentToken}`,
@@ -189,44 +191,47 @@ router.post('/vms/:id/deploy-agent', requireAdmin, (req, res) => {
 
     const conn = new Client();
     conn.on('ready', () => {
-        conn.sftp((err, sftp) => {
-            if (err) { conn.end(); return res.status(500).json({ error: 'SFTP error: ' + err.message }); }
+        // Create /opt/insight-agent owned by oracle before SFTP writes
+        conn.exec(`mkdir -p ${agentDir} && chown oracle:oracle ${agentDir} && chmod 750 ${agentDir}`, (mkErr, mkStream) => {
+            if (mkErr) { conn.end(); return res.status(500).json({ error: 'mkdir failed: ' + mkErr.message }); }
+            mkStream.on('close', () => {
+                conn.sftp((err, sftp) => {
+                    if (err) { conn.end(); return res.status(500).json({ error: 'SFTP error: ' + err.message }); }
 
-            // Write agent first, then the patch script
-            const agentStream = sftp.createWriteStream('/home/oracle/insight-agent.py');
-            agentStream.on('close', () => {
-                const scriptStream = sftp.createWriteStream(scriptDest);
-                scriptStream.on('close', () => {
-                    const cmds = [
-                        'chown oracle /home/oracle/insight-agent.py',
-                        'chmod 750 /home/oracle/insight-agent.py',
-                        `chown oracle ${scriptDest}`,
-                        `chmod 750 ${scriptDest}`,
-                        `tee /etc/systemd/system/insight-agent.service > /dev/null << 'SVCEOF'\n${serviceUnit}\nSVCEOF`,
-                        'systemctl daemon-reload',
-                        'systemctl enable insight-agent',
-                        'systemctl restart insight-agent',
-                        'sleep 2 && systemctl is-active insight-agent'
-                    ].join(' && ');
-                    conn.exec(cmds, (err2, stream) => {
-                        if (err2) { conn.end(); return res.status(500).json({ error: err2.message }); }
-                        let out = '';
-                        stream.on('data', d => { out += d; });
-                        stream.stderr.on('data', d => { out += d; });
-                        stream.on('close', () => {
-                            conn.end();
-                            // Record the deployed script path in the VM record
-                            try {
-                                db.prepare("UPDATE vms SET script_path = ?, updated_at = datetime('now') WHERE id = ?")
-                                  .run(scriptDest, vm.id);
-                            } catch(_) {}
-                            res.json({ ok: true, hostname: vm.hostname, scriptPath: scriptDest, output: out.trim() });
+                    // Write agent first, then the patch script
+                    const agentStream = sftp.createWriteStream(agentDest);
+                    agentStream.on('close', () => {
+                        const scriptStream = sftp.createWriteStream(scriptDest);
+                        scriptStream.on('close', () => {
+                            const cmds = [
+                                `chown oracle ${agentDest} && chmod 750 ${agentDest}`,
+                                `chown oracle ${scriptDest} && chmod 750 ${scriptDest}`,
+                                `tee /etc/systemd/system/insight-agent.service > /dev/null << 'SVCEOF'\n${serviceUnit}\nSVCEOF`,
+                                'systemctl daemon-reload',
+                                'systemctl enable insight-agent',
+                                'systemctl restart insight-agent',
+                                'sleep 2 && systemctl is-active insight-agent'
+                            ].join(' && ');
+                            conn.exec(cmds, (err2, stream) => {
+                                if (err2) { conn.end(); return res.status(500).json({ error: err2.message }); }
+                                let out = '';
+                                stream.on('data', d => { out += d; });
+                                stream.stderr.on('data', d => { out += d; });
+                                stream.on('close', () => {
+                                    conn.end();
+                                    try {
+                                        db.prepare("UPDATE vms SET script_path = ?, updated_at = datetime('now') WHERE id = ?")
+                                          .run(scriptDest, vm.id);
+                                    } catch(_) {}
+                                    res.json({ ok: true, hostname: vm.hostname, agentPath: agentDest, scriptPath: scriptDest, output: out.trim() });
+                                });
+                            });
                         });
+                        scriptStream.end(scriptContent);
                     });
+                    agentStream.end(agentContent);
                 });
-                scriptStream.end(scriptContent);
             });
-            agentStream.end(agentContent);
         });
     }).on('error', err => res.status(500).json({ error: err.message }))
       .connect({ host: vm.ip, port: vm.ssh_port || 22, username: 'root', privateKey, readyTimeout: 10000 });
