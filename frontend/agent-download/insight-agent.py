@@ -279,32 +279,36 @@ def execute_transfer(t):
 
         print('[agent] Transfer %s: downloading %s -> %s' % (tid, filename, dest_file))
 
+        download_headers = {'Authorization': 'Bearer ' + AGENT_TOKEN}
         r = requests.get(
             API_URL + '/api/agent/transfer/' + tid,
-            headers=HEADERS, timeout=3600, stream=True
+            headers=download_headers, timeout=3600, stream=True
         )
         if r.status_code != 200:
             raise Exception('HTTP %d from orchestrator' % r.status_code)
 
+        r.raw.decode_content = True
         bytes_received = 0
         last_pct = 0
         with open(dest_file, 'wb') as f:
-            for chunk in r.iter_content(chunk_size=1048576):
-                if chunk:
-                    f.write(chunk)
-                    bytes_received += len(chunk)
-                    if total_bytes > 0:
-                        pct = int(bytes_received * 100 / total_bytes)
-                        if pct >= last_pct + 5:
-                            last_pct = pct
-                            try:
-                                requests.post(
-                                    API_URL + '/api/agent/transfer/' + tid + '/progress',
-                                    json={'bytesReceived': bytes_received, 'totalBytes': total_bytes},
-                                    headers=HEADERS, timeout=5
-                                )
-                            except Exception:
-                                pass
+            while True:
+                chunk = r.raw.read(1048576)
+                if not chunk:
+                    break
+                f.write(chunk)
+                bytes_received += len(chunk)
+                if total_bytes > 0:
+                    pct = int(bytes_received * 100 / total_bytes)
+                    if pct >= last_pct + 5:
+                        last_pct = pct
+                        try:
+                            requests.post(
+                                API_URL + '/api/agent/transfer/' + tid + '/progress',
+                                json={'bytesReceived': bytes_received, 'totalBytes': total_bytes},
+                                headers=HEADERS, timeout=5
+                            )
+                        except Exception:
+                            pass
 
         requests.post(
             API_URL + '/api/agent/transfer/' + tid + '/complete',
