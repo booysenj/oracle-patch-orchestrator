@@ -55,6 +55,13 @@ server.listen(PORT, '0.0.0.0', () => {
     console.log('[insight-patch-ui] API listening on :' + PORT);
     console.log('[insight-patch-ui] WebSocket: ws://0.0.0.0:' + PORT + '/ws/logs');
 
+    // Reset any transfers that were mid-flight when the server last stopped — agent will retry
+    try {
+        const _db = require('./lib/db').getDB();
+        const _reset = _db.prepare("UPDATE patch_transfers SET status='PENDING', started_at=NULL WHERE status='TRANSFERRING'").run();
+        if (_reset.changes) console.log('[startup] Reset ' + _reset.changes + ' stuck TRANSFERRING transfer(s) to PENDING');
+    } catch(_) {}
+
     // Run immediately on startup to clear any stale jobs, then every 5 minutes
     timeoutStaleJobs();
     setInterval(timeoutStaleJobs, 5 * 60 * 1000);

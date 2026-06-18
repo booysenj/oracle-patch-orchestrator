@@ -349,15 +349,23 @@ def execute_transfer(t):
         print('[agent] Transfer %s complete: %s (%d bytes)' % (tid, dest_file, bytes_received))
 
     except Exception as e:
-        print('[agent] Transfer %s failed: %s' % (tid, e))
-        try:
-            requests.post(
-                API_URL + '/api/agent/transfer/' + tid + '/complete',
-                json={'success': False, 'error': str(e)},
-                headers=HEADERS, timeout=10
-            )
-        except Exception:
-            pass
+        err_str = str(e)
+        print('[agent] Transfer %s failed: %s' % (tid, err_str))
+        # Only report permanent failure (e.g. 404 not found, disk full).
+        # Connection errors (server restart) → leave status as-is so the server's
+        # startup reset or 10-min auto-recovery returns it to PENDING for retry.
+        is_conn_error = any(k in err_str for k in ('RemoteDisconnected', 'ConnectionRefused',
+                                                    'Connection refused', 'Connection aborted',
+                                                    'NewConnectionError', 'timed out'))
+        if not is_conn_error:
+            try:
+                requests.post(
+                    API_URL + '/api/agent/transfer/' + tid + '/complete',
+                    json={'success': False, 'error': err_str},
+                    headers=HEADERS, timeout=10
+                )
+            except Exception:
+                pass
 
 def send_logs(job_id, lines):
     try:
