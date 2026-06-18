@@ -1769,33 +1769,40 @@ update_oratab_db_after_switch() {
         return
     fi
     backup_oratab
+    local old_norm="${OLD_DB_HOME%/}"
+    local new_norm="${NEW_DB_HOME%/}"
     local tmp="${LOG_DIR}/oratab.tmp.$$"
+    local matched=0
     : > "$tmp"
     while IFS= read -r line; do
-        if [[ -z "$line" ]]; then
+        if [[ -z "$line" || "$line" =~ ^# ]]; then
             echo "$line" >> "$tmp"
             continue
         fi
-        if [[ "$line" =~ ^# ]]; then
-            echo "$line" >> "$tmp"
-            continue
-        fi
-        IFS=: read -r sid home flag rest <<<"$line"
-        if [[ "$home" == "$OLD_DB_HOME" ]]; then
-            echo "#${sid}:${home}:${flag} # OOP-OLD_DB_HOME" >> "$tmp"
-            echo "${sid}:${NEW_DB_HOME}:${flag}" >> "$tmp"
+        local sid home flag
+        IFS=: read -r sid home flag _ <<<"$line"
+        home="${home%/}"
+        if [[ "$home" == "$old_norm" ]]; then
+            echo "# OOP-SWITCH: ${sid}:${OLD_DB_HOME%/}:${flag}" >> "$tmp"
+            echo "${sid}:${new_norm}:${flag}" >> "$tmp"
+            matched=$((matched + 1))
         else
             echo "$line" >> "$tmp"
         fi
     done < "$ORATAB_FILE"
+    if [[ $matched -eq 0 ]]; then
+        add_html_row "/etc/oratab update (DB switch)" "WARN" \
+            "No oratab entries matched OLD_DB_HOME=${OLD_DB_HOME} — oratab not modified."
+        rm -f "$tmp"
+        return
+    fi
     if ! run_cmd "sudo cp -p \"$tmp\" \"$ORATAB_FILE\""; then
-        log "WARN: Failed to overwrite $ORATAB_FILE from $tmp; update DB entries manually."
         add_html_row "/etc/oratab update (DB switch)" "FAIL" \
             "Could not overwrite $ORATAB_FILE for DB switch; update manually."
     else
-        log "Updated $ORATAB_FILE for DB switch: OLD_DB_HOME -> NEW_DB_HOME"
+        log "Updated $ORATAB_FILE for DB switch: OLD_DB_HOME -> NEW_DB_HOME ($matched entries)"
         add_html_row "/etc/oratab update (DB switch)" "PASS" \
-            "Updated DB entries in $ORATAB_FILE: OLD_DB_HOME -> NEW_DB_HOME."
+            "Updated $matched oratab entry(ies): ${OLD_DB_HOME} → ${NEW_DB_HOME}."
     fi
     rm -f "$tmp"
 }
@@ -1806,39 +1813,58 @@ update_oratab_db_after_rollback() {
         return
     fi
     backup_oratab
+    local old_norm="${OLD_DB_HOME%/}"
+    local new_norm="${NEW_DB_HOME%/}"
     local tmp="${LOG_DIR}/oratab.tmp.$$"
+    local matched=0
     : > "$tmp"
     while IFS= read -r line; do
         if [[ -z "$line" ]]; then
             echo "$line" >> "$tmp"
             continue
         fi
+        # Restore OOP-SWITCH comments: "# OOP-SWITCH: sid:old_home:flag"
+        if [[ "$line" =~ ^#\ OOP-SWITCH:\ (.+) ]]; then
+            local inner="${BASH_REMATCH[1]}"
+            local sid home flag
+            IFS=: read -r sid home flag _ <<<"$inner"
+            home="${home%/}"
+            if [[ "$home" == "$old_norm" ]]; then
+                echo "${sid}:${old_norm}:${flag}" >> "$tmp"
+                matched=$((matched + 1))
+            else
+                echo "$line" >> "$tmp"
+            fi
+            continue
+        fi
         if [[ "$line" =~ ^# ]]; then
-            local raw="${line#\#}"
-            raw="${raw#" "}"
-            IFS=: read -r sid home flag rest <<<"$raw"
-            if [[ "$home" == "$OLD_DB_HOME" ]]; then
-                echo "${sid}:${home}:${flag}" >> "$tmp"
-            else
-                echo "$line" >> "$tmp"
-            fi
+            echo "$line" >> "$tmp"
+            continue
+        fi
+        # Comment out any active NEW_DB_HOME entries (defensive — handles repeated runs)
+        local sid home flag
+        IFS=: read -r sid home flag _ <<<"$line"
+        home="${home%/}"
+        if [[ "$home" == "$new_norm" ]]; then
+            echo "# OOP-ROLLBACK-REMOVED: $line" >> "$tmp"
+            matched=$((matched + 1))
         else
-            IFS=: read -r sid home flag rest <<<"$line"
-            if [[ "$home" == "$NEW_DB_HOME" ]]; then
-                echo "#${line} # OOP-REMOVED_ON_ROLLBACK" >> "$tmp"
-            else
-                echo "$line" >> "$tmp"
-            fi
+            echo "$line" >> "$tmp"
         fi
     done < "$ORATAB_FILE"
+    if [[ $matched -eq 0 ]]; then
+        add_html_row "/etc/oratab update (DB rollback)" "WARN" \
+            "No oratab entries matched for rollback (OLD=${OLD_DB_HOME}, NEW=${NEW_DB_HOME}) — oratab not modified."
+        rm -f "$tmp"
+        return
+    fi
     if ! run_cmd "sudo cp -p \"$tmp\" \"$ORATAB_FILE\""; then
-        log "WARN: Failed to overwrite $ORATAB_FILE from $tmp; update DB entries manually."
         add_html_row "/etc/oratab update (DB rollback)" "FAIL" \
             "Could not overwrite $ORATAB_FILE for DB rollback; update manually."
     else
-        log "Updated $ORATAB_FILE for DB rollback: NEW_DB_HOME -> OLD_DB_HOME"
+        log "Updated $ORATAB_FILE for DB rollback: NEW_DB_HOME -> OLD_DB_HOME ($matched entries)"
         add_html_row "/etc/oratab update (DB rollback)" "PASS" \
-            "Updated DB entries in $ORATAB_FILE: NEW_DB_HOME -> OLD_DB_HOME."
+            "Restored $matched oratab entry(ies): ${NEW_DB_HOME} → ${OLD_DB_HOME}."
     fi
     rm -f "$tmp"
 }
