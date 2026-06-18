@@ -87,7 +87,8 @@ def discover():
                 except ValueError:
                     pass
 
-    # /etc/oratab — static DB registrations
+    # /etc/oratab — static DB registrations; also capture +ASM* home as GI home fallback
+    asm_home_from_oratab = None
     try:
         with open('/etc/oratab') as f:
             for line in f:
@@ -97,7 +98,12 @@ def discover():
                     if len(parts) >= 2:
                         sid = parts[0].strip()
                         home = parts[1].strip()
-                        if sid and home and sid not in ('+ASM', 'MGMTDB', '*') and not sid.startswith('+'):
+                        if not sid or not home:
+                            continue
+                        if sid.startswith('+') or sid in ('MGMTDB', '*'):
+                            if sid.startswith('+ASM') and home and not asm_home_from_oratab:
+                                asm_home_from_oratab = home
+                        else:
                             result['oratab'].append({'sid': sid, 'home': home})
     except Exception:
         pass
@@ -112,12 +118,14 @@ def discover():
                 if sid not in result['running_dbs']:
                     result['running_dbs'].append(sid)
 
-    # Grid home — detect from running CRS processes
+    # Grid home — detect from running CRS processes first, fall back to +ASM oratab entry
     crs_out = _run("ps -eo args 2>/dev/null | grep -E 'ocssd\\.bin|crsd\\.bin|cssdagent' | grep -v grep | head -1")
     if crs_out:
         m = re.match(r'(/[^\s]+/bin/)', crs_out)
         if m:
             result['grid_home'] = m.group(1).rstrip('/').rsplit('/bin', 1)[0]
+    if not result['grid_home'] and asm_home_from_oratab:
+        result['grid_home'] = asm_home_from_oratab
 
     # DB unique name + role — query first running DB via sqlplus
     if result['running_dbs'] and result['oratab']:
