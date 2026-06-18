@@ -1056,11 +1056,12 @@ async function deployAgent(vmId, hostname, savedSshUser) {
     // Show deployment log modal
     var deployModal = document.createElement('div');
     deployModal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:9999;display:flex;align-items:center;justify-content:center';
+    deployModal.setAttribute('data-deploy-overlay', '1');
     deployModal.innerHTML =
       '<div style="background:var(--color-bg-primary);border:1px solid var(--color-border-primary);border-radius:10px;width:640px;max-width:95vw;max-height:80vh;display:flex;flex-direction:column">' +
         '<div style="display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border-bottom:1px solid var(--color-border-primary)">' +
           '<span style="font-weight:600;font-size:14px">Agent Deployment — ' + esc(hostname) + '</span>' +
-          '<button onclick="this.closest(\'div[style]\').remove()" style="background:none;border:none;cursor:pointer;font-size:18px;color:var(--color-text-secondary)">&times;</button>' +
+          '<button onclick="this.closest(\'[data-deploy-overlay]\').remove()" style="background:none;border:none;cursor:pointer;font-size:18px;color:var(--color-text-secondary)">&times;</button>' +
         '</div>' +
         '<div id="deployLogOut" style="flex:1;overflow-y:auto;padding:12px 16px;font-family:monospace;font-size:12px;background:var(--color-bg-secondary);white-space:pre-wrap;min-height:200px;max-height:50vh">' +
           '<span style="color:var(--color-text-secondary)">Connecting to ' + esc(hostname) + '...</span>\n' +

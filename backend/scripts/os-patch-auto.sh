@@ -6560,7 +6560,7 @@ db_switch_core() {
                 add_html_row "Java binary" "INFO" "$java_bin"
 
                 local au_cfg
-                au_cfg=$(write_db_switch_autoupgrade_cfg "$DB_UNIQUE_NAME" "$current_home" "$NEW_DB_HOME")
+                au_cfg=$(write_db_switch_autoupgrade_cfg "$DB_UNIQUE_NAME" "$current_home" "$NEW_DB_HOME" | tail -1)
                 add_html_row "AutoUpgrade config" "INFO" "$au_cfg"
 
                 local au_log="${DB_LOG_DIR}/autoupgrade_switch_${DB_UNIQUE_NAME}_$(date +%F_%H%M%S).log"
