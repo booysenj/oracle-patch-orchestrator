@@ -642,7 +642,9 @@ async function confirmClearHistory() {
   if (document.getElementById('clearStatusSuccess').checked) statuses.push('success');
   if (document.getElementById('clearStatusFailed').checked) statuses.push('failed');
   if (document.getElementById('clearStatusCancelled').checked) statuses.push('cancelled');
+  if (document.getElementById('clearStatusRunning').checked) statuses.push('running', 'queued');
   if (!statuses.length) { errEl.textContent = 'Select at least one status to clear.'; return; }
+  if (statuses.includes('running') && !confirm('This will force-stop all currently running/queued jobs on the selected VMs. Continue?')) return;
 
   var before = document.getElementById('clearBeforeDate').value || null;
   var checkedVms = Array.from(document.querySelectorAll('.clear-vm-check:checked')).map(function(c) { return c.value; });

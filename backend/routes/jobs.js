@@ -121,12 +121,19 @@ router.delete('/history', (req, res) => {
     const { before, vmIds, statuses } = req.body;
     const db = require('../lib/db').getDB();
 
-    const allowedStatuses = ['success', 'failed', 'cancelled'];
+    const allowedStatuses = ['success', 'failed', 'cancelled', 'running', 'queued'];
     const filterStatuses = (Array.isArray(statuses) && statuses.length)
         ? statuses.filter(s => allowedStatuses.includes(s))
-        : allowedStatuses;
+        : ['success', 'failed', 'cancelled'];
 
     if (!filterStatuses.length) return res.status(400).json({ error: 'No valid statuses specified' });
+
+    // Force-stop any running/queued jobs before deleting them
+    const activeStatuses = filterStatuses.filter(s => s === 'running' || s === 'queued');
+    if (activeStatuses.length) {
+        const ap = activeStatuses.map(() => '?').join(',');
+        db.prepare(`UPDATE jobs SET status='failed', exit_code=-99, finished_at=datetime('now') WHERE status IN (${ap})`).run(...activeStatuses);
+    }
 
     const placeholders = filterStatuses.map(() => '?').join(',');
     const params = [...filterStatuses];
