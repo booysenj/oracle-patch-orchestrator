@@ -129,7 +129,10 @@ router.post('/discover', (req, res) => {
 
     // Static values — always update GI home from agent (null clears it for DB-only VMs)
     var updates = {};
-    updates.old_gi_home = gridHome || '';
+    // old_gi_home: update only when agent positively reports a GI home.
+    // Never clear — a temporary detection failure shouldn't wipe the stored value.
+    // To remove a wrong GI home on a DB-only VM, use Override Config.
+    if (gridHome) updates.old_gi_home = gridHome;
     // old_db_home = pre-patch baseline — write-once so rollback always knows where to return
     if ((!vm.old_db_home || vm.old_db_home === '') && oratab.length > 0) updates.old_db_home = oratab[0].home;
     // current_db_home = live oratab value — always updated so card reflects post-switch state

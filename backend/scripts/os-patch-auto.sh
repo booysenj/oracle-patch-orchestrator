@@ -1255,7 +1255,7 @@ stage_software() {
 log() {
     local msg="$(date '+%F %T') - $*"
     { echo "$msg" >> "$LOG_FILE"; } 2>/dev/null
-    echo "$msg"
+    { echo "$msg"; } 2>/dev/null
 }
 
 # Stream a spool file's content through log() so it appears in the UI log viewer.
