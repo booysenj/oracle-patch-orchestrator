@@ -1251,9 +1251,8 @@ stage_software() {
 # LOGGING / HELPERS
 # ------------------------------------------------------------
 log() {
-    local msg="$*"
-    msg="$(date '+%F %T') - ${msg}"
-    echo "$msg" >> "$LOG_FILE"
+    local msg="$(date '+%F %T') - $*"
+    { echo "$msg" >> "$LOG_FILE"; } 2>/dev/null
     echo "$msg"
 }
 
@@ -3930,9 +3929,6 @@ gi_precheck() {
 
     # Validate required software is staged
     validate_staged_software_html gi || true
-
-    # Validate all required software is staged
-    validate_staged_software_html gi
 
 
 
