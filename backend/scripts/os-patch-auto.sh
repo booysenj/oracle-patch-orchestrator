@@ -85,18 +85,21 @@ OLD_GI_OSOPER_GROUP=""
 MAIL_TO="ps.devops@4cgroup.co.za"
 MAIL_FROM="oop-orchestrator@4cgroup.co.za"
 
-# Oracle homes — set by runtime conf from orchestrator; fallback defaults kept for manual runs
-OLD_GI_HOME=${OLD_GI_HOME:-/grid/oracle/product/c19}
-NEW_GI_HOME=${NEW_GI_HOME:-/grid/oracle/product/c19.29.1}
-OLD_DB_HOME=${OLD_DB_HOME:-/app/oracle/product/19.28}
-NEW_DB_HOME=${NEW_DB_HOME:-/app/oracle/product/19.30}
+# Oracle homes — injected by orchestrator runtime config (OLD from agent discovery,
+# NEW auto-derived from gi_home_base/db_home_base + patch version).
+# For manual CLI use, set these in your environment before calling the script.
+OLD_GI_HOME="${OLD_GI_HOME:-}"
+NEW_GI_HOME="${NEW_GI_HOME:-}"
+OLD_DB_HOME="${OLD_DB_HOME:-}"
+NEW_DB_HOME="${NEW_DB_HOME:-}"
 
-# Precheck-only homes
-PRECHECK_GI_HOME="${NEW_GI_HOME}-precheck"
-PRECHECK_DB_HOME="${NEW_DB_HOME}-precheck"
+# Precheck-only homes — derived from NEW homes so they're always in sync
+PRECHECK_GI_HOME="${NEW_GI_HOME:+${NEW_GI_HOME}-precheck}"
+PRECHECK_DB_HOME="${NEW_DB_HOME:+${NEW_DB_HOME}-precheck}"
 
-GI_BASE_ZIP=/grid/software/GI_SOFT/V982068-01.zip
-DB_BASE_ZIP=/staging/DB_BASE_SOFT/V982063-01.zip
+# Patch software ZIPs — injected by orchestrator runtime config
+GI_BASE_ZIP="${GI_BASE_ZIP:-}"
+DB_BASE_ZIP="${DB_BASE_ZIP:-}"
 
 # ----------------------------
 # PATCH DISCOVERY CONFIG

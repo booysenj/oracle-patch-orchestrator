@@ -172,6 +172,26 @@ router.get('/:jobId/runtime-config', (req, res) => {
         pv = db.prepare('SELECT * FROM patch_versions WHERE id = ?').get(job.target_patch_version_id);
     }
 
+    // App-level base paths for auto-deriving new Oracle homes from patch version
+    var giHomeBase = '', dbHomeBase = '';
+    try {
+        var r = db.prepare("SELECT value FROM app_settings WHERE key = 'gi_home_base'").get();
+        if (r && r.value) giHomeBase = r.value.replace(/\/$/, '');
+        r = db.prepare("SELECT value FROM app_settings WHERE key = 'db_home_base'").get();
+        if (r && r.value) dbHomeBase = r.value.replace(/\/$/, '');
+    } catch(_) {}
+
+    // Derive new homes: explicit VM override > patch version explicit > auto from base+version
+    function deriveHome(explicitVal, pvVal, base, version) {
+        if (explicitVal) return explicitVal;
+        if (pvVal) return pvVal;
+        if (base && version) return base + '/' + version;
+        return '';
+    }
+    var pvVersion = (pv && pv.version) ? pv.version : '';
+    var newGiHome = deriveHome(job.new_gi_home, pv && pv.new_gi_home, giHomeBase, pvVersion);
+    var newDbHome = deriveHome(job.new_db_home, pv && pv.new_db_home, dbHomeBase, pvVersion);
+
     var stagingRoot = job.preferred_staging_mount || job.stage_path || '/home/oracle/staging';
 
     var lines = [
@@ -181,11 +201,11 @@ router.get('/:jobId/runtime-config', (req, res) => {
         'JOB_ID=' + jobId,
         'HOSTNAME=' + (job.hostname || ''),
         '',
-        '# Oracle Homes',
+        '# Oracle Homes (OLD from agent discovery, NEW from patch version / base path + version)',
         'OLD_GI_HOME=' + (job.old_gi_home || ''),
-        'NEW_GI_HOME=' + (job.new_gi_home || (pv && pv.new_gi_home ? pv.new_gi_home : '')),
+        'NEW_GI_HOME=' + newGiHome,
         'OLD_DB_HOME=' + (job.old_db_home || ''),
-        'NEW_DB_HOME=' + (job.new_db_home || (pv && pv.new_db_home ? pv.new_db_home : '')),
+        'NEW_DB_HOME=' + newDbHome,
         '',
         '# Database Identity',
         'DB_UNIQUE_NAME=' + (job.db_unique_name || ''),
