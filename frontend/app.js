@@ -1918,19 +1918,39 @@ function closeScheduleModal() {
   document.getElementById('scheduleModal').classList.add('hidden');
 }
 
-function populateSchedOps() {
+async function populateSchedOps() {
   var sel = document.getElementById('schedOperation');
   sel.innerHTML = '<option value="">Select operation...</option>';
-  var ops = ['gi_precheck','db_precheck','gi_install','db_install','gi_rollback','db_rollback','gi_switchback','db_switchback','full_patch','full_rollback'];
-  ops.forEach(function(o) {
-    sel.innerHTML += '<option value="' + o + '">' + o.replace(/_/g, ' ').toUpperCase() + '</option>';
-  });
+  try {
+    var cats = await getOpsCache();
+    Object.keys(cats).forEach(function(catKey) {
+      var cat = cats[catKey];
+      var grp = document.createElement('optgroup');
+      grp.label = cat.label;
+      (cat.items || []).forEach(function(item) {
+        var opt = document.createElement('option');
+        opt.value = item.key;
+        opt.textContent = item.label + (item.downtime ? ' ⚠' : '');
+        grp.appendChild(opt);
+      });
+      sel.appendChild(grp);
+    });
+  } catch(e) {
+    // fallback static list if API call fails
+    var ops = ['gi_precheck','db_precheck','gi_install','db_install','gi_switch','db_switch','gi_rollback','db_rollback','stage_software'];
+    ops.forEach(function(o) {
+      var opt = document.createElement('option');
+      opt.value = o;
+      opt.textContent = o.replace(/_/g,' ').replace(/\b\w/g,function(c){return c.toUpperCase();});
+      sel.appendChild(opt);
+    });
+  }
 }
 
 function toggleSchedPatchVersion() {
   var op = document.getElementById('schedOperation').value;
-  var show = op && !/rollback/i.test(op);
-  document.getElementById('schedPatchVersionGroup').style.display = show ? 'block' : 'none';
+  var hide = !op || /rollback/i.test(op);
+  document.getElementById('schedPatchVersionGroup').style.display = hide ? 'none' : 'block';
 }
 
 function populateSchedVms() {
