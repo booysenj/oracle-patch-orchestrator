@@ -28,6 +28,22 @@ router.get('/poll', (req, res) => {
     // Record heartbeat so dashboard can show agent online/offline status
     db.prepare(`UPDATE vms SET agent_last_seen = datetime('now') WHERE id = ?`).run(vm.id);
 
+    // Check for a pending file transfer first (transfers don't block jobs)
+    const pendingTransfer = db.prepare(
+        "SELECT * FROM patch_transfers WHERE target_host = ? AND status = 'PENDING' ORDER BY created_at ASC LIMIT 1"
+    ).get(hostname);
+    if (pendingTransfer) {
+        db.prepare("UPDATE patch_transfers SET status='TRANSFERRING', started_at=datetime('now') WHERE id=?").run(pendingTransfer.id);
+        return res.json({
+            transfer: {
+                id: pendingTransfer.id,
+                filename: pendingTransfer.file_name,
+                destPath: pendingTransfer.target_stage_path,
+                totalBytes: pendingTransfer.total_bytes || 0
+            }
+        });
+    }
+
     const job = db.prepare(
         'SELECT j.*, v.script_path, v.node_role FROM jobs j JOIN vms v ON j.vm_id = v.id WHERE j.vm_id = ? AND j.status = ? ORDER BY j.created_at ASC LIMIT 1'
     ).get(vm.id, 'queued');
@@ -356,6 +372,45 @@ router.post('/:jobId/complete', (req, res) => {
     ).run(status, exitCode, 'now', jobId);
     jobEvents.emit('done:' + jobId, { status: status, exitCode: exitCode });
     res.json({ ok: true, status: status, exitCode: exitCode });
+});
+
+// GET /api/agent/transfer/:id — agent pulls file content
+router.get('/transfer/:id', (req, res) => {
+    const db = getDB();
+    const fs = require('fs');
+    const t = db.prepare('SELECT * FROM patch_transfers WHERE id = ?').get(req.params.id);
+    if (!t) return res.status(404).json({ error: 'Transfer not found' });
+    var src = t.source_path;
+    if (!src || !fs.existsSync(src)) return res.status(404).json({ error: 'Source file not found: ' + src });
+    var stat = fs.statSync(src);
+    res.setHeader('Content-Length', stat.size);
+    res.setHeader('Content-Type', 'application/octet-stream');
+    res.setHeader('X-Filename', require('path').basename(src));
+    res.setHeader('X-Total-Bytes', stat.size);
+    fs.createReadStream(src).pipe(res);
+});
+
+// POST /api/agent/transfer/:id/complete — agent reports transfer done or failed
+router.post('/transfer/:id/complete', (req, res) => {
+    const db = getDB();
+    const { success, error, bytesReceived } = req.body || {};
+    if (success) {
+        db.prepare("UPDATE patch_transfers SET status='STAGED', bytes_transferred=?, checksum_verified=1, completed_at=datetime('now') WHERE id=?")
+            .run(bytesReceived || 0, req.params.id);
+    } else {
+        db.prepare("UPDATE patch_transfers SET status='FAILED', error_message=?, completed_at=datetime('now') WHERE id=?")
+            .run(error || 'Agent reported failure', req.params.id);
+    }
+    res.json({ ok: true });
+});
+
+// POST /api/agent/transfer/:id/progress — agent reports bytes received so far
+router.post('/transfer/:id/progress', (req, res) => {
+    const db = getDB();
+    const { bytesReceived, totalBytes } = req.body || {};
+    db.prepare("UPDATE patch_transfers SET bytes_transferred=?, total_bytes=? WHERE id=?")
+        .run(bytesReceived || 0, totalBytes || 0, req.params.id);
+    res.json({ ok: true });
 });
 
 module.exports = router;

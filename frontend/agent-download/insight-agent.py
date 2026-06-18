@@ -266,6 +266,64 @@ def poll():
         print('[agent] Poll failed: %s' % e)
         return None
 
+def execute_transfer(t):
+    """Pull a file from the orchestrator and write it to the target staging path."""
+    tid = t['id']
+    filename = t.get('filename') or ('transfer_' + tid)
+    dest_path = t.get('destPath', '/tmp')
+    total_bytes = t.get('totalBytes', 0)
+
+    try:
+        os.makedirs(dest_path, exist_ok=True)
+        dest_file = os.path.join(dest_path, filename)
+
+        print('[agent] Transfer %s: downloading %s -> %s' % (tid, filename, dest_file))
+
+        r = requests.get(
+            API_URL + '/api/agent/transfer/' + tid,
+            headers=HEADERS, timeout=3600, stream=True
+        )
+        if r.status_code != 200:
+            raise Exception('HTTP %d from orchestrator' % r.status_code)
+
+        bytes_received = 0
+        last_pct = 0
+        with open(dest_file, 'wb') as f:
+            for chunk in r.iter_content(chunk_size=1048576):
+                if chunk:
+                    f.write(chunk)
+                    bytes_received += len(chunk)
+                    if total_bytes > 0:
+                        pct = int(bytes_received * 100 / total_bytes)
+                        if pct >= last_pct + 5:
+                            last_pct = pct
+                            try:
+                                requests.post(
+                                    API_URL + '/api/agent/transfer/' + tid + '/progress',
+                                    json={'bytesReceived': bytes_received, 'totalBytes': total_bytes},
+                                    headers=HEADERS, timeout=5
+                                )
+                            except Exception:
+                                pass
+
+        requests.post(
+            API_URL + '/api/agent/transfer/' + tid + '/complete',
+            json={'success': True, 'bytesReceived': bytes_received},
+            headers=HEADERS, timeout=10
+        )
+        print('[agent] Transfer %s complete: %s (%d bytes)' % (tid, dest_file, bytes_received))
+
+    except Exception as e:
+        print('[agent] Transfer %s failed: %s' % (tid, e))
+        try:
+            requests.post(
+                API_URL + '/api/agent/transfer/' + tid + '/complete',
+                json={'success': False, 'error': str(e)},
+                headers=HEADERS, timeout=10
+            )
+        except Exception:
+            pass
+
 def send_logs(job_id, lines):
     try:
         r = requests.post(
@@ -395,7 +453,9 @@ def main():
             except Exception as e:
                 print('[agent] Discovery error: %s' % e)
 
-        if job:
+        if job and job.get('transfer'):
+            execute_transfer(job['transfer'])
+        elif job:
             execute_job(job)
         else:
             time.sleep(POLL_INTERVAL)
