@@ -130,7 +130,7 @@ router.post('/discover', (req, res) => {
     // Static values — always update GI home from agent (null clears it for DB-only VMs)
     var updates = {};
     updates.old_gi_home = gridHome || '';
-    if ((!vm.old_db_home || vm.old_db_home === '') && oratab.length > 0) updates.old_db_home = oratab[0].home;
+    updates.old_db_home = oratab.length > 0 ? oratab[0].home : (vm.old_db_home || '');
     if (!vm.db_unique_name && dbUniqueName) updates.db_unique_name = dbUniqueName;
     if (!vm.cluster_name && clusterName) updates.cluster_name = clusterName;
     if (!vm.preferred_staging_mount && preferredStaging) updates.preferred_staging_mount = preferredStaging;

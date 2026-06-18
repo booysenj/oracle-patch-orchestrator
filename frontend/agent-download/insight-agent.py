@@ -73,20 +73,35 @@ def discover():
     }
 
     # Mount points with free space (GB)
-    # df -BG output: Filesystem 1G-blocks Used Avail Use% Mounted-on
-    df_out = _run("df -BG 2>/dev/null")
     skip_mounts = ('/boot', '/dev', '/proc', '/sys', '/run')
-    for line in df_out.splitlines()[1:]:
-        parts = line.split()
-        if len(parts) >= 6:
+
+    def _parse_mounts(df_out, kb_mode=False):
+        mounts = []
+        for line in df_out.splitlines()[1:]:
+            parts = line.split()
+            if len(parts) < 6:
+                continue
             mount = parts[5]
-            avail_raw = parts[3]  # e.g. "38G" or "0G"
-            if mount.startswith('/') and not any(mount == s or mount.startswith(s + '/') for s in skip_mounts):
-                try:
+            avail_raw = parts[3]
+            if not mount.startswith('/'):
+                continue
+            if any(mount == s or mount.startswith(s + '/') for s in skip_mounts):
+                continue
+            try:
+                if kb_mode:
+                    free_gb = int(avail_raw) // 1048576
+                else:
                     free_gb = int(avail_raw.rstrip('G'))
-                    result['mounts'].append({'mount': mount, 'free_gb': free_gb})
-                except ValueError:
-                    pass
+                mounts.append({'mount': mount, 'free_gb': free_gb})
+            except ValueError:
+                pass
+        return mounts
+
+    df_out = _run("df -BG 2>/dev/null")
+    result['mounts'] = _parse_mounts(df_out, kb_mode=False)
+    if not result['mounts']:
+        df_out = _run("df -k 2>/dev/null")
+        result['mounts'] = _parse_mounts(df_out, kb_mode=True)
 
     # /etc/oratab — static DB registrations; also capture +ASM* home as GI home fallback
     asm_home_from_oratab = None

@@ -899,6 +899,33 @@ distribute_staged_files() {
         done
     }
 
+    # Copy src→dest only if missing or size differs; fail hard if copy fails
+    _stage_copy() {
+        local label="$1" src="$2" dest="$3"
+        local src_size dest_size
+        src_size=$(stat -c '%s' "$src" 2>/dev/null || echo "")
+        if [[ -f "$dest" ]]; then
+            dest_size=$(stat -c '%s' "$dest" 2>/dev/null || echo "")
+            if [[ "$src_size" == "$dest_size" && -n "$src_size" ]]; then
+                add_html_row "$label" "INFO" \
+                    "Already staged at $dest (size matches — skipping)"
+                return 0
+            else
+                add_html_row "$label" "INFO" \
+                    "Size mismatch (src=${src_size}B dest=${dest_size}B) — recopying"
+                rm -f "$dest"
+            fi
+        fi
+        if ! cp "$src" "$dest" 2>/tmp/_stage_err; then
+            local err; err=$(cat /tmp/_stage_err 2>/dev/null)
+            add_html_row "$label" "FAIL" \
+                "Copy failed: $src → $dest — ${err:-unknown error}"
+            return 1
+        fi
+        add_html_row "$label" "PASS" \
+            "Staged $(basename "$src") → $dest ($(du -h "$dest" 2>/dev/null | awk '{print $1}'))"
+    }
+
     # GI BASE MEDIA — skip on DB-only VMs
     if [[ "${DB_ONLY_MODE:-false}" != true ]]; then
         shopt -s nullglob
@@ -910,14 +937,7 @@ distribute_staged_files() {
             gi_dest_dir=$(dirname "$GI_BASE_ZIP")
             _ensure_dir "$gi_dest_dir"
 
-            if [[ -f "$GI_BASE_ZIP" ]]; then
-                add_html_row "GI Base ZIP" "INFO" \
-                    "Already exists at $GI_BASE_ZIP — skipping"
-            else
-                run_cmd "cp \"$gi_src\" \"$GI_BASE_ZIP\""
-                add_html_row "GI Base ZIP" "PASS" \
-                    "Copied $(basename "$gi_src") → $GI_BASE_ZIP"
-            fi
+            _stage_copy "GI Base ZIP" "$gi_src" "$GI_BASE_ZIP" || return 1
         fi
     else
         add_html_row "GI Base ZIP" "INFO" \
@@ -934,14 +954,7 @@ distribute_staged_files() {
         db_dest_dir=$(dirname "$DB_BASE_ZIP")
         _ensure_dir "$db_dest_dir"
 
-        if [[ -f "$DB_BASE_ZIP" ]]; then
-            add_html_row "DB Base ZIP" "INFO" \
-                "Already exists at $DB_BASE_ZIP — skipping"
-        else
-            run_cmd "cp \"$db_src\" \"$DB_BASE_ZIP\""
-            add_html_row "DB Base ZIP" "PASS" \
-                "Copied $(basename "$db_src") → $DB_BASE_ZIP"
-        fi
+        _stage_copy "DB Base ZIP" "$db_src" "$DB_BASE_ZIP" || return 1
     fi
 
     # FIX: OPatch — matches both p688088_ (6 digits) and p6880880_ (7 digits)
@@ -957,14 +970,7 @@ distribute_staged_files() {
         add_html_row "Created patchset dir" "PASS" "$patchset_dir"
 
         local opatch_dest="${patchset_dir}/$(basename "$opatch_src")"
-        if [[ -f "$opatch_dest" ]]; then
-            add_html_row "OPatch ZIP" "INFO" \
-                "Already exists at $opatch_dest — skipping"
-        else
-            run_cmd "cp \"$opatch_src\" \"$opatch_dest\""
-            add_html_row "OPatch ZIP" "PASS" \
-                "Copied $(basename "$opatch_src") → $opatch_dest"
-        fi
+        _stage_copy "OPatch ZIP" "$opatch_src" "$opatch_dest" || return 1
     fi
 
     # Remaining p*_190000_*.zip — largest=RU, smaller=OJVM
@@ -1023,14 +1029,7 @@ distribute_staged_files() {
             _ensure_dir "$patchset_dir"
 
             local ru_dest="${patchset_dir}/$(basename "$ru_src")"
-            if [[ -f "$ru_dest" ]]; then
-                add_html_row "RU patch ZIP" "INFO" \
-                    "Already exists at $ru_dest — skipping copy"
-            else
-                run_cmd "cp \"$ru_src\" \"$ru_dest\""
-                add_html_row "RU patch ZIP" "PASS" \
-                    "Copied $(basename "$ru_src") → $ru_dest"
-            fi
+            _stage_copy "RU patch ZIP" "$ru_src" "$ru_dest" || return 1
 
             local already_extracted=false
             local extracted_dir
