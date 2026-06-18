@@ -56,18 +56,13 @@ def check_for_update():
             return
         print('[agent] New version detected — downloading update...')
         dl_headers = {'Authorization': 'Bearer ' + AGENT_TOKEN}
-        r2 = requests.get(API_URL + '/api/agent/self/download', headers=dl_headers, timeout=60, stream=True)
+        r2 = requests.get(API_URL + '/api/agent/self/download', headers=dl_headers, timeout=60)
         if r2.status_code != 200:
             print('[agent] Update download failed: HTTP %d' % r2.status_code)
             return
         tmp = __file__ + '.new'
-        with open(tmp, 'wb') as f:
-            r2.raw.decode_content = True
-            while True:
-                chunk = r2.raw.read(65536)
-                if not chunk:
-                    break
-                f.write(chunk)
+        with open(tmp, 'w', encoding='utf-8') as f:
+            f.write(r2.text)
         os.replace(tmp, __file__)
         print('[agent] Update applied — restarting...')
         os.execv(sys.executable, [sys.executable] + sys.argv)
