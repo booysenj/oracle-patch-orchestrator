@@ -956,13 +956,17 @@ async function deployAgent(vmId, hostname) {
   var modal = document.createElement('div');
   modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:9999;display:flex;align-items:center;justify-content:center';
   modal.innerHTML = `
-    <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:8px;padding:24px;width:360px;max-width:90vw">
-      <h3 style="margin:0 0 16px">Deploy Agent — ${hostname}</h3>
-      <p style="font-size:13px;color:var(--text-muted);margin:0 0 16px">SSH credentials to connect to this VM as root (or a sudo-enabled user).</p>
+    <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:8px;padding:24px;width:380px;max-width:90vw">
+      <h3 style="margin:0 0 4px">Deploy Agent — ${hostname}</h3>
+      <p style="font-size:12px;color:var(--text-muted);margin:0 0 16px">Files are uploaded to /tmp then moved into place — no direct root SFTP needed.</p>
       <label style="font-size:12px;display:block;margin-bottom:4px">SSH Username</label>
       <input id="da-user" value="root" style="width:100%;box-sizing:border-box;margin-bottom:12px;padding:6px 8px;background:var(--bg);border:1px solid var(--border);border-radius:4px;color:var(--text)"/>
       <label style="font-size:12px;display:block;margin-bottom:4px">SSH Password <span style="color:var(--text-muted)">(leave blank to use key)</span></label>
-      <input id="da-pass" type="password" style="width:100%;box-sizing:border-box;margin-bottom:20px;padding:6px 8px;background:var(--bg);border:1px solid var(--border);border-radius:4px;color:var(--text)"/>
+      <input id="da-pass" type="password" style="width:100%;box-sizing:border-box;margin-bottom:12px;padding:6px 8px;background:var(--bg);border:1px solid var(--border);border-radius:4px;color:var(--text)"/>
+      <label style="font-size:12px;display:flex;align-items:center;gap:8px;margin-bottom:20px;cursor:pointer">
+        <input id="da-sudo" type="checkbox" style="width:14px;height:14px"/>
+        Use sudo for privileged commands <span style="color:var(--text-muted)">(auto when not root)</span>
+      </label>
       <div style="display:flex;gap:8px;justify-content:flex-end">
         <button id="da-cancel" class="btn btn-sm btn-secondary">Cancel</button>
         <button id="da-ok" class="btn btn-sm btn-primary">Deploy</button>
@@ -971,6 +975,11 @@ async function deployAgent(vmId, hostname) {
   document.body.appendChild(modal);
   document.getElementById('da-pass').focus();
 
+  // Auto-check sudo when username changes away from root
+  var daUser = document.getElementById('da-user');
+  var daSudo = document.getElementById('da-sudo');
+  daUser.addEventListener('input', () => { daSudo.checked = daUser.value.trim() !== 'root'; });
+
   await new Promise(resolve => {
     document.getElementById('da-cancel').onclick = () => { modal.remove(); resolve(false); };
     document.getElementById('da-ok').onclick = () => resolve(true);
@@ -978,6 +987,7 @@ async function deployAgent(vmId, hostname) {
   }).then(async ok => {
     var user = document.getElementById('da-user').value.trim() || 'root';
     var pass = document.getElementById('da-pass').value;
+    var useSudo = document.getElementById('da-sudo').checked || user !== 'root';
     modal.remove();
     if (!ok) return;
 
@@ -985,7 +995,7 @@ async function deployAgent(vmId, hostname) {
     try {
       var result = await api('/admin/vms/' + vmId + '/deploy-agent', {
         method: 'POST',
-        body: JSON.stringify({ sshUser: user, sshPassword: pass })
+        body: JSON.stringify({ sshUser: user, sshPassword: pass, useSudo })
       });
       showToast('Agent deployed to ' + hostname + ' — ' + (result.output || 'ok'), 'success');
       setTimeout(loadVMs, 3000);
