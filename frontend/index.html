@@ -354,9 +354,16 @@
         </div>
         <div class="modal-body">
           <div id="jobMeta" class="job-meta"></div>
-          <div style="display:flex;gap:8px;margin-bottom:8px">
+          <div style="display:flex;gap:8px;margin-bottom:8px;align-items:center;flex-wrap:wrap">
             <button class="btn btn-sm btn-secondary log-view-tab active" data-view="logs" onclick="switchLogView('logs')">Logs</button>
             <button class="btn btn-sm btn-secondary log-view-tab" data-view="report" onclick="switchLogView('report')">Report</button>
+            <span style="width:1px;height:20px;background:var(--color-border-primary);margin:0 4px"></span>
+            <span style="font-size:11px;color:var(--color-text-secondary);margin-right:2px">Show:</span>
+            <button class="log-filter-btn active" data-filter="stdout" onclick="toggleLogFilter(this)" title="Normal output">stdout</button>
+            <button class="log-filter-btn active" data-filter="stderr" onclick="toggleLogFilter(this)" title="Errors / warnings">stderr</button>
+            <button class="log-filter-btn active" data-filter="autoupg" onclick="toggleLogFilter(this)" title="AutoUpgrade lines">autoupg</button>
+            <button class="log-filter-btn" data-filter="trace" onclick="toggleLogFilter(this)" title="bash -x trace lines (+++)" style="opacity:0.5">trace</button>
+            <button class="log-filter-btn active" data-filter="system" onclick="toggleLogFilter(this)" title="System / agent messages">system</button>
           </div>
           <div id="logContainer" class="log-container"><pre id="logOutput"></pre></div>
           <div id="reportContainer" class="hidden" style="overflow:auto;max-height:520px">

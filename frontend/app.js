@@ -529,28 +529,49 @@ function appendReportRow(label, status, details) {
   tbody.appendChild(tr);
 }
 
+var _logFilters = { stdout: true, stderr: true, autoupg: true, trace: false, system: true };
+
+function toggleLogFilter(btn) {
+  var f = btn.dataset.filter;
+  _logFilters[f] = !_logFilters[f];
+  btn.classList.toggle('active', _logFilters[f]);
+  btn.style.opacity = _logFilters[f] ? '1' : '0.4';
+  // Show/hide existing lines
+  var pre = document.getElementById('logOutput');
+  pre.querySelectorAll('span[data-filter]').forEach(function(s) {
+    s.style.display = _logFilters[s.dataset.filter] ? '' : 'none';
+  });
+}
+
 function appendLogLine(log) {
   var line = log.line || '';
-  // Parse [CHECK] lines — send to Report tab, suppress from Log tab to avoid red noise
+  // Parse [CHECK] lines — send to Report tab only
   var checkIdx = line.indexOf('[CHECK] ');
   if (checkIdx >= 0) {
     var parts = line.slice(checkIdx + 8).split('|');
     if (parts.length >= 2) {
       appendReportRow(parts[0].trim(), parts[1].trim(), parts.slice(2).join('|').trim());
     }
-    return; // Don't show [CHECK] lines in the log — they're in the Report tab
+    return;
   }
-  // Style [AutoUpgrade] prefix lines distinctly
-  var cls = line.indexOf('[AutoUpgrade]') >= 0 ? 'log-line-autoupg' :
-            log.stream === 'stderr' ? 'log-line-stderr' :
-            log.stream === 'system' ? 'log-line-system' : 'log-line-stdout';
+  // Classify line
+  var isTrace = /^\s*\++/.test(line);
+  var filter = isTrace ? 'trace' :
+               line.indexOf('[AutoUpgrade]') >= 0 ? 'autoupg' :
+               log.stream === 'stderr' ? 'stderr' :
+               log.stream === 'system' ? 'system' : 'stdout';
+  var cls = 'log-line-' + filter;
   var pre = document.getElementById('logOutput');
   var span = document.createElement('span');
   span.className = cls;
+  span.dataset.filter = filter;
+  span.style.display = _logFilters[filter] ? '' : 'none';
   span.textContent = (log.ts || '') + ' ' + line + '\n';
   pre.appendChild(span);
-  var container = document.getElementById('logContainer');
-  container.scrollTop = container.scrollHeight;
+  if (_logFilters[filter]) {
+    var container = document.getElementById('logContainer');
+    container.scrollTop = container.scrollHeight;
+  }
 }
 
 function connectLogWS(jobId) {
