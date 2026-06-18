@@ -294,7 +294,7 @@ function renderVMs(list) {
         '<button class="btn btn-sm btn-secondary" onclick="deleteVm(\'' + vm.id + '\',\'' + esc(vm.hostname) + '\')" title="Delete VM">' +
           '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>' +
           '</button>' +
-        '<button class="btn btn-sm btn-secondary" onclick="deployAgent(\'' + vm.id + '\',\'' + esc(vm.hostname) + '\')" title="Deploy/Update Agent">' +
+        '<button class="btn btn-sm btn-secondary" onclick="deployAgent(\'' + vm.id + '\',\'' + esc(vm.hostname) + '\',\'' + esc(vm.deploy_ssh_user || '') + '\')" title="Deploy/Update Agent">' +
           '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 16 12 12 8 16"/><line x1="12" y1="12" x2="12" y2="21"/><path d="M20.39 18.39A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.3"/></svg>' +
           '</button>' +
         '<button class="btn btn-sm btn-primary" onclick="openModal(\'' + vm.id + '\')">' +
@@ -351,6 +351,7 @@ async function openModal(vmId) {
   var metaEl = document.getElementById('opMeta');
   if (metaEl) metaEl.classList.add('hidden');
   document.getElementById('dryRunCheck').checked = false;
+  document.getElementById('verboseCheck').checked = false;
   document.getElementById('preflightResult').classList.add('hidden');
   document.getElementById('preflightBtn').disabled = true;
   document.getElementById('executeBtn').disabled = true;
@@ -362,11 +363,15 @@ function closeModal() {
   selectedVm = null;
 }
 
+var PRECHECK_OPS = ['gi_precheck','db_precheck','gi_upgrade_precheck','db_upgrade_precheck','cluster_precheck','stage_software'];
+
 document.getElementById('opSelect').addEventListener('change', function() {
   var op = document.getElementById('opSelect').value;
   document.getElementById('preflightBtn').disabled = !op;
   document.getElementById('executeBtn').disabled = !op;
   document.getElementById('preflightResult').classList.add('hidden');
+  // Auto-enable verbose for non-destructive precheck ops
+  document.getElementById('verboseCheck').checked = PRECHECK_OPS.indexOf(op) >= 0;
 });
 
 // -- Preflight --
@@ -451,6 +456,7 @@ document.getElementById('executeBtn').addEventListener('click', async function()
       vmId: selectedVm.id,
       operation: op,
       dryRun: dryRun,
+      verbose: document.getElementById('verboseCheck').checked,
       dbUniqueName: dbUniqueName,
       confirmationToken: 'CONFIRMED'
     };
@@ -951,7 +957,7 @@ async function openVmConfigOverride(vmId) {
   }
 }
 
-async function deployAgent(vmId, hostname) {
+async function deployAgent(vmId, hostname, savedSshUser) {
   // Collect SSH credentials via modal
   var modal = document.createElement('div');
   modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:9999;display:flex;align-items:center;justify-content:center';
@@ -960,7 +966,7 @@ async function deployAgent(vmId, hostname) {
       <h3 style="margin:0 0 4px">Deploy Agent — ${hostname}</h3>
       <p style="font-size:12px;color:var(--text-muted);margin:0 0 16px">Files are uploaded to /tmp then moved into place — no direct root SFTP needed.</p>
       <label style="font-size:12px;display:block;margin-bottom:4px">SSH Username</label>
-      <input id="da-user" value="root" style="width:100%;box-sizing:border-box;margin-bottom:12px;padding:6px 8px;background:var(--bg);border:1px solid var(--border);border-radius:4px;color:var(--text)"/>
+      <input id="da-user" value="${esc(savedSshUser || 'root')}" style="width:100%;box-sizing:border-box;margin-bottom:12px;padding:6px 8px;background:var(--bg);border:1px solid var(--border);border-radius:4px;color:var(--text)"/>
       <label style="font-size:12px;display:block;margin-bottom:4px">SSH Password <span style="color:var(--text-muted)">(leave blank to use key)</span></label>
       <input id="da-pass" type="password" style="width:100%;box-sizing:border-box;margin-bottom:12px;padding:6px 8px;background:var(--bg);border:1px solid var(--border);border-radius:4px;color:var(--text)"/>
       <label style="font-size:12px;display:flex;align-items:center;gap:8px;margin-bottom:20px;cursor:pointer">

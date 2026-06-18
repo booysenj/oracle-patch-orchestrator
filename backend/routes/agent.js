@@ -76,6 +76,7 @@ router.get('/poll', (req, res) => {
         scriptHash: scriptHash,
         phaseArg: phaseArg,
         dryRun: job.dry_run,
+        verbose: job.verbose ? true : false,
         nodeRole: job.node_role,
         stagePath: vm.stage_path || null,
         env: env

@@ -331,8 +331,9 @@
         </div>
 <div id="opMeta" class="op-meta hidden"></div>
           </div>
-          <div class="form-group checkbox-group">
+          <div class="form-group checkbox-group" style="display:flex;gap:20px;flex-wrap:wrap">
             <label><input type="checkbox" id="dryRunCheck" checked /><span class="checkmark"></span> Dry Run (simulate only)</label>
+            <label title="Runs script with bash -x — prints every command as it executes. Recommended for precheck phases."><input type="checkbox" id="verboseCheck" /><span class="checkmark"></span> Verbose output (bash -x)</label>
           </div>
           <div id="preflightResult" class="preflight-box hidden"></div>
           <div class="modal-actions">

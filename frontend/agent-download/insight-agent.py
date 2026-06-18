@@ -283,7 +283,8 @@ def execute_job(job):
     if job.get('env'):
         env.update(job['env'])
 
-    cmd = 'bash -x %s %s' % (script, phase_arg)
+    verbose = job.get('verbose', False)
+    cmd = 'bash -x %s %s' % (script, phase_arg) if verbose else 'bash %s %s' % (script, phase_arg)
     print('[agent] Executing: %s' % cmd)
 
     try:

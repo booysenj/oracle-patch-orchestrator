@@ -229,8 +229,9 @@ router.post('/vms/:id/deploy-agent', requireAdmin, (req, res) => {
                         stream.on('close', () => {
                             conn.end();
                             try {
-                                db.prepare("UPDATE vms SET script_path = ?, updated_at = datetime('now') WHERE id = ?")
-                                  .run(scriptDest, vm.id);
+                                try { db.exec('ALTER TABLE vms ADD COLUMN deploy_ssh_user TEXT'); } catch(_) {}
+                                db.prepare("UPDATE vms SET script_path = ?, deploy_ssh_user = ?, updated_at = datetime('now') WHERE id = ?")
+                                  .run(scriptDest, sshUsername, vm.id);
                             } catch(_) {}
                             res.json({ ok: true, hostname: vm.hostname, agentPath: agentDest, scriptPath: scriptDest, output: out.trim() });
                         });
