@@ -177,14 +177,19 @@ def discover():
                     result['running_dbs'].append(sid)
 
     # Grid home — detect from running CRS processes first, fall back to +ASM oratab entry
-    # only if ASM is actually running (pmon_+ASM* process present)
+    # only if ASM is actually running (pmon_+ASM* or pmon_ASM* process present)
     crs_out = _run("ps -eo args 2>/dev/null | grep -E 'ocssd\\.bin|crsd\\.bin|cssdagent' | grep -v grep | head -1")
     if crs_out:
         m = re.match(r'(/[^\s]+/bin/)', crs_out)
         if m:
             result['grid_home'] = m.group(1).rstrip('/').rsplit('/bin', 1)[0]
     if not result['grid_home'] and asm_home_from_oratab:
-        asm_running = _run("ps -eo args 2>/dev/null | grep 'pmon_+ASM' | grep -v grep")
+        # Use -F (fixed string) to avoid regex interpretation of '+', also match pmon_ASM in case
+        # the process name omits the '+' (varies by OS/Oracle version)
+        asm_running = (
+            _run("ps -eo args 2>/dev/null | grep -F 'pmon_+ASM' | grep -v grep") or
+            _run("ps -eo args 2>/dev/null | grep -E 'pmon_[+]?ASM' | grep -v grep")
+        )
         if asm_running:
             result['grid_home'] = asm_home_from_oratab
 
