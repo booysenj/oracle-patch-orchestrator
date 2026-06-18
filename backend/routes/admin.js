@@ -4,7 +4,6 @@ const bcrypt = require('bcryptjs');
 const { v4: uuidv4 } = require('uuid');
 const { getDB } = require('../lib/db');
 const { requireAdmin } = require('../lib/auth');
-const { Client } = require('ssh2');
 const fs = require('fs');
 const path = require('path');
 
@@ -144,9 +143,12 @@ router.put('/settings', (req, res) => {
     }
 });
 
-// Deploy/update agent on a VM via SSH (SFTP + systemd)
-// Pushes both insight-agent.py and os-patch-auto.sh to the target VM.
+// Deploy/update agent on a VM via SSH
+// Uses system ssh/scp so existing key infrastructure on the orchestrator is reused.
+// Password auth supported via sshpass if available.
 router.post('/vms/:id/deploy-agent', requireAdmin, (req, res) => {
+    const { exec } = require('child_process');
+    const os = require('os');
     const db = getDB();
     const vm = db.prepare('SELECT * FROM vms WHERE id = ?').get(req.params.id);
     if (!vm) return res.status(404).json({ error: 'VM not found' });
@@ -160,26 +162,18 @@ router.post('/vms/:id/deploy-agent', requireAdmin, (req, res) => {
         if (row && row.value) orchestratorUrl = row.value;
     } catch(_) {}
     if (!orchestratorUrl) orchestratorUrl = `http://172.16.36.95:${process.env.PORT || 4000}`;
+
     const { sshUser, sshPassword, useSudo } = req.body;
     const sshUsername = (sshUser || 'root').trim();
     const sudo = (useSudo || sshUsername !== 'root') ? 'sudo ' : '';
-    const keyPath = process.env.SSH_KEY_PATH || '/root/.ssh/id_rsa';
-
-    let privateKey;
-    if (!sshPassword) {
-        try { privateKey = fs.readFileSync(keyPath); }
-        catch (e) { return res.status(500).json({ error: 'No SSH password provided and cannot read SSH key: ' + e.message }); }
-    }
-
-    let agentContent, scriptContent;
-    try { agentContent  = fs.readFileSync(agentSrc); }
-    catch (e) { return res.status(500).json({ error: 'Cannot read agent: ' + e.message }); }
-    try { scriptContent = fs.readFileSync(scriptSrc); }
-    catch (e) { return res.status(500).json({ error: 'Cannot read script: ' + e.message }); }
+    const target = `${sshUsername}@${vm.ip}`;
+    const port = vm.ssh_port || 22;
 
     const agentDir  = '/opt/insight-agent';
     const agentDest = `${agentDir}/insight-agent.py`;
     const scriptDest = `${agentDir}/os-patch-auto.sh`;
+    const tmpAgent  = '/tmp/.insight-agent-upload.py';
+    const tmpScript = '/tmp/.insight-script-upload.sh';
 
     const serviceUnit = [
         '[Unit]', 'Description=Insight Patch Agent', 'After=network.target', '',
@@ -194,59 +188,44 @@ router.post('/vms/:id/deploy-agent', requireAdmin, (req, res) => {
         '[Install]', 'WantedBy=multi-user.target'
     ].join('\n');
 
-    // Temp paths any SSH user can write to via SFTP
-    const tmpAgent  = '/tmp/.insight-agent-upload.py';
-    const tmpScript = '/tmp/.insight-script-upload.sh';
+    // Build ssh/scp prefix — use sshpass for password auth, plain ssh for key auth
+    const sshOpts = `-o StrictHostKeyChecking=no -o BatchMode=${sshPassword ? 'no' : 'yes'} -p ${port}`;
+    const sshPassPrefix = sshPassword ? `sshpass -p '${sshPassword.replace(/'/g, "'\\''")}' ` : '';
+    const sshCmd  = `${sshPassPrefix}ssh ${sshOpts}`;
+    const scpCmd  = `${sshPassPrefix}scp ${sshOpts}`;
 
-    const conn = new Client();
-    conn.on('ready', () => {
-        conn.sftp((err, sftp) => {
-            if (err) { conn.end(); return res.status(500).json({ error: 'SFTP error: ' + err.message }); }
+    const setupCmds = [
+        `${sudo}mkdir -p ${agentDir}`,
+        `${sudo}mv ${tmpAgent} ${agentDest}`,
+        `${sudo}mv ${tmpScript} ${scriptDest}`,
+        `${sudo}chown oracle:oracle ${agentDir} ${agentDest} ${scriptDest}`,
+        `${sudo}chmod 750 ${agentDest} ${scriptDest}`,
+        `echo '${serviceUnit.replace(/'/g, "'\\''")}' | ${sudo}tee /etc/systemd/system/insight-agent.service > /dev/null`,
+        `${sudo}systemctl daemon-reload`,
+        `${sudo}systemctl enable insight-agent`,
+        `${sudo}systemctl restart insight-agent`,
+        'sleep 2 && systemctl is-active insight-agent'
+    ].join(' && ');
 
-            // Write both files to /tmp (writable by any user)
-            const agentStream = sftp.createWriteStream(tmpAgent);
-            agentStream.on('close', () => {
-                const scriptStream = sftp.createWriteStream(tmpScript);
-                scriptStream.on('close', () => {
-                    // Use sudo to move files into /opt/insight-agent and set up systemd
-                    const cmds = [
-                        `${sudo}mkdir -p ${agentDir}`,
-                        `${sudo}mv ${tmpAgent} ${agentDest}`,
-                        `${sudo}mv ${tmpScript} ${scriptDest}`,
-                        `${sudo}chown oracle:oracle ${agentDir} ${agentDest} ${scriptDest}`,
-                        `${sudo}chmod 750 ${agentDest} ${scriptDest}`,
-                        `${sudo}tee /etc/systemd/system/insight-agent.service > /dev/null << 'SVCEOF'\n${serviceUnit}\nSVCEOF`,
-                        `${sudo}systemctl daemon-reload`,
-                        `${sudo}systemctl enable insight-agent`,
-                        `${sudo}systemctl restart insight-agent`,
-                        'sleep 2 && systemctl is-active insight-agent'
-                    ].join(' && ');
-                    conn.exec(cmds, (err2, stream) => {
-                        if (err2) { conn.end(); return res.status(500).json({ error: err2.message }); }
-                        let out = '';
-                        stream.on('data', d => { out += d; });
-                        stream.stderr.on('data', d => { out += d; });
-                        stream.on('close', () => {
-                            conn.end();
-                            try {
-                                try { db.exec('ALTER TABLE vms ADD COLUMN deploy_ssh_user TEXT'); } catch(_) {}
-                                db.prepare("UPDATE vms SET script_path = ?, deploy_ssh_user = ?, updated_at = datetime('now') WHERE id = ?")
-                                  .run(scriptDest, sshUsername, vm.id);
-                            } catch(_) {}
-                            res.json({ ok: true, hostname: vm.hostname, agentPath: agentDest, scriptPath: scriptDest, output: out.trim() });
-                        });
-                    });
-                });
-                scriptStream.end(scriptContent);
-            });
-            agentStream.end(agentContent);
+    // Step 1: scp both files to /tmp on target
+    const copyCmd = `${scpCmd} '${agentSrc}' '${target}:${tmpAgent}' && ${scpCmd} '${scriptSrc}' '${target}:${tmpScript}'`;
+
+    exec(copyCmd, { timeout: 30000 }, (err1, stdout1, stderr1) => {
+        if (err1) return res.status(500).json({ error: 'File copy failed: ' + (stderr1 || err1.message) });
+
+        // Step 2: run setup commands over ssh
+        exec(`${sshCmd} '${target}' "${setupCmds.replace(/"/g, '\\"')}"`, { timeout: 30000 }, (err2, stdout2, stderr2) => {
+            const out = (stdout2 + stderr2).trim();
+            if (err2) return res.status(500).json({ error: 'Setup failed: ' + (stderr2 || err2.message), output: out });
+
+            try {
+                try { db.exec('ALTER TABLE vms ADD COLUMN deploy_ssh_user TEXT'); } catch(_) {}
+                db.prepare("UPDATE vms SET script_path = ?, deploy_ssh_user = ?, updated_at = datetime('now') WHERE id = ?")
+                  .run(scriptDest, sshUsername, vm.id);
+            } catch(_) {}
+            res.json({ ok: true, hostname: vm.hostname, agentPath: agentDest, scriptPath: scriptDest, output: out });
         });
-    }).on('error', err => res.status(500).json({ error: err.message }))
-      .connect({
-          host: vm.ip, port: vm.ssh_port || 22, username: sshUsername,
-          ...(sshPassword ? { password: sshPassword } : { privateKey }),
-          readyTimeout: 10000
-      });
+    });
 });
 
 module.exports = router;
