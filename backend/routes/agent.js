@@ -223,7 +223,10 @@ router.get('/:jobId/runtime-config', (req, res) => {
         return '';
     }
     var pvVersion = (pv && pv.version) ? pv.version : '';
-    var newGiHome = deriveHome(job.new_gi_home, pv && pv.new_gi_home, giHomeBase, pvVersion);
+    // Only derive NEW_GI_HOME if this VM actually has GI (old_gi_home is set)
+    var newGiHome = job.old_gi_home
+        ? deriveHome(job.new_gi_home, pv && pv.new_gi_home, giHomeBase, pvVersion)
+        : '';
     var newDbHome = deriveHome(job.new_db_home, pv && pv.new_db_home, dbHomeBase, pvVersion);
 
     var stagingRoot = job.preferred_staging_mount || job.stage_path || '/home/oracle/staging';
