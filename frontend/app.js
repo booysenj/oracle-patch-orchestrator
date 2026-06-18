@@ -531,18 +531,20 @@ function appendReportRow(label, status, details) {
 
 function appendLogLine(log) {
   var line = log.line || '';
-  // Parse structured check results — log() prepends a timestamp so [CHECK] may not be at position 0
+  // Parse [CHECK] lines — send to Report tab, suppress from Log tab to avoid red noise
   var checkIdx = line.indexOf('[CHECK] ');
   if (checkIdx >= 0) {
     var parts = line.slice(checkIdx + 8).split('|');
     if (parts.length >= 2) {
       appendReportRow(parts[0].trim(), parts[1].trim(), parts.slice(2).join('|').trim());
     }
-    line = line.slice(0, checkIdx) + parts[0].trim() + ': ' + parts[1].trim();
+    return; // Don't show [CHECK] lines in the log — they're in the Report tab
   }
-  var pre = document.getElementById('logOutput');
-  var cls = log.stream === 'stderr' ? 'log-line-stderr' :
+  // Style [AutoUpgrade] prefix lines distinctly
+  var cls = line.indexOf('[AutoUpgrade]') >= 0 ? 'log-line-autoupg' :
+            log.stream === 'stderr' ? 'log-line-stderr' :
             log.stream === 'system' ? 'log-line-system' : 'log-line-stdout';
+  var pre = document.getElementById('logOutput');
   var span = document.createElement('span');
   span.className = cls;
   span.textContent = (log.ts || '') + ' ' + line + '\n';

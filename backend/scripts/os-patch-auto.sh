@@ -1254,7 +1254,7 @@ log() {
     local msg="$*"
     msg="$(date '+%F %T') - ${msg}"
     echo "$msg" >> "$LOG_FILE"
-    echo "$msg" >&2
+    echo "$msg"
 }
 
 # Stream a spool file's content through log() so it appears in the UI log viewer.
@@ -6552,10 +6552,21 @@ db_switch_core() {
                 local au_elapsed=0
                 local au_success=false
                 local au_failure_reason="Unknown"
+                local au_lines_seen=0
 
                 log "Monitoring AutoUpgrade deploy (PID=$au_pid) with timeout ${au_timeout}s..."
                 while (( au_elapsed < au_timeout )); do
                     if [[ -f "$au_log" ]]; then
+                        # Stream any new lines from the AutoUpgrade log to the UI
+                        local au_total_now
+                        au_total_now=$(wc -l < "$au_log" 2>/dev/null || echo 0)
+                        if (( au_total_now > au_lines_seen )); then
+                            tail -n +"$(( au_lines_seen + 1 ))" "$au_log" | while IFS= read -r _au_line; do
+                                echo "[AutoUpgrade] ${_au_line}"
+                            done
+                            au_lines_seen=$au_total_now
+                        fi
+
                         if grep -qi "Job .* completed" "$au_log" 2>/dev/null; then
                             if grep -q "Jobs failed.*\[0\]" "$au_log" 2>/dev/null || \
                                grep -qi "Jobs finished.*\[1\]" "$au_log" 2>/dev/null; then
@@ -6575,6 +6586,15 @@ db_switch_core() {
                     if ! kill -0 "$au_pid" 2>/dev/null; then
                         local au_rc=0
                         wait "$au_pid" || au_rc=$?
+                        # Flush any remaining log lines
+                        if [[ -f "$au_log" ]]; then
+                            au_total_now=$(wc -l < "$au_log" 2>/dev/null || echo 0)
+                            if (( au_total_now > au_lines_seen )); then
+                                tail -n +"$(( au_lines_seen + 1 ))" "$au_log" | while IFS= read -r _au_line; do
+                                    echo "[AutoUpgrade] ${_au_line}"
+                                done
+                            fi
+                        fi
                         if grep -qi "Job .* completed" "$au_log" 2>/dev/null && \
                            grep -q "Jobs failed.*\[0\]" "$au_log" 2>/dev/null; then
                             au_success=true
