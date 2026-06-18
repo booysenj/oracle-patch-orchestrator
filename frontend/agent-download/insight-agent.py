@@ -130,10 +130,11 @@ def discover():
                 pass
         return mounts
 
-    df_out = _run("df -BG 2>/dev/null")
+    df_cmd = _run("which df 2>/dev/null") or '/usr/bin/df'
+    df_out = _run("%s -BG 2>/dev/null" % df_cmd)
     result['mounts'] = _parse_mounts(df_out, kb_mode=False)
     if not result['mounts']:
-        df_out = _run("df -k 2>/dev/null")
+        df_out = _run("%s -k 2>/dev/null" % df_cmd)
         result['mounts'] = _parse_mounts(df_out, kb_mode=True)
 
     # /etc/oratab — static DB registrations; also capture +ASM* home as GI home fallback
