@@ -1417,6 +1417,16 @@ add_html_row() {
     log "[CHECK] ${label}|${status}|${details}"
 }
 
+# Insert a full-width section header row to visually separate blocks in the report
+add_html_section() {
+    local title="$1"
+    HTML_ROWS+="
+    <tr>
+        <td colspan=\"3\" style=\"padding:6px 10px; background-color:#003366; color:#ffffff; font-weight:bold; font-size:13px; letter-spacing:0.5px;\">&#9654; ${title}</td>
+    </tr>"
+    log "[SECTION] ${title}"
+}
+
 add_attachment() {
     local f="$1"
 
@@ -6228,12 +6238,15 @@ EOF
     # SQL-based discovery (runs per running DB instance)
     # ------------------------------------------------------------
     if [[ ${#DB_UNIQUES[@]} -gt 0 ]]; then
+        local _disc_idx=0
         for _disc_db in "${DB_UNIQUES[@]}"; do
-            _disc_home=""
-            # Try to get home from the pmon sid mapping
+            _disc_idx=$(( _disc_idx + 1 ))
             local _pmon_home
             _pmon_home=$(get_home_from_pmon_sid "$_disc_db" 2>/dev/null || true)
             [[ -z "$_pmon_home" ]] && _pmon_home="$OLD_DB_HOME"
+            if [[ ${#DB_UNIQUES[@]} -gt 1 ]]; then
+                add_html_section "Database Instance ${_disc_idx}/${#DB_UNIQUES[@]}: ${_disc_db}  (home: ${_pmon_home})"
+            fi
             db_sql_discovery_html "$_disc_db" "$_pmon_home"
             db_listener_html "$_pmon_home"
         done
