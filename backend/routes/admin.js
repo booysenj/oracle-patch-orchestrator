@@ -196,7 +196,7 @@ router.post('/vms/:id/deploy-agent', requireAdmin, (req, res) => {
         `${sudo}mkdir -p ${agentDir}`,
         `${sudo}mv ${tmpAgent} ${agentDest}`,
         `${sudo}mv ${tmpScript} ${scriptDest}`,
-        `${sudo}chown oracle:oracle ${agentDir} ${agentDest} ${scriptDest}`,
+        `${sudo}chown oracle ${agentDir} ${agentDest} ${scriptDest}`,
         `${sudo}chmod 750 ${agentDest} ${scriptDest}`,
         `echo '${serviceUnit.replace(/'/g, "'\\''")}' | ${sudo}tee /etc/systemd/system/insight-agent.service > /dev/null`,
         `${sudo}systemctl daemon-reload`,
