@@ -127,9 +127,9 @@ router.post('/discover', (req, res) => {
         }
     }
 
-    // Static values — only overwrite if not yet set (or blank)
+    // Static values — always update GI home from agent (null clears it for DB-only VMs)
     var updates = {};
-    if ((!vm.old_gi_home || vm.old_gi_home === '') && gridHome) updates.old_gi_home = gridHome;
+    updates.old_gi_home = gridHome || '';
     if ((!vm.old_db_home || vm.old_db_home === '') && oratab.length > 0) updates.old_db_home = oratab[0].home;
     if (!vm.db_unique_name && dbUniqueName) updates.db_unique_name = dbUniqueName;
     if (!vm.cluster_name && clusterName) updates.cluster_name = clusterName;
