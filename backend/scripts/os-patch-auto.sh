@@ -127,7 +127,7 @@ OJVM_PATCH_DIR="$OJVM_ONEOFF_DIR"
 # Drop ALL downloaded ZIPs into this single directory.
 # stage_software will identify, move, and extract them automatically.
 # ----------------------------
-STAGING_DROP_DIR=/home/oracle/staging
+STAGING_DROP_DIR="${STAGE_PATH:-/home/oracle/staging}"
 
 # Leave empty — auto-discovery fills these in at boot
 OPATCH_ZIP_DIR=""

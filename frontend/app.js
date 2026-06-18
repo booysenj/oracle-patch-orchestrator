@@ -356,6 +356,38 @@ async function openModal(vmId) {
   document.getElementById('preflightBtn').disabled = true;
   document.getElementById('executeBtn').disabled = true;
   document.getElementById('launchModal').classList.remove('hidden');
+
+  // Load resolved config panel
+  var rcEl = document.getElementById('resolvedConfigPanel');
+  if (rcEl) {
+    rcEl.innerHTML = '<span style="color:var(--text-muted);font-size:12px">Loading resolved config...</span>';
+    try {
+      var rc = await api('/vms/' + selectedVm.id + '/resolved-config');
+      renderResolvedConfig(rcEl, rc);
+    } catch(e) {
+      rcEl.innerHTML = '<span style="color:var(--color-danger);font-size:12px">Could not load config</span>';
+    }
+  }
+}
+
+function renderResolvedConfig(el, rc) {
+  function row(label, val, muted) {
+    var color = muted ? 'var(--text-muted)' : 'var(--color-text-primary)';
+    return '<div style="display:flex;gap:8px;padding:3px 0;font-size:12px;border-bottom:0.5px solid var(--color-border-tertiary)">' +
+      '<span style="width:130px;flex-shrink:0;color:var(--text-muted)">' + label + '</span>' +
+      '<span style="font-family:monospace;color:' + color + '">' + esc(val || '—') + '</span></div>';
+  }
+  var html = '<div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:var(--text-muted);margin-bottom:4px">Resolved Config</div>';
+  if (rc.oldDbHome)  html += row('OLD_DB_HOME', rc.oldDbHome);
+  if (rc.newDbHome)  html += row('NEW_DB_HOME', rc.newDbHome);
+  if (rc.precheckDbHome) html += row('PRECHECK_DB_HOME', rc.precheckDbHome, true);
+  if (rc.oldGiHome)  html += row('OLD_GI_HOME', rc.oldGiHome);
+  if (rc.newGiHome)  html += row('NEW_GI_HOME', rc.newGiHome);
+  if (rc.precheckGiHome) html += row('PRECHECK_GI_HOME', rc.precheckGiHome, true);
+  html += row('STAGE_PATH', rc.stagingDropDir);
+  html += row('OJVM_ZIP_DIR', rc.ojvmZipDir);
+  html += row('Patch roots', rc.patchSearchRoots.join(', '), true);
+  el.innerHTML = html;
 }
 
 function closeModal() {
@@ -2133,34 +2165,58 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 
 // ========== TRANSFER FILE TYPE ==========
+// Extraction path hints: where stage_software puts each file type after unzip
+var _xferExtractionHints = {
+    ru_patch: { label: 'RU patch', dest: '/grid/software  or  /app/software  (under patch ID subdir)', note: 'Extracted by stage_software into the first writable patch search root' },
+    opatch:   { label: 'OPatch',   dest: 'Applied to GI/DB oracle homes', note: 'stage_software replaces OPatch in each home' },
+    gi_base:  { label: 'GI Base',  dest: '/grid/software  (extracted in-place)', note: 'Used by gi_install as the installer source' },
+    db_base:  { label: 'DB Base',  dest: '/app/software/db_software  (extracted in-place)', note: 'Used by db_install as the installer source' },
+    ojvm:     { label: 'OJVM',     dest: '{staging}/db_software/ojvm/', note: 'Staged for optional OJVM one-off during db_install' },
+};
+
 function updateTransferSourceInfo() {
     var patchId = document.getElementById('transferPatchSelect').value;
     var fileType = document.getElementById('transferFileType').value;
     var infoEl = document.getElementById('transferFileInfo');
     if (!patchId) { infoEl.textContent = ''; return; }
 
-    // Find patch from loaded data
     var patch = (typeof patchCatalog !== 'undefined' ? patchCatalog : []).find(function(p) { return p.id === patchId; });
     if (!patch) { infoEl.textContent = ''; return; }
 
-    var info = '';
-    if (fileType === 'ru_patch') {
-        info = patch.patch_search_root ? '?? ' + patch.patch_search_root : '?? No RU patch path configured';
-    } else if (fileType === 'opatch') {
-        info = patch.opatch_zip ? '?? ' + patch.opatch_zip : '?? No OPatch path configured';
-    } else if (fileType === 'gi_base') {
-        info = patch.gi_base_zip ? '?? ' + patch.gi_base_zip : '?? No GI base path configured';
-    } else if (fileType === 'db_base') {
-        info = patch.db_base_zip ? '?? ' + patch.db_base_zip : '?? No DB base path configured';
-    } else if (fileType === 'all') {
-        var parts = [];
-        if (patch.patch_search_root) parts.push('RU ?');
-        if (patch.opatch_zip) parts.push('OPatch ?');
-        if (patch.gi_base_zip) parts.push('GI ?');
-        if (patch.db_base_zip) parts.push('DB ?');
-        info = parts.length ? '?? Will transfer: ' + parts.join(', ') : '?? No files configured';
+    function srcLine(label, path) {
+        return path
+            ? '<div><span style="color:var(--text-muted);font-size:11px">' + label + ':</span> <code style="font-size:11px">' + esc(path) + '</code></div>'
+            : '<div style="color:var(--color-warning);font-size:11px">⚠ ' + label + ' not configured in patch version</div>';
     }
-    infoEl.innerHTML = info;
+    function extractLine(hint) {
+        return '<div style="margin-top:4px;padding:4px 6px;background:rgba(0,0,0,.15);border-radius:4px;font-size:11px">' +
+            '<span style="color:var(--text-muted)">Extracted to: </span><code>' + esc(hint.dest) + '</code>' +
+            '<div style="color:var(--text-muted);margin-top:1px">' + esc(hint.note) + '</div></div>';
+    }
+
+    var html = '';
+    if (fileType === 'ru_patch') {
+        html = srcLine('Source path', patch.patch_search_root) + extractLine(_xferExtractionHints.ru_patch);
+    } else if (fileType === 'opatch') {
+        html = srcLine('Source path', patch.opatch_zip) + extractLine(_xferExtractionHints.opatch);
+    } else if (fileType === 'gi_base') {
+        html = srcLine('Source path', patch.gi_base_zip) + extractLine(_xferExtractionHints.gi_base);
+    } else if (fileType === 'db_base') {
+        html = srcLine('Source path', patch.db_base_zip) + extractLine(_xferExtractionHints.db_base);
+    } else if (fileType === 'ojvm') {
+        html = srcLine('Source path', patch.ojvm_zip || patch.patch_search_root) + extractLine(_xferExtractionHints.ojvm);
+    } else if (fileType === 'all') {
+        var files = [
+            patch.gi_base_zip  ? ['GI Base',  patch.gi_base_zip,          'gi_base']  : null,
+            patch.db_base_zip  ? ['DB Base',  patch.db_base_zip,           'db_base']  : null,
+            patch.patch_search_root ? ['RU',  patch.patch_search_root,     'ru_patch'] : null,
+            patch.opatch_zip   ? ['OPatch',   patch.opatch_zip,            'opatch']   : null,
+        ].filter(Boolean);
+        html = files.length
+            ? files.map(function(f) { return srcLine(f[0], f[1]) + extractLine(_xferExtractionHints[f[2]]); }).join('<hr style="border:none;border-top:0.5px solid var(--color-border-tertiary);margin:6px 0">')
+            : '<div style="color:var(--color-warning);font-size:11px">⚠ No files configured in this patch version</div>';
+    }
+    infoEl.innerHTML = html;
 }
 
 // Store patch catalog for lookup

@@ -79,6 +79,56 @@ router.get('/:id/discovery', (req, res) => {
     });
 });
 
+// Resolved configuration for a VM — derived paths the orchestrator will pass to the script
+router.get('/:id/resolved-config', (req, res) => {
+    const db = getDB();
+    const vm = db.prepare('SELECT * FROM vms WHERE id = ?').get(req.params.id);
+    if (!vm) return res.status(404).json({ error: 'VM not found' });
+
+    let pv = null;
+    if (vm.target_patch_version_id) {
+        pv = db.prepare('SELECT * FROM patch_versions WHERE id = ?').get(vm.target_patch_version_id);
+    }
+
+    let giHomeBase = '', dbHomeBase = '';
+    try {
+        let r = db.prepare("SELECT value FROM app_settings WHERE key = 'gi_home_base'").get();
+        if (r && r.value) giHomeBase = r.value.replace(/\/$/, '');
+        r = db.prepare("SELECT value FROM app_settings WHERE key = 'db_home_base'").get();
+        if (r && r.value) dbHomeBase = r.value.replace(/\/$/, '');
+    } catch(_) {}
+
+    function deriveHome(explicit, pvVal, base, version) {
+        if (explicit) return explicit;
+        if (pvVal) return pvVal;
+        if (base && version) return base + '/' + version;
+        return '';
+    }
+    const pvVersion = (pv && pv.version) ? pv.version : '';
+    const newGiHome = vm.old_gi_home
+        ? deriveHome(vm.new_gi_home, pv && pv.new_gi_home, giHomeBase, pvVersion)
+        : '';
+    const newDbHome = deriveHome(vm.new_db_home, pv && pv.new_db_home, dbHomeBase, pvVersion);
+    const stagingDropDir = vm.preferred_staging_mount || '/home/oracle/staging';
+
+    // These match the hardcoded defaults in os-patch-auto.sh
+    const patchSearchRoots = ['/grid/software', '/app/software', '/app/software/db_software/patches', '/staging/software'];
+    const ojvmZipDir = stagingDropDir.replace(/\/$/, '') + '/db_software/ojvm';
+
+    res.json({
+        oldGiHome: vm.old_gi_home || '',
+        newGiHome,
+        oldDbHome: vm.old_db_home || '',
+        newDbHome,
+        stagingDropDir,
+        patchSearchRoots,
+        ojvmZipDir,
+        patchVersion: pvVersion,
+        precheckGiHome: newGiHome ? newGiHome + '-precheck' : '',
+        precheckDbHome: newDbHome ? newDbHome + '-precheck' : '',
+    });
+});
+
 // Allow DBA to manually override discovery-populated fields
 router.patch('/:id/config', (req, res) => {
     const allowed = ['old_gi_home', 'new_gi_home', 'old_db_home', 'new_db_home',
