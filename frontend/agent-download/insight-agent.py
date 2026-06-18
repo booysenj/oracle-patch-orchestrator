@@ -120,13 +120,16 @@ def discover():
                     result['running_dbs'].append(sid)
 
     # Grid home — detect from running CRS processes first, fall back to +ASM oratab entry
+    # only if ASM is actually running (pmon_+ASM* process present)
     crs_out = _run("ps -eo args 2>/dev/null | grep -E 'ocssd\\.bin|crsd\\.bin|cssdagent' | grep -v grep | head -1")
     if crs_out:
         m = re.match(r'(/[^\s]+/bin/)', crs_out)
         if m:
             result['grid_home'] = m.group(1).rstrip('/').rsplit('/bin', 1)[0]
     if not result['grid_home'] and asm_home_from_oratab:
-        result['grid_home'] = asm_home_from_oratab
+        asm_running = _run("ps -eo args 2>/dev/null | grep 'pmon_+ASM' | grep -v grep")
+        if asm_running:
+            result['grid_home'] = asm_home_from_oratab
 
     # DB unique name + role — query first running DB via sqlplus
     if result['running_dbs'] and result['oratab']:
