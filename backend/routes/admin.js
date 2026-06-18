@@ -190,8 +190,8 @@ router.post('/vms/:id/deploy-agent', requireAdmin, (req, res) => {
 
     // Build ssh/scp prefix — use sshpass for password auth, plain ssh for key auth
     const keyFile = '/root/.ssh/id_ed25519';
-    const sshCmd = `ssh -o StrictHostKeyChecking=no -o BatchMode=yes -i ${keyFile} -p ${port}`;
-    const scpCmd = `scp -o StrictHostKeyChecking=no -o BatchMode=yes -i ${keyFile} -P ${port}`;
+    const sshCmd = `ssh -o StrictHostKeyChecking=no -o BatchMode=yes -o ConnectTimeout=15 -o ServerAliveInterval=10 -o ServerAliveCountMax=3 -i ${keyFile} -p ${port}`;
+    const scpCmd = `scp -o StrictHostKeyChecking=no -o BatchMode=yes -o ConnectTimeout=15 -i ${keyFile} -P ${port}`;
 
     const setupCmds = [
         `${sudo}mkdir -p ${agentDir}`,

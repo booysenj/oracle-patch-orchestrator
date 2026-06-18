@@ -104,36 +104,35 @@ def discover():
         'cluster_name': None,
     }
 
-    # Mount points with free space (GB)
-    skip_mounts = ('/boot', '/dev', '/proc', '/sys', '/run')
-
-    def _parse_mounts(df_out, kb_mode=False):
-        mounts = []
-        for line in df_out.splitlines()[1:]:
-            parts = line.split()
-            if len(parts) < 6:
-                continue
-            mount = parts[5]
-            avail_raw = parts[3]
-            if not mount.startswith('/'):
-                continue
-            if any(mount == s or mount.startswith(s + '/') for s in skip_mounts):
-                continue
-            try:
-                if kb_mode:
-                    free_gb = int(avail_raw) // 1048576
-                else:
-                    free_gb = int(avail_raw.rstrip('G'))
-                mounts.append({'mount': mount, 'free_gb': free_gb})
-            except ValueError:
-                pass
-        return mounts
-
-    df_out = _run("PATH=/usr/bin:/bin df -BG 2>/dev/null")
-    result['mounts'] = _parse_mounts(df_out, kb_mode=False)
-    if not result['mounts']:
-        df_out = _run("PATH=/usr/bin:/bin df -k 2>/dev/null")
-        result['mounts'] = _parse_mounts(df_out, kb_mode=True)
+    # Mount points with free space (GB) — read /proc/mounts + os.statvfs()
+    # Avoids df PATH issues and stale-NFS hangs that make df block forever.
+    _SKIP_FSTYPES = frozenset([
+        'tmpfs', 'devtmpfs', 'sysfs', 'proc', 'cgroup', 'cgroup2', 'pstore',
+        'securityfs', 'debugfs', 'configfs', 'selinuxfs', 'hugetlbfs', 'mqueue',
+        'fusectl', 'bpf', 'tracefs', 'devpts', 'autofs', 'efivarfs',
+    ])
+    _SKIP_PREFIXES = ('/boot', '/dev', '/proc', '/sys', '/run')
+    try:
+        with open('/proc/mounts') as _mf:
+            for _ml in _mf:
+                _mp = _ml.split()
+                if len(_mp) < 3:
+                    continue
+                _mount, _fstype = _mp[1], _mp[2]
+                if _fstype in _SKIP_FSTYPES:
+                    continue
+                if not _mount.startswith('/'):
+                    continue
+                if any(_mount == s or _mount.startswith(s + '/') for s in _SKIP_PREFIXES):
+                    continue
+                try:
+                    _st = os.statvfs(_mount)
+                    _free_gb = (_st.f_bavail * _st.f_frsize) // (1024 ** 3)
+                    result['mounts'].append({'mount': _mount, 'free_gb': _free_gb})
+                except Exception:
+                    pass
+    except Exception:
+        pass
 
     # /etc/oratab — static DB registrations; also capture +ASM* home as GI home fallback
     asm_home_from_oratab = None
