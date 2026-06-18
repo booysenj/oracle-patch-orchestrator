@@ -182,7 +182,8 @@ router.post('/vms/:id/deploy-agent', requireAdmin, (req, res) => {
         `Environment=INSIGHT_API_URL=${orchestratorUrl}`,
         `Environment=INSIGHT_AGENT_TOKEN=${agentToken}`,
         `Environment=INSIGHT_HOSTNAME=${vm.hostname}`,
-        'StandardOutput=journal', 'StandardError=journal', '',
+        'StandardOutput=journal', 'StandardError=journal',
+        'Environment=PYTHONUNBUFFERED=1', '',
         '[Install]', 'WantedBy=multi-user.target'
     ].join('\n');
 

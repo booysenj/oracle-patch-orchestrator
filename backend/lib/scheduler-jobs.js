@@ -61,7 +61,7 @@ function timeoutStaleJobs() {
         UPDATE jobs SET status = 'failed', exit_code = -1,
             finished_at = datetime('now')
         WHERE status = 'running'
-          AND started_at < datetime('now', '-120 minutes')
+          AND started_at < datetime('now', '-30 minutes')
     `).run();
 
     const stuckQueued = db.prepare(`
