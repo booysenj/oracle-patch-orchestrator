@@ -2395,20 +2395,26 @@ compute_db_cluster_nodes() {
     fi
 }
 assert_precheck_homes_safe() {
-    # GI precheck vs real GI homes
-    if [[ "$PRECHECK_GI_HOME" == "$OLD_GI_HOME" || "$PRECHECK_GI_HOME" == "$NEW_GI_HOME" ]]; then
-        die "PRECHECK_GI_HOME ($PRECHECK_GI_HOME) overlaps with a real GI home; fix config before running."
+    # GI precheck vs real GI homes — skip when PRECHECK_GI_HOME is empty (no GI on this VM)
+    if [[ -n "${PRECHECK_GI_HOME:-}" ]]; then
+        if [[ "$PRECHECK_GI_HOME" == "$OLD_GI_HOME" || "$PRECHECK_GI_HOME" == "$NEW_GI_HOME" ]]; then
+            die "PRECHECK_GI_HOME ($PRECHECK_GI_HOME) overlaps with a real GI home; fix config before running."
+        fi
     fi
 
-    # GI upgrade precheck vs real GI homes
-    local gi_upgrade_pre_home="${GI_UPGRADE_NEW_HOME}-precheck"
-    if [[ "$gi_upgrade_pre_home" == "$OLD_GI_HOME" || "$gi_upgrade_pre_home" == "$GI_UPGRADE_NEW_HOME" ]]; then
-        die "GI upgrade precheck home ($gi_upgrade_pre_home) overlaps with a real GI home; fix config before running."
+    # GI upgrade precheck vs real GI homes — only meaningful when GI_UPGRADE_NEW_HOME is set
+    if [[ -n "${GI_UPGRADE_NEW_HOME:-}" ]]; then
+        local gi_upgrade_pre_home="${GI_UPGRADE_NEW_HOME}-precheck"
+        if [[ "$gi_upgrade_pre_home" == "$OLD_GI_HOME" || "$gi_upgrade_pre_home" == "$GI_UPGRADE_NEW_HOME" ]]; then
+            die "GI upgrade precheck home ($gi_upgrade_pre_home) overlaps with a real GI home; fix config before running."
+        fi
     fi
 
-    # DB precheck vs real DB homes
-    if [[ "$PRECHECK_DB_HOME" == "$OLD_DB_HOME" || "$PRECHECK_DB_HOME" == "$NEW_DB_HOME" ]]; then
-        die "PRECHECK_DB_HOME ($PRECHECK_DB_HOME) overlaps with a real DB home; fix config before running."
+    # DB precheck vs real DB homes — skip when PRECHECK_DB_HOME is empty (no NEW_DB_HOME configured)
+    if [[ -n "${PRECHECK_DB_HOME:-}" ]]; then
+        if [[ "$PRECHECK_DB_HOME" == "$OLD_DB_HOME" || "$PRECHECK_DB_HOME" == "$NEW_DB_HOME" ]]; then
+            die "PRECHECK_DB_HOME ($PRECHECK_DB_HOME) overlaps with a real DB home; fix config before running."
+        fi
     fi
 }
 # ------------------------------------------------------------
