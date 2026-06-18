@@ -184,11 +184,17 @@ def discover():
         if m:
             result['grid_home'] = m.group(1).rstrip('/').rsplit('/bin', 1)[0]
     if not result['grid_home'] and asm_home_from_oratab:
-        # Use -F (fixed string) to avoid regex interpretation of '+', also match pmon_ASM in case
-        # the process name omits the '+' (varies by OS/Oracle version)
+        # ASM pmon can appear as different strings depending on OS/Oracle version:
+        #   comm: ora_pmon_+ASM1   (most common on Linux)
+        #   args: ora_pmon_+ASM1   (same as comm when process renamed itself)
+        #   args: /grid/.../oracle +ASM1 (PMON)   (full path form on some systems)
         asm_running = (
+            _run("ps -eo comm 2>/dev/null | grep -F 'pmon_+ASM' | grep -v grep") or
+            _run("ps -eo comm 2>/dev/null | grep -E 'pmon_[+]?ASM' | grep -v grep") or
             _run("ps -eo args 2>/dev/null | grep -F 'pmon_+ASM' | grep -v grep") or
-            _run("ps -eo args 2>/dev/null | grep -E 'pmon_[+]?ASM' | grep -v grep")
+            _run("ps -eo args 2>/dev/null | grep -E 'pmon_[+]?ASM' | grep -v grep") or
+            _run("ps -eo args 2>/dev/null | grep -F 'oracle +ASM' | grep -v grep") or
+            _run("ps -eo args 2>/dev/null | grep -E '[+]ASM[0-9]* .PMON.' | grep -v grep")
         )
         if asm_running:
             result['grid_home'] = asm_home_from_oratab
