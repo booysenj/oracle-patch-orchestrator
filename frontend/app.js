@@ -1060,9 +1060,11 @@ function loadOpsForCategory() {
       html += '<span class="op-warn"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg> Downtime operation — requires confirmation</span>';
     }
     if (sel.dataset.needsDb === '1') {
+      var knownDbName = (selectedVm && selectedVm.db_unique_name) ? selectedVm.db_unique_name : '';
       html += '<div class="db-name-group" style="margin-top:8px;">' +
         '<label for="dbUniqueName" style="font-weight:600;display:block;margin-bottom:4px;">DB Unique Name <span style="color:#e74c3c;">*</span></label>' +
-        '<input type="text" id="dbUniqueName" placeholder="e.g. ORCL_PRD" style="width:100%;padding:8px;border:1px solid #555;border-radius:4px;background:#1e1e1e;color:#e0e0e0;font-family:monospace;" />' +
+        '<input type="text" id="dbUniqueName" placeholder="e.g. ORCL_PRD" value="' + esc(knownDbName) + '" style="width:100%;padding:8px;border:1px solid #555;border-radius:4px;background:#1e1e1e;color:#e0e0e0;font-family:monospace;" />' +
+        (knownDbName ? '<small style="color:var(--text-muted)">Auto-filled from discovery — edit if needed</small>' : '') +
         '</div>';
     }
     if (html) { metaEl.innerHTML = html; metaEl.classList.remove('hidden'); }
