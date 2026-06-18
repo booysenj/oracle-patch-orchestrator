@@ -1436,10 +1436,18 @@ function renderTransfers() {
                 '<span class="xfer-pct">100%</span>';
         }
         var checksumBadge = t.checksum_verified ? ' <span class="checksum-ok" title="Checksum verified">\u2611</span>' : '';
+        var srcFile = t.source_path ? t.source_path.split('/').pop() : '';
+        var fileTypeLabel = (t.file_type || '').toLowerCase();
+        var fileTypeBadge = '';
+        if (fileTypeLabel === 'opatch')       fileTypeBadge = '<span class="patch-type-badge ptype-opatch">OPatch</span>';
+        else if (fileTypeLabel === 'gi_base') fileTypeBadge = '<span class="patch-type-badge ptype-gi_base">GI Base</span>';
+        else if (fileTypeLabel === 'db_base') fileTypeBadge = '<span class="patch-type-badge ptype-db_base">DB Base</span>';
+        else if (srcFile)                     fileTypeBadge = '<span class="patch-type-badge ptype-ru">RU</span>';
         return '<tr>' +
             '<td><span class="mono">' + esc(t.patch_version || '\u2014') + '</span> ' +
                 '<span class="patch-type-badge ptype-' + (t.patch_type || 'ru').toLowerCase() + '">' + esc(t.patch_type || '') + '</span></td>' +
             '<td>' + esc(t.target_host) + '</td>' +
+            '<td>' + fileTypeBadge + ' <span class="mono xfer-filename" title="' + esc(t.source_path || '') + '">' + esc(srcFile || '\u2014') + '</span></td>' +
             '<td><span class="xfer-status ' + statusCls + '">' + (statusIcon[t.status] || '\u25CB') + ' ' + t.status + '</span>' + checksumBadge + '</td>' +
             '<td>' + progressBar + '</td>' +
             '<td><span class="mono" title="' + esc(t.source_path || '') + ' \u2192 ' + esc(t.target_stage_path || '') + '">' +
