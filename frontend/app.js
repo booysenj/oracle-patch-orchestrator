@@ -525,7 +525,7 @@ function appendReportRow(label, status, details) {
     '<td style="padding:7px 12px;white-space:nowrap">' +
       '<span style="display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:4px;font-size:12px;font-weight:700;background:' + (colors[status] || 'var(--surface3)') + '">' +
       (icons[status] || '') + ' ' + esc(status) + '</span></td>' +
-    '<td style="padding:7px 12px;font-size:12px;color:var(--text-dim)">' + esc(details) + '</td>';
+    '<td style="padding:7px 12px;font-size:12px;color:var(--text-dim)">' + esc(details).replace(/&lt;br\s*\/?&gt;/gi, ' | ') + '</td>';
   tbody.appendChild(tr);
 }
 
