@@ -429,4 +429,28 @@ router.post('/transfer/:id/progress', (req, res) => {
     res.json({ ok: true });
 });
 
+// GET /api/agent/self/version — returns SHA-256 hash of current agent script
+router.get('/self/version', (req, res) => {
+    const crypto = require('crypto');
+    const fs = require('fs');
+    const agentPath = require('path').join(__dirname, '..', '..', 'frontend', 'agent-download', 'insight-agent.py');
+    try {
+        const hash = crypto.createHash('sha256').update(fs.readFileSync(agentPath)).digest('hex');
+        const stat = fs.statSync(agentPath);
+        res.json({ hash, size: stat.size });
+    } catch (e) {
+        res.status(500).json({ error: 'Could not read agent script: ' + e.message });
+    }
+});
+
+// GET /api/agent/self/download — serves the latest agent script
+router.get('/self/download', (req, res) => {
+    const fs = require('fs');
+    const agentPath = require('path').join(__dirname, '..', '..', 'frontend', 'agent-download', 'insight-agent.py');
+    if (!fs.existsSync(agentPath)) return res.status(404).json({ error: 'Agent script not found' });
+    res.setHeader('Content-Type', 'text/x-python');
+    res.setHeader('Content-Disposition', 'attachment; filename="insight-agent.py"');
+    fs.createReadStream(agentPath).pipe(res);
+});
+
 module.exports = router;

@@ -38,7 +38,40 @@ HEADERS = {
 }
 
 running = True
-_cached_script_hash = None
+
+def _self_hash():
+    import hashlib
+    with open(__file__, 'rb') as f:
+        return hashlib.sha256(f.read()).hexdigest()
+
+def check_for_update():
+    """Download and apply a newer agent version if available, then re-exec."""
+    try:
+        r = requests.get(API_URL + '/api/agent/self/version', headers=HEADERS, timeout=10)
+        if r.status_code != 200:
+            return
+        remote = r.json()
+        if remote.get('hash') == _self_hash():
+            return
+        print('[agent] New version detected — downloading update...')
+        dl_headers = {'Authorization': 'Bearer ' + AGENT_TOKEN}
+        r2 = requests.get(API_URL + '/api/agent/self/download', headers=dl_headers, timeout=60, stream=True)
+        if r2.status_code != 200:
+            print('[agent] Update download failed: HTTP %d' % r2.status_code)
+            return
+        tmp = __file__ + '.new'
+        with open(tmp, 'wb') as f:
+            r2.raw.decode_content = True
+            while True:
+                chunk = r2.raw.read(65536)
+                if not chunk:
+                    break
+                f.write(chunk)
+        os.replace(tmp, __file__)
+        print('[agent] Update applied — restarting...')
+        os.execv(sys.executable, [sys.executable] + sys.argv)
+    except Exception as e:
+        print('[agent] Update check failed: %s' % e)
 
 def signal_handler(sig, frame):
     global running
@@ -431,6 +464,9 @@ def main():
         print('[agent] ERROR: INSIGHT_AGENT_TOKEN not set')
         sys.exit(1)
 
+    print('[agent] Checking for updates...')
+    check_for_update()
+
     print('[agent] Running initial system discovery...')
     try:
         payload = discover()
@@ -448,6 +484,10 @@ def main():
     while running:
         job = poll()
         poll_count += 1
+
+        # Check for agent updates every 60 polls (~5 min)
+        if poll_count % 60 == 0:
+            check_for_update()
 
         # Re-run discovery every 12 polls (~60s at 5s interval)
         if poll_count % 12 == 0:
