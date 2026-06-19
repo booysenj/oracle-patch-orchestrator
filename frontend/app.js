@@ -980,10 +980,19 @@ function _renderOnboardStep() {
 
   } else if (step.key === 'deploy') {
     body.innerHTML =
-      '<p style="font-size:13px;color:var(--text-muted);margin:0 0 16px">Deploy the Insight Agent to <strong>' + esc(_ob.vm.hostname) + '</strong> via SSH. The agent connects back to this orchestrator and executes patching jobs.</p>' +
+      '<div style="background:var(--bg-secondary,#0d1117);border:1px solid var(--border);border-radius:6px;padding:12px 14px;font-size:12px;margin-bottom:14px">' +
+        '<p style="margin:0 0 6px;font-weight:600;font-size:13px">How this works</p>' +
+        '<ol style="margin:0;padding-left:16px;line-height:1.9;color:var(--text-muted)">' +
+          '<li>Tries to connect using the orchestrator&rsquo;s SSH key (<code>/root/.ssh/id_ed25519</code>)</li>' +
+          '<li>If the key is not yet trusted on <strong>' + esc(_ob.vm.hostname) + '</strong>, provide the password below &mdash; it runs <code>ssh-copy-id</code> once to install the key, then never uses the password again</li>' +
+          '<li>Copies the agent and patch script, creates a systemd service, starts it</li>' +
+          '<li>Once deployed, the agent self-updates automatically within 5 minutes whenever the orchestrator code changes &mdash; no manual redeploy needed</li>' +
+        '</ol>' +
+        '<p style="margin:8px 0 0;color:var(--text-muted)">To authorise manually instead: copy <code>/root/.ssh/id_ed25519.pub</code> from the orchestrator into <code>~' + esc(_ob.vm.ssh_user || 'oracle') + '/.ssh/authorized_keys</code> on the target VM, then click Deploy with a blank password.</p>' +
+      '</div>' +
       '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">' +
         '<div class="form-group"><label>SSH Username</label><input id="ob-sshuser" value="' + esc(_ob.vm.ssh_user || 'oracle') + '" /></div>' +
-        '<div class="form-group"><label>SSH Password <span style="font-size:11px;color:var(--text-muted)">(first time only)</span></label><input id="ob-sshpass" type="password" placeholder="Leave blank if key already set up" /></div>' +
+        '<div class="form-group"><label>SSH Password <span style="font-size:11px;color:var(--text-muted)">(leave blank if key already trusted)</span></label><input id="ob-sshpass" type="password" placeholder="Only needed to install the key" /></div>' +
       '</div>' +
       '<div class="form-group" style="margin-bottom:16px">' +
         '<label style="display:flex;align-items:center;gap:8px;cursor:pointer"><input id="ob-sudo" type="checkbox" checked style="width:14px;height:14px"> Use sudo for privileged commands</label>' +
@@ -999,7 +1008,7 @@ function _renderOnboardStep() {
       '<div style="text-align:center;padding:12px 0">' +
         '<div id="ob-hb-icon" style="font-size:36px;margin-bottom:10px">&#8987;</div>' +
         '<p id="ob-hb-msg" style="font-size:14px;margin:0 0 6px;font-weight:600">Waiting for agent heartbeat&hellip;</p>' +
-        '<p style="font-size:12px;color:var(--text-muted);margin:0 0 20px">The agent polls every 30 s. This should appear within a minute.</p>' +
+        '<p style="font-size:12px;color:var(--text-muted);margin:0 0 20px">The agent polls every 5 s. This should appear within 30 seconds of the service starting.</p>' +
       '</div>' +
       '<div style="display:flex;justify-content:space-between">' +
         '<button class="btn btn-secondary" onclick="_obNext()">Skip</button>' +
