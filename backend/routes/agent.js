@@ -50,7 +50,7 @@ router.get('/poll', (req, res) => {
     }
 
     const job = db.prepare(
-        'SELECT j.*, v.script_path, v.node_role FROM jobs j JOIN vms v ON j.vm_id = v.id WHERE j.vm_id = ? AND j.status = ? ORDER BY j.created_at ASC LIMIT 1'
+        'SELECT j.*, v.script_path, v.node_role, v.rollback_gi_home, v.rollback_db_home FROM jobs j JOIN vms v ON j.vm_id = v.id WHERE j.vm_id = ? AND j.status = ? ORDER BY j.created_at ASC LIMIT 1'
     ).get(vm.id, 'queued');
 
     if (job === undefined) return res.json({ noJob: true });
