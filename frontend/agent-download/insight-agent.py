@@ -232,43 +232,52 @@ def discover():
         if asm_running:
             result['grid_home'] = asm_home_from_oratab
 
-    # DB unique name + role — query first running DB via sqlplus.
-    # On RAC, the running SID has a node-number suffix (e.g. source1) but oratab
-    # has the base name (source). Try exact match first, then strip trailing digits.
-    if result['running_dbs'] and result['oratab']:
-        sid = result['running_dbs'][0]
+    # DB unique name + role — try each running instance until sqlplus succeeds.
+    # RAC instance SIDs have a node-number suffix: source1 → oratab has 'source',
+    # or underscore form: sretest_1 → oratab has 'sretest'. Try both strip patterns.
+    def _oratab_home(sid):
         home = next((o['home'] for o in result['oratab'] if o['sid'] == sid), None)
         if not home:
-            base_sid = sid.rstrip('0123456789')
-            home = next((o['home'] for o in result['oratab'] if o['sid'] == base_sid), None)
-        if not home and result['oratab']:
-            home = result['oratab'][0]['home']
-        if home and os.path.isfile(home + '/bin/sqlplus'):
-            env = os.environ.copy()
-            env['ORACLE_SID'] = sid
-            env['ORACLE_HOME'] = home
-            env['PATH'] = home + '/bin:' + env.get('PATH', '')
-            sql = (
-                "SET PAGESIZE 0 FEEDBACK OFF VERIFY OFF HEADING OFF\n"
-                "WHENEVER SQLERROR CONTINUE\n"
-                "SELECT 'UNIQUE='||db_unique_name FROM v$database;\n"
-                "SELECT 'ROLE='||database_role FROM v$database;\n"
-                "EXIT\n"
+            # Strip trailing digits: source1 → source
+            base = sid.rstrip('0123456789')
+            home = next((o['home'] for o in result['oratab'] if o['sid'] == base), None)
+        if not home:
+            # Strip _N suffix: sretest_1 → sretest
+            base = re.sub(r'_[0-9]+$', '', sid)
+            home = next((o['home'] for o in result['oratab'] if o['sid'] == base), None)
+        return home
+
+    sql = (
+        "SET PAGESIZE 0 FEEDBACK OFF VERIFY OFF HEADING OFF\n"
+        "WHENEVER SQLERROR CONTINUE\n"
+        "SELECT 'UNIQUE='||db_unique_name FROM v$database;\n"
+        "SELECT 'ROLE='||database_role FROM v$database;\n"
+        "EXIT\n"
+    )
+    for _sid in result['running_dbs']:
+        _home = _oratab_home(_sid)
+        if not _home or not os.path.isfile(_home + '/bin/sqlplus'):
+            continue
+        try:
+            _env = os.environ.copy()
+            _env['ORACLE_SID'] = _sid
+            _env['ORACLE_HOME'] = _home
+            _env['PATH'] = _home + '/bin:' + _env.get('PATH', '')
+            out = subprocess.check_output(
+                [_home + '/bin/sqlplus', '-S', '/ as sysdba'],
+                input=sql, text=True, env=_env, timeout=15,
+                stderr=subprocess.DEVNULL
             )
-            try:
-                out = subprocess.check_output(
-                    [home + '/bin/sqlplus', '-S', '/ as sysdba'],
-                    input=sql, text=True, env=env, timeout=15,
-                    stderr=subprocess.DEVNULL
-                )
-                for line in out.splitlines():
-                    line = line.strip()
-                    if line.startswith('UNIQUE='):
-                        result['db_unique_name'] = line[7:]
-                    elif line.startswith('ROLE='):
-                        result['database_role'] = line[5:]
-            except Exception:
-                pass
+            for line in out.splitlines():
+                line = line.strip()
+                if line.startswith('UNIQUE=') and not result['db_unique_name']:
+                    result['db_unique_name'] = line[7:]
+                elif line.startswith('ROLE=') and not result['database_role']:
+                    result['database_role'] = line[5:]
+            if result['database_role']:
+                break  # got what we need from this instance
+        except Exception:
+            pass
 
     # Cluster name — olsnodes or cemutlo
     gi = result['grid_home']
