@@ -64,6 +64,34 @@ function initPatchTables() {
         CREATE INDEX IF NOT EXISTS idx_transfer_host ON patch_transfers(target_host);
     `);
     console.log('[db] Patch catalog extensions + transfer tables initialised');
+    _autoPopulateOjvmZip(db);
+}
+
+function _autoPopulateOjvmZip(db) {
+    const fs = require('fs');
+    const pathMod = require('path');
+    // Build candidate directories: software_repo_root/ojvm first, then common fallback
+    var candidates = [];
+    try {
+        var s = db.prepare("SELECT value FROM app_settings WHERE key='software_repo_root'").get();
+        if (s && s.value) candidates.push(pathMod.join(s.value, 'ojvm'));
+    } catch(e) {}
+    candidates.push('/backup/patches/ojvm');
+    for (var i = 0; i < candidates.length; i++) {
+        var dir = candidates[i];
+        try {
+            if (!fs.existsSync(dir)) continue;
+            var files = fs.readdirSync(dir)
+                .filter(function(f) { return /^p\d+_190000.*\.zip$/i.test(f) && !/^p688088/i.test(f); })
+                .sort();
+            if (!files.length) continue;
+            var ojvmPath = pathMod.join(dir, files[0]);
+            var r = db.prepare("UPDATE patch_versions SET ojvm_zip=? WHERE ojvm_zip IS NULL OR ojvm_zip=''").run(ojvmPath);
+            if (r.changes > 0)
+                console.log('[db] Auto-populated ojvm_zip =', ojvmPath, 'across', r.changes, 'patch version(s)');
+            break;
+        } catch(e) {}
+    }
 }
 
 const router = express.Router();
@@ -592,10 +620,22 @@ module.exports = function (authenticateToken) {
             }
         });
 
+        // Detect shared OJVM zip in an ojvm/ subdirectory at the scan root
+        var sharedOjvmZip = '';
+        var ojvmSubdir = pathMod.join(root, 'ojvm');
+        try {
+            if (fs.existsSync(ojvmSubdir)) {
+                var ojvmFiles = fs.readdirSync(ojvmSubdir)
+                    .filter(function(f) { return /^p\d+_190000.*\.zip$/i.test(f) && !/^p688088/i.test(f); })
+                    .sort();
+                if (ojvmFiles.length) sharedOjvmZip = pathMod.join(ojvmSubdir, ojvmFiles[0]);
+            }
+        } catch(e) {}
+
         var imported = 0;
         var upsertStmt = db.prepare(
-            "INSERT OR REPLACE INTO patch_versions (id, version, patch_type, description, gi_base_zip, db_base_zip, opatch_zip, patch_search_root, ru_dir, file_size_bytes, is_downloaded) " +
-            "VALUES (coalesce((SELECT id FROM patch_versions WHERE version = ?), lower(hex(randomblob(16)))), ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)"
+            "INSERT OR REPLACE INTO patch_versions (id, version, patch_type, description, gi_base_zip, db_base_zip, opatch_zip, ojvm_zip, patch_search_root, ru_dir, file_size_bytes, is_downloaded) " +
+            "VALUES (coalesce((SELECT id FROM patch_versions WHERE version = ?), lower(hex(randomblob(16)))), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)"
         );
 
         Object.keys(groups).forEach(function(version) {
@@ -605,9 +645,15 @@ module.exports = function (authenticateToken) {
             if (g.gi_base_zip) ptype = 'GI_BASE';
             else if (g.db_base_zip) ptype = 'DB_BASE';
             upsertStmt.run(version, version, ptype, 'Scanned from ' + root,
-                g.gi_base_zip, g.db_base_zip, g.opatch_zip, g.patch_search_root, g.ru_dir, g.total_size);
+                g.gi_base_zip, g.db_base_zip, g.opatch_zip, sharedOjvmZip,
+                g.patch_search_root, g.ru_dir, g.total_size);
             imported++;
         });
+
+        // Backfill any already-registered versions missing ojvm_zip
+        if (sharedOjvmZip) {
+            db.prepare("UPDATE patch_versions SET ojvm_zip=? WHERE ojvm_zip IS NULL OR ojvm_zip=''").run(sharedOjvmZip);
+        }
 
         res.json({
             message: 'Scan complete: ' + imported + ' patch version(s) imported',
