@@ -8,12 +8,16 @@ except ImportError:
     class _Resp:
         def __init__(self, r):
             self.status_code = r.getcode()
-            self._body = r.read().decode()
+            self._raw = r.read()
+            self._body = self._raw.decode('utf-8', errors='replace')
         def json(self):
             return json_mod.loads(self._body)
         @property
         def text(self):
             return self._body
+        @property
+        def content(self):
+            return self._raw
     class requests:
         @staticmethod
         def get(url, **kw):
