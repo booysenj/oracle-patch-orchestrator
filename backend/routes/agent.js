@@ -253,6 +253,9 @@ router.get('/:jobId/runtime-config', (req, res) => {
         'NEW_GI_HOME=' + newGiHome,
         'OLD_DB_HOME=' + (job.old_db_home || ''),
         'NEW_DB_HOME=' + newDbHome,
+        '# Rollback homes — snapshotted at last gi_switch/db_switch (fading: only one step back)',
+        'ROLLBACK_GI_HOME=' + (job.rollback_gi_home || ''),
+        'ROLLBACK_DB_HOME=' + (job.rollback_db_home || ''),
         '',
         '# Database Identity',
         'DB_UNIQUE_NAME=' + (job.db_unique_name || ''),
@@ -357,6 +360,19 @@ router.post('/:jobId/logs', (req, res) => {
                             if (!discJob.cluster_name && parsed.cluster_name) vmUpdates.cluster_name = parsed.cluster_name;
                             if (parsed.crs_active_version) vmUpdates.crs_version = parsed.crs_active_version;
                             if (parsed.nodes && parsed.nodes.length) vmUpdates.nodes_json = JSON.stringify(parsed.nodes);
+                        } else if (type === 'staged_software') {
+                            // Emitted by stage_software after extracting the RU ZIP.
+                            // ru_version e.g. "19.29" drives all subsequent home derivations.
+                            if (parsed.ru_version) vmUpdates.patch_target = parsed.ru_version;
+                        } else if (type === 'home_switched') {
+                            // Emitted by gi_switch / db_switch after the switch completes.
+                            // Snapshot the OLD home as the rollback target so future rollbacks
+                            // always go back to the home that was active before this switch,
+                            // not an even older one (fading).
+                            if (parsed.old_gi_home) vmUpdates.rollback_gi_home = parsed.old_gi_home;
+                            if (parsed.old_db_home) vmUpdates.rollback_db_home = parsed.old_db_home;
+                            if (parsed.new_gi_home) vmUpdates.old_gi_home = parsed.new_gi_home;
+                            if (parsed.new_db_home) vmUpdates.old_db_home = parsed.new_db_home;
                         }
 
                         if (Object.keys(vmUpdates).length > 0) {

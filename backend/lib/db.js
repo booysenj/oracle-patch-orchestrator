@@ -80,6 +80,8 @@ function initDB() {
     try { d.exec(`ALTER TABLE vms ADD COLUMN crs_version TEXT`); } catch(_) {}
     try { d.exec(`ALTER TABLE vms ADD COLUMN nodes_json TEXT`); } catch(_) {}
     try { d.exec(`ALTER TABLE vms ADD COLUMN current_db_home TEXT`); } catch(_) {}
+    try { d.exec(`ALTER TABLE vms ADD COLUMN rollback_gi_home TEXT`); } catch(_) {}
+    try { d.exec(`ALTER TABLE vms ADD COLUMN rollback_db_home TEXT`); } catch(_) {}
     try { d.exec(`ALTER TABLE vms ADD COLUMN mail_to TEXT`); } catch(_) {}
     try { d.exec(`ALTER TABLE vms ADD COLUMN mail_from TEXT`); } catch(_) {}
     // patch_reports migrations — run before CREATE TABLE so existing DBs get the columns

@@ -1052,6 +1052,36 @@ distribute_staged_files() {
                 if [[ -n "$extracted_dir" ]]; then
                     add_html_row "RU extraction" "PASS" \
                         "Extracted → ${patchset_dir}/${extracted_dir}/ (patch ID: ${extracted_dir})"
+
+                    # Detect RU version from README inside the extracted patch dir.
+                    # README.html contains e.g. "Database Release Update 19.29.0.0.250415"
+                    local ru_readme="${patchset_dir}/${extracted_dir}/README.html"
+                    local detected_ru_ver=""
+                    if [[ -f "$ru_readme" ]]; then
+                        detected_ru_ver=$(grep -oE '19\.[0-9]+\.[0-9]+\.[0-9]+' "$ru_readme" 2>/dev/null | head -1 || true)
+                    fi
+                    # Fall back to the patchset_dir name (already contains version like 19.29)
+                    if [[ -z "$detected_ru_ver" && "$patchset_dir" =~ (19\.[0-9]+) ]]; then
+                        detected_ru_ver="${BASH_REMATCH[1]}"
+                    fi
+
+                    if [[ -n "$detected_ru_ver" ]]; then
+                        # Trim to major.minor (19.29.0.0 → 19.29)
+                        local ru_short
+                        ru_short=$(echo "$detected_ru_ver" | grep -oE '^19\.[0-9]+')
+                        local gi_base db_base new_gi="" new_db=""
+                        gi_base=$(dirname "${OLD_GI_HOME:-/grid/oracle/product/x}")
+                        db_base=$(dirname "${OLD_DB_HOME:-/app/oracle/product/x}")
+                        [[ -n "$OLD_GI_HOME" ]] && new_gi="${gi_base}/${ru_short}"
+                        [[ -n "$OLD_DB_HOME" ]] && new_db="${db_base}/${ru_short}"
+
+                        add_html_row "RU version detected" "INFO" \
+                            "<b>${detected_ru_ver}</b> — will derive NEW_GI_HOME=<code>${new_gi}</code> NEW_DB_HOME=<code>${new_db}</code>"
+                        log "INFO: Detected RU version: $detected_ru_ver → patch_target=$ru_short"
+
+                        # Emit discovery so orchestrator updates vm.patch_target automatically
+                        echo "[DISCOVERY_JSON] {\"type\":\"staged_software\",\"ru_version\":\"${ru_short}\",\"ru_full_version\":\"${detected_ru_ver}\",\"new_gi_home\":\"${new_gi}\",\"new_db_home\":\"${new_db}\",\"patch_id\":\"${extracted_dir}\"}"
+                    fi
                 else
                     add_html_row "RU extraction" "WARN" \
                         "Unzip completed but no numbered directory found in $patchset_dir"
@@ -4963,8 +4993,12 @@ phase_switch_home() {
         msg="CRS/HAS home successfully switched to NEW_GI_HOME (${NEW_GI_HOME})."
     fi
     add_html_row "GI Switch Result" "PASS" "$msg"
-
     send_phase_html_report "GI Switch" "GI Switch Report - $HOST" "PASS"
+
+    # Snapshot homes at switch time so orchestrator can fade old rollback targets.
+    if [[ "$DRYRUN" == false && -n "${NEW_GI_HOME:-}" && -n "${OLD_GI_HOME:-}" ]]; then
+        echo "[DISCOVERY_JSON] {\"type\":\"home_switched\",\"old_gi_home\":\"${OLD_GI_HOME}\",\"new_gi_home\":\"${NEW_GI_HOME}\",\"old_db_home\":\"\",\"new_db_home\":\"\"}"
+    fi
 }
 phase_rollback() {
     reset_report
@@ -7003,6 +7037,12 @@ SQEOF
         add_html_row "DB Switch Result" "WARN" \
             "Switched but datapatch did NOT run."
         send_phase_html_report "DB Switch" "DB Switch Report - $HOST" "WARN"
+    fi
+
+    # Snapshot homes at switch time so orchestrator can fade old rollback targets.
+    # old_db_home becomes the rollback target; new_db_home becomes the new active.
+    if [[ "$DRYRUN" == false && -n "${NEW_DB_HOME:-}" && -n "${OLD_DB_HOME:-}" ]]; then
+        echo "[DISCOVERY_JSON] {\"type\":\"home_switched\",\"old_db_home\":\"${OLD_DB_HOME}\",\"new_db_home\":\"${NEW_DB_HOME}\",\"old_gi_home\":\"\",\"new_gi_home\":\"\"}"
     fi
 }
 db_switch() {
