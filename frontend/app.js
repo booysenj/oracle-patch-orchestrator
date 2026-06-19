@@ -1499,6 +1499,7 @@ function openEditPatchModal(id) {
     document.getElementById('patchSearchRoot').value = p.patch_search_root || '';
     document.getElementById('patchRuDir').value = p.ru_dir || '';
     document.getElementById('patchOpatchZip').value = p.opatch_zip || '';
+    document.getElementById('patchOjvmZip').value = p.ojvm_zip || '';
     document.getElementById('patchFileName').value = p.file_name || '';
     document.getElementById('patchFileSize').value = p.file_size_bytes || '';
     document.getElementById('patchChecksum').value = p.checksum_sha256 || '';
@@ -1540,6 +1541,7 @@ async function savePatch() {
         patch_search_root: document.getElementById('patchSearchRoot').value.trim(),
         ru_dir: document.getElementById('patchRuDir').value.trim(),
         opatch_zip: document.getElementById('patchOpatchZip').value.trim(),
+        ojvm_zip: document.getElementById('patchOjvmZip').value.trim(),
         file_name: document.getElementById('patchFileName').value.trim(),
         file_size_bytes: parseInt(document.getElementById('patchFileSize').value) || 0,
         checksum_sha256: document.getElementById('patchChecksum').value.trim(),
@@ -1614,6 +1616,7 @@ function renderTransfers() {
         if (fileTypeLabel === 'opatch')       fileTypeBadge = '<span class="patch-type-badge ptype-opatch">OPatch</span>';
         else if (fileTypeLabel === 'gi_base') fileTypeBadge = '<span class="patch-type-badge ptype-gi_base">GI Base</span>';
         else if (fileTypeLabel === 'db_base') fileTypeBadge = '<span class="patch-type-badge ptype-db_base">DB Base</span>';
+        else if (fileTypeLabel === 'ojvm')    fileTypeBadge = '<span class="patch-type-badge ptype-ojvm">OJVM</span>';
         else if (srcFile)                     fileTypeBadge = '<span class="patch-type-badge ptype-ru">RU</span>';
         var dateStr = t.completed_at || t.started_at || t.created_at || '';
         var dateFmt = dateStr ? formatDate(dateStr) : '\u2014';
@@ -1723,7 +1726,8 @@ async function createTransfer() {
     var patch = (typeof patchCatalog !== 'undefined' ? patchCatalog : []).find(function(p) { return p.id === patchId; });
     var types = fileType === 'all'
         ? [patch && patch.patch_search_root && 'ru_patch', patch && patch.opatch_zip && 'opatch',
-           patch && patch.gi_base_zip && 'gi_base', patch && patch.db_base_zip && 'db_base'].filter(Boolean)
+           patch && patch.gi_base_zip && 'gi_base', patch && patch.db_base_zip && 'db_base',
+           patch && patch.ojvm_zip && 'ojvm'].filter(Boolean)
         : [fileType];
     if (!types.length) { errEl.textContent = 'No files available for this patch version'; return; }
 
@@ -2324,6 +2328,7 @@ openCreateTransferModal = async function() {
             if (p.opatch_zip) files.push("OPatch");
             if (p.gi_base_zip) files.push("GI");
             if (p.db_base_zip) files.push("DB");
+            if (p.ojvm_zip) files.push("OJVM");
             if (files.length) label += " — " + files.join(", ");
             var opt = document.createElement("option");
             opt.value = p.id;

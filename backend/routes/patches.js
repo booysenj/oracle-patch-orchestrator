@@ -35,6 +35,8 @@ function initPatchTables() {
         db.exec("ALTER TABLE patch_versions ADD COLUMN prerequisites TEXT DEFAULT '{}'");
     if (!cols.includes('updated_at'))
         db.exec("ALTER TABLE patch_versions ADD COLUMN updated_at TEXT DEFAULT (datetime('now'))");
+    if (!cols.includes('ojvm_zip'))
+        db.exec("ALTER TABLE patch_versions ADD COLUMN ojvm_zip TEXT DEFAULT ''");
 
     // Create transfers table
     db.exec(`
@@ -72,9 +74,6 @@ module.exports = function (authenticateToken) {
     // --- PATCH CATALOG CRUD ---------------------------------------
 
     // GET /api/patches - list/search
-    
-    try { db.exec("ALTER TABLE patch_versions ADD COLUMN new_gi_home TEXT DEFAULT ''"); } catch(e) {}
-    try { db.exec("ALTER TABLE patch_versions ADD COLUMN new_db_home TEXT DEFAULT ''"); } catch(e) {}
     router.get('/', authenticateToken, (req, res) => {
         const db = getDB();
         let sql = 'SELECT * FROM patch_versions WHERE 1=1';
@@ -164,10 +163,10 @@ module.exports = function (authenticateToken) {
         try {
             db.prepare(`INSERT INTO patch_versions
                 (id, version, patch_type, description, platform, release_date,
-                 gi_base_zip, db_base_zip, patch_search_root, ru_dir, opatch_zip,
+                 gi_base_zip, db_base_zip, patch_search_root, ru_dir, opatch_zip, ojvm_zip,
                  file_name, file_size_bytes, checksum_sha256, source_url,
                  is_downloaded, supersedes, prerequisites)
-                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             `).run(
                 id,
                 b.version || '',
@@ -180,6 +179,7 @@ module.exports = function (authenticateToken) {
                 b.patch_search_root || '',
                 b.ru_dir || '',
                 b.opatch_zip || '',
+                b.ojvm_zip || '',
                 b.file_name || '',
                 b.file_size_bytes || 0,
                 b.checksum_sha256 || '',
@@ -252,7 +252,7 @@ module.exports = function (authenticateToken) {
 
             db.prepare(`UPDATE patch_versions SET
                 version=?, patch_type=?, description=?, platform=?, release_date=?,
-                gi_base_zip=?, db_base_zip=?, patch_search_root=?, ru_dir=?, opatch_zip=?,
+                gi_base_zip=?, db_base_zip=?, patch_search_root=?, ru_dir=?, opatch_zip=?, ojvm_zip=?,
                 file_name=?, file_size_bytes=?, checksum_sha256=?, source_url=?,
                 is_downloaded=?, supersedes=?, prerequisites=?,
                 updated_at=datetime('now')
@@ -268,6 +268,7 @@ module.exports = function (authenticateToken) {
                 b.patch_search_root || '',
                 b.ru_dir || '',
                 b.opatch_zip || '',
+                b.ojvm_zip || '',
                 b.file_name || '',
                 b.file_size_bytes || 0,
                 b.checksum_sha256 || '',
@@ -363,6 +364,8 @@ module.exports = function (authenticateToken) {
             sourcePath = patch.gi_base_zip || '';
         } else if (fileType === 'db_base') {
             sourcePath = patch.db_base_zip || '';
+        } else if (fileType === 'ojvm') {
+            sourcePath = patch.ojvm_zip || '';
         } else {
             sourcePath = patch.patch_search_root || '';
         }
