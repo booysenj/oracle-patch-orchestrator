@@ -498,16 +498,39 @@ router.post('/:jobId/complete', (req, res) => {
 router.get('/transfer/:id', (req, res) => {
     const db = getDB();
     const fs = require('fs');
+    const path = require('path');
     const t = db.prepare('SELECT * FROM patch_transfers WHERE id = ?').get(req.params.id);
     if (!t) return res.status(404).json({ error: 'Transfer not found' });
     var src = t.source_path;
     if (!src || !fs.existsSync(src)) return res.status(404).json({ error: 'Source file not found: ' + src });
     var stat = fs.statSync(src);
+    if (stat.isDirectory()) {
+        // source_path is a directory — find the right file inside it
+        var files = fs.readdirSync(src).filter(function(f) { return f.endsWith('.zip'); });
+        if (files.length === 0) return res.status(400).json({ error: 'No .zip files found in directory: ' + src });
+        var ft = t.file_type || '';
+        var chosen;
+        if (ft === 'opatch') {
+            chosen = files.find(function(f) { return f.startsWith('p6880880'); }) || files[0];
+        } else {
+            // Pick largest zip (RU) — exclude OPatch
+            var ruFiles = files.filter(function(f) { return !f.startsWith('p6880880'); });
+            chosen = ruFiles.length > 0 ? ruFiles[0] : files[0];
+        }
+        src = path.join(src, chosen);
+        stat = fs.statSync(src);
+    }
     res.setHeader('Content-Length', stat.size);
     res.setHeader('Content-Type', 'application/octet-stream');
-    res.setHeader('X-Filename', require('path').basename(src));
+    res.setHeader('X-Filename', path.basename(src));
     res.setHeader('X-Total-Bytes', stat.size);
-    fs.createReadStream(src).pipe(res);
+    var stream = fs.createReadStream(src);
+    stream.on('error', function(err) {
+        console.error('[transfer] Stream error for ' + src + ':', err.message);
+        if (!res.headersSent) res.status(500).json({ error: 'Stream error: ' + err.message });
+        else res.destroy();
+    });
+    stream.pipe(res);
 });
 
 // POST /api/agent/transfer/:id/complete — agent reports transfer done or failed
