@@ -82,6 +82,10 @@ function initDB() {
     try { d.exec(`ALTER TABLE vms ADD COLUMN current_db_home TEXT`); } catch(_) {}
     try { d.exec(`ALTER TABLE vms ADD COLUMN rollback_gi_home TEXT`); } catch(_) {}
     try { d.exec(`ALTER TABLE vms ADD COLUMN rollback_db_home TEXT`); } catch(_) {}
+    // OS identity — populated by agent discovery; used in runtime config so script never hardcodes them
+    try { d.exec(`ALTER TABLE vms ADD COLUMN oracle_user TEXT`); } catch(_) {}
+    try { d.exec(`ALTER TABLE vms ADD COLUMN grid_user TEXT`); } catch(_) {}
+    try { d.exec(`ALTER TABLE vms ADD COLUMN oinstall_group TEXT`); } catch(_) {}
     try { d.exec(`ALTER TABLE vms ADD COLUMN mail_to TEXT`); } catch(_) {}
     try { d.exec(`ALTER TABLE vms ADD COLUMN mail_from TEXT`); } catch(_) {}
     // patch_reports migrations — run before CREATE TABLE so existing DBs get the columns

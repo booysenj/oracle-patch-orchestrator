@@ -106,6 +106,41 @@ def _run(cmd, timeout=10):
     except Exception:
         return ''
 
+def _detect_oracle_os_identity(grid_home, db_homes):
+    """Return (oracle_user, grid_user, oinstall_group) by inspecting file ownership."""
+    oracle_user, grid_user, oinstall_group = None, None, None
+    # ORACLE_USER — owner of the oracle binary in any DB home
+    for h in db_homes:
+        bin_path = h + '/bin/oracle'
+        try:
+            import pwd
+            st = os.stat(bin_path)
+            u = pwd.getpwuid(st.st_uid).pw_name
+            if u and u != 'root':
+                oracle_user = u
+                break
+        except Exception:
+            pass
+    # GRID_USER — owner of crsctl in the GI home (may be 'grid' or same as oracle)
+    if grid_home:
+        try:
+            import pwd
+            st = os.stat(grid_home + '/bin/crsctl')
+            u = pwd.getpwuid(st.st_uid).pw_name
+            if u and u != 'root':
+                grid_user = u
+        except Exception:
+            pass
+    # OINSTALL — primary group of oracle_user
+    if oracle_user:
+        try:
+            import grp, pwd
+            oinstall_group = grp.getgrgid(pwd.getpwnam(oracle_user).pw_gid).gr_name
+        except Exception:
+            pass
+    return oracle_user, grid_user, oinstall_group
+
+
 def discover():
     """Collect lightweight system inventory and return a dict."""
     result = {
@@ -117,6 +152,9 @@ def discover():
         'db_unique_name': None,
         'database_role': None,
         'cluster_name': None,
+        'oracle_user': None,
+        'grid_user': None,
+        'oinstall_group': None,
     }
 
     # Mount points with free space (GB) — read /proc/mounts + os.statvfs()
@@ -303,6 +341,13 @@ def discover():
              _run('%s/bin/cemutlo -n 2>/dev/null | head -1' % gi)
         if cn:
             result['cluster_name'] = cn
+
+    # OS identity — discover oracle/grid user and oinstall group from file ownership
+    db_homes = list({e['home'] for e in result['oratab'] if e.get('home')})
+    ou, gu, oi = _detect_oracle_os_identity(result['grid_home'], db_homes)
+    if ou: result['oracle_user'] = ou
+    if gu: result['grid_user'] = gu
+    if oi: result['oinstall_group'] = oi
 
     return result
 

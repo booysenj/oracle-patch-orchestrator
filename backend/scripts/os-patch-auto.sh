@@ -76,11 +76,13 @@ fi
 
 # ------------------------------------------------------------
 # CONFIGURATION (defaults – overridden by runtime conf above)
+# Runtime conf is sourced before this block, so use ${VAR:-default}
+# so that any value injected by the orchestrator is preserved.
 # ------------------------------------------------------------
-ORACLE_USER=oracle
-GRID_USER=oracle
-OINSTALL=oinstall
-OLD_GI_OSOPER_GROUP=""
+ORACLE_USER="${ORACLE_USER:-oracle}"
+GRID_USER="${GRID_USER:-oracle}"
+OINSTALL="${OINSTALL:-oinstall}"
+OLD_GI_OSOPER_GROUP="${OLD_GI_OSOPER_GROUP:-}"
 
 MAIL_TO="${MAIL_TO:-ps.devops@4cgroup.co.za}"
 MAIL_FROM="${MAIL_FROM:-oop-orchestrator@4cgroup.co.za}"
@@ -139,6 +141,70 @@ EMBED_RSP=true
 GI_RSP=/home/oracle/grid-demo-setup.rsp
 DB_RSP=${DB_RSP:-/home/oracle/db-install.rsp}
 DB_AUTOCFG=/home/oracle/autoupgrade.cfg
+
+# ------------------------------------------------------------
+# AUTO-DETECT OS IDENTITY (oracle user, groups)
+# Runs after the runtime conf is sourced so homes are available.
+# Only fills in variables that are still at their defaults —
+# explicit overrides from the runtime conf / env are preserved.
+# ------------------------------------------------------------
+_autodetect_os_identity() {
+    # ORACLE_USER — owner of the oracle binary in any known DB home
+    if [[ "${ORACLE_USER:-oracle}" == "oracle" ]]; then
+        local _oh
+        for _oh in "${OLD_DB_HOME:-}" "${NEW_DB_HOME:-}"; do
+            [[ -z "$_oh" ]] && continue
+            if [[ -f "$_oh/bin/oracle" ]]; then
+                local _u
+                _u=$(stat -c '%U' "$_oh/bin/oracle" 2>/dev/null || true)
+                if [[ -n "$_u" && "$_u" != "root" ]]; then
+                    ORACLE_USER="$_u"
+                    break
+                fi
+            fi
+        done
+    fi
+
+    # GRID_USER — owner of crsctl in any known GI home (may differ from ORACLE_USER)
+    if [[ "${GRID_USER:-oracle}" == "oracle" ]]; then
+        local _gh
+        for _gh in "${OLD_GI_HOME:-}" "${NEW_GI_HOME:-}"; do
+            [[ -z "$_gh" ]] && continue
+            if [[ -f "$_gh/bin/crsctl" ]]; then
+                local _g
+                _g=$(stat -c '%U' "$_gh/bin/crsctl" 2>/dev/null || true)
+                if [[ -n "$_g" && "$_g" != "root" ]]; then
+                    GRID_USER="$_g"
+                    break
+                fi
+            fi
+        done
+    fi
+
+    # OINSTALL — primary group of the oracle OS user
+    if [[ "${OINSTALL:-oinstall}" == "oinstall" ]]; then
+        local _grp
+        _grp=$(id -gn "$ORACLE_USER" 2>/dev/null || true)
+        [[ -n "$_grp" ]] && OINSTALL="$_grp"
+    fi
+
+    # OLD_GI_OSOPER_GROUP — from GI home config.c (already handled by get_old_gi_osoper_group)
+    # Populate early here so callers don't need to call the function themselves
+    if [[ -z "${OLD_GI_OSOPER_GROUP:-}" && -n "${OLD_GI_HOME:-}" ]]; then
+        local _cfg="${OLD_GI_HOME}/rdbms/lib/config.c"
+        if [[ -f "$_cfg" ]]; then
+            local _osoper
+            _osoper=$(awk '/#define[[:space:]]+SS_OPER_GRP/ {gsub(/"/, "", $3); print $3; exit}' "$_cfg" 2>/dev/null || true)
+            [[ -n "$_osoper" ]] && OLD_GI_OSOPER_GROUP="$_osoper"
+        fi
+        # Fallback: first 'asm*' group of the grid user
+        if [[ -z "$OLD_GI_OSOPER_GROUP" ]]; then
+            OLD_GI_OSOPER_GROUP=$(id -Gn "${GRID_USER:-oracle}" 2>/dev/null \
+                | tr ' ' '\n' | grep -E '^asm' | head -1 || true)
+        fi
+    fi
+}
+_autodetect_os_identity
 
 # ----------------------------
 # Logging (DEFINE ONLY here)

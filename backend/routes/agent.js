@@ -133,6 +133,9 @@ router.post('/discover', (req, res) => {
     var databaseRole = payload.database_role || null;
     var clusterName = payload.cluster_name || null;
     var runningDbs = payload.running_dbs || [];
+    var oracleUser = payload.oracle_user || null;
+    var gridUser = payload.grid_user || null;
+    var oinstallGroup = payload.oinstall_group || null;
 
     // Derive best staging mount — largest free mount that isn't / or /boot
     var preferredStaging = vm.preferred_staging_mount || null;
@@ -161,6 +164,10 @@ router.post('/discover', (req, res) => {
     if (!vm.db_unique_name && dbUniqueName) updates.db_unique_name = dbUniqueName;
     if (!vm.cluster_name && clusterName) updates.cluster_name = clusterName;
     if (!vm.preferred_staging_mount && preferredStaging) updates.preferred_staging_mount = preferredStaging;
+    // OS identity — write-once; only updated if discovered and currently unset
+    if (oracleUser && !vm.oracle_user) updates.oracle_user = oracleUser;
+    if (gridUser && !vm.grid_user) updates.grid_user = gridUser;
+    if (oinstallGroup && !vm.oinstall_group) updates.oinstall_group = oinstallGroup;
 
     // Dynamic values — always overwrite
     updates.database_role = databaseRole;
@@ -270,7 +277,11 @@ router.get('/:jobId/runtime-config', (req, res) => {
         '',
         '# Staging',
         'STAGE_PATH=' + stagingRoot,
-        'ORACLE_USER=oracle',
+        '',
+        '# OS Identity (discovered from file ownership on the target VM)',
+        'ORACLE_USER=' + (job.oracle_user || 'oracle'),
+        'GRID_USER=' + (job.grid_user || job.oracle_user || 'oracle'),
+        'OINSTALL=' + (job.oinstall_group || 'oinstall'),
         '',
         '# Email (per-VM override > global setting > script default)',
         'MAIL_TO=' + mailTo,
