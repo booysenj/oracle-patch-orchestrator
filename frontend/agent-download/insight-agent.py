@@ -178,26 +178,43 @@ def discover():
 
     # Grid home — try olr.loc first (most reliable; works for CRS/RAC and HAS alike),
     # then fall back to process-based detection, then +ASM oratab entry.
+    # olr.loc keys seen in the wild: crs_home=, oracle_home=, ORACLE_HOME= (case varies by GI version)
     for _olr in ('/etc/oracle/olr.loc', '/var/opt/oracle/olr.loc'):
         try:
             with open(_olr) as _f:
                 for _line in _f:
-                    _m = re.match(r'\s*crs_home\s*=\s*(\S+)', _line)
+                    _m = re.match(r'\s*(?:crs_home|oracle_home)\s*=\s*(\S+)', _line, re.IGNORECASE)
                     if _m:
-                        result['grid_home'] = _m.group(1).strip()
-                        break
+                        _candidate = _m.group(1).strip()
+                        # Validate: must look like an absolute path with a bin/ subdirectory
+                        if _candidate.startswith('/') and os.path.isdir(_candidate):
+                            result['grid_home'] = _candidate
+                            break
         except Exception:
             pass
         if result['grid_home']:
             break
 
     # Process-based fallback: ohasd.bin = Oracle Restart (HAS); ocssd/crsd/cssdagent = full RAC.
+    # Also try /proc/<pid>/exe for CRS daemons which may rewrite argv[0].
     if not result['grid_home']:
         crs_out = _run("ps -eo args 2>/dev/null | grep -E 'ocssd\\.bin|crsd\\.bin|cssdagent|ohasd\\.bin' | grep -v grep | head -1")
         if crs_out:
             m = re.match(r'(/[^\s]+/bin/)', crs_out)
             if m:
                 result['grid_home'] = m.group(1).rstrip('/').rsplit('/bin', 1)[0]
+
+    if not result['grid_home']:
+        # Last resort: find a running CRS/HAS daemon pid via ps comm and resolve its exe symlink
+        pid_out = _run("ps -eo pid,comm 2>/dev/null | grep -E 'ocssd|crsd|ohasd|cssdagent' | grep -v grep | awk '{print $1}' | head -1")
+        if pid_out.strip():
+            try:
+                exe = os.readlink('/proc/' + pid_out.strip() + '/exe')
+                # exe is something like /grid/oracle/product/19.0.0/grid/bin/ocssd.bin
+                if '/bin/' in exe:
+                    result['grid_home'] = exe.rsplit('/bin/', 1)[0]
+            except Exception:
+                pass
 
     if not result['grid_home'] and asm_home_from_oratab:
         # ASM pmon can appear as different strings depending on OS/Oracle version:
@@ -215,10 +232,15 @@ def discover():
         if asm_running:
             result['grid_home'] = asm_home_from_oratab
 
-    # DB unique name + role — query first running DB via sqlplus
+    # DB unique name + role — query first running DB via sqlplus.
+    # On RAC, the running SID has a node-number suffix (e.g. source1) but oratab
+    # has the base name (source). Try exact match first, then strip trailing digits.
     if result['running_dbs'] and result['oratab']:
         sid = result['running_dbs'][0]
         home = next((o['home'] for o in result['oratab'] if o['sid'] == sid), None)
+        if not home:
+            base_sid = sid.rstrip('0123456789')
+            home = next((o['home'] for o in result['oratab'] if o['sid'] == base_sid), None)
         if not home and result['oratab']:
             home = result['oratab'][0]['home']
         if home and os.path.isfile(home + '/bin/sqlplus'):
