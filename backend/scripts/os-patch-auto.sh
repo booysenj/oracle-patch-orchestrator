@@ -1649,6 +1649,28 @@ add_html_row() {
     log "[CHECK] ${label}|${status}|${details}"
 }
 
+# Like add_html_row but does NOT emit a [CHECK] log line — used inside notification-only
+# sub-reports (e.g. send_db_open_notification) so those rows do not appear in the main
+# phase report tab in the UI.
+_html_row() {
+    local label="$1"
+    local status="$2"
+    local details="$3"
+    local color="#ffffff"
+    case "$status" in
+        PASS) color="#d4edda" ;;
+        FAIL) color="#f8d7da" ;;
+        WARN) color="#fff3cd" ;;
+        INFO) color="#d1ecf1" ;;
+    esac
+    HTML_ROWS+="
+    <tr style=\"background-color:${color};\">
+        <td style=\"padding:4px 8px;\"><b>${label}</b></td>
+        <td style=\"padding:4px 8px; white-space:nowrap;\">${status}</td>
+        <td style=\"padding:4px 8px;\">${details}</td>
+    </tr>"
+}
+
 # Insert a full-width section header row to visually separate blocks in the report
 add_html_section() {
     local title="$1"
@@ -1845,10 +1867,10 @@ send_db_open_notification() {
     HTML_ROWS=""
     ATTACH_FILES=()
 
-    add_html_row "Database" "INFO" "$db"
-    add_html_row "Role" "INFO" "$role"
-    add_html_row "Open mode" "INFO" "$mode"
-    add_html_row "Oracle home" "INFO" "$home"
+    _html_row "Database" "INFO" "$db"
+    _html_row "Role" "INFO" "$role"
+    _html_row "Open mode" "INFO" "$mode"
+    _html_row "Oracle home" "INFO" "$home"
 
     if [[ "$role" == "PRIMARY" ]]; then
         local pdbs pdb_html=""
@@ -1858,9 +1880,9 @@ send_db_open_notification() {
                 [[ -z "$p" ]] && continue
                 pdb_html+="  - ${p}<br/>"
             done <<< "$pdbs"
-            add_html_row "Open PDBs" "INFO" "$pdb_html"
+            _html_row "Open PDBs" "INFO" "$pdb_html"
         else
-            add_html_row "Open PDBs" "INFO" \
+            _html_row "Open PDBs" "INFO" \
                 "No open PDBs detected or instance is non-CDB / not accessible at time of notification."
         fi
     fi
@@ -7260,7 +7282,6 @@ db_rollback() {
     fi
 
     add_html_row "DB Rollback" "INFO" "Reverting database home: NEW=${NEW_DB_HOME} → OLD=${OLD_DB_HOME}"
-    add_report_step "DB Rollback" "INFO" "Reverting $DB_UNIQUE_NAME to OLD_DB_HOME (${OLD_DB_HOME})"
 
     if [[ -z "${DB_UNIQUE_NAME:-}" ]]; then
         prompt_for_db_unique
@@ -7274,18 +7295,15 @@ db_rollback() {
     if [[ "${DB_ONLY_MODE:-false}" == true || -z "$SRVCTL_BIN" ]]; then
         add_html_row "DB Rollback" "INFO" \
             "DB_ONLY_MODE: rolling back $DB_UNIQUE_NAME to OLD_DB_HOME via SQL*Plus (no srvctl, AutoUpgrade cannot downgrade)."
-        add_report_step "Rollback method" "INFO" "DB_ONLY_MODE: SQL*Plus shutdown/startup (no srvctl)"
 
         local sid_for_rb
         sid_for_rb=$(get_db_sid "$DB_UNIQUE_NAME")
         if [[ -z "$sid_for_rb" ]]; then
             sid_for_rb="$DB_UNIQUE_NAME"
             add_html_row "SID resolution" "WARN" \
-                "Could not find running PMON for $DB_UNIQUE_NAME; using '$sid_for_rb' as SID."
-            add_report_step "SID resolution" "WARN" "PMON not found for $DB_UNIQUE_NAME — using '$sid_for_rb'"
+                "Could not find running PMON for $DB_UNIQUE_NAME; using ${sid_for_rb} as SID."
         else
-            add_html_row "SID resolution" "INFO" "Resolved SID: $sid_for_rb"
-            add_report_step "SID resolution" "PASS" "Resolved SID: $sid_for_rb"
+            add_html_row "SID resolution" "INFO" "Resolved SID: ${sid_for_rb}"
         fi
 
         local current_home
@@ -7295,19 +7313,16 @@ db_rollback() {
         fi
         add_html_row "Current ORACLE_HOME" "INFO" "$current_home"
         add_html_row "Rollback target ORACLE_HOME" "INFO" "$OLD_DB_HOME"
-        add_report_step "Oracle homes" "INFO" "Current: $current_home → Rollback to: $OLD_DB_HOME"
 
         if [[ "$current_home" == "$OLD_DB_HOME" ]]; then
             add_html_row "DB Rollback" "WARN" \
                 "Database $DB_UNIQUE_NAME is already running from $OLD_DB_HOME — nothing to roll back."
-            add_report_step "DB Rollback" "WARN" "Already on OLD_DB_HOME — nothing to do"
             send_phase_html_report "DB Rollback" "DB Rollback Report - $HOST" "WARN"
             return 0
         fi
 
         if [[ "$DRYRUN" == true ]]; then
             add_html_row "DB Rollback (dry-run)" "INFO" "DRYRUN: no changes applied."
-            add_report_step "DB Rollback" "INFO" "DRYRUN: no changes applied"
             send_phase_html_report "DB Rollback" "DB Rollback (Dry-run) - $HOST" "INFO"
             return 0
         fi
@@ -7316,8 +7331,7 @@ db_rollback() {
             "SQL*Plus shutdown/startup (AutoUpgrade does not support downgrading RU versions)."
 
         # --- Shutdown from current home ---
-        log "Shutting down $DB_UNIQUE_NAME (SID=$sid_for_rb) from home $current_home..."
-        add_report_step "DB Shutdown" "INFO" "Shutting down $DB_UNIQUE_NAME (SID=$sid_for_rb)"
+        log "Shutting down $DB_UNIQUE_NAME (SID=${sid_for_rb}) from home $current_home..."
         local shutdown_out shutdown_rc=0
         shutdown_out=$(
             sudo -u "$ORACLE_USER" bash -c "
@@ -7335,21 +7349,16 @@ SQEOF
 
         if echo "$shutdown_out" | grep -qi "ORACLE instance shut down\|ORA-01034\|not available"; then
             add_html_row "DB Shutdown (rollback)" "PASS" "Database shut down successfully."
-            add_report_step "DB Shutdown" "PASS" "Database shut down successfully"
         else
             add_html_row "DB Shutdown (rollback)" "WARN" \
                 "Shutdown RC=$shutdown_rc. Output: $(echo "$shutdown_out" | head -5). Proceeding."
-            add_report_step "DB Shutdown" "WARN" "Shutdown RC=$shutdown_rc — proceeding"
         fi
 
         # --- Update /etc/oratab ---
-        add_report_step "oratab update" "INFO" "Updating /etc/oratab to OLD_DB_HOME"
         update_oratab_db_after_rollback
-        add_report_step "oratab update" "PASS" "oratab updated to $OLD_DB_HOME"
 
         # --- Startup from OLD_DB_HOME (untouched, no file copies needed) ---
-        log "Starting $DB_UNIQUE_NAME (SID=$sid_for_rb) from old home $OLD_DB_HOME..."
-        add_report_step "DB Startup" "INFO" "Starting $DB_UNIQUE_NAME from $OLD_DB_HOME"
+        log "Starting $DB_UNIQUE_NAME (SID=${sid_for_rb}) from old home $OLD_DB_HOME..."
         local startup_out startup_rc=0
         startup_out=$(
             sudo -u "$ORACLE_USER" bash -c "
@@ -7367,49 +7376,41 @@ SQEOF
 
         if echo "$startup_out" | grep -qi "Database opened\|ORACLE instance started"; then
             add_html_row "DB Startup (rollback)" "PASS" "Started from $OLD_DB_HOME."
-            add_report_step "DB Startup" "PASS" "Database opened from $OLD_DB_HOME"
         else
             add_html_row "DB Startup (rollback)" "WARN" \
                 "Startup RC=$startup_rc. Output: $(echo "$startup_out" | head -5). Check manually."
-            add_report_step "DB Startup" "WARN" "Startup RC=$startup_rc — check manually"
         fi
 
         # --- Wait for ready state + datapatch ---
         local ran_datapatch=false
-        add_report_step "DB ready state" "INFO" "Waiting for $DB_UNIQUE_NAME to reach open state"
 
         if wait_for_db_ready_state "$DB_UNIQUE_NAME" "$OLD_DB_HOME"; then
             send_db_open_notification "DB Rollback" "$DB_UNIQUE_NAME" "$OLD_DB_HOME" "$DB_LAST_ROLE" "$DB_LAST_MODE"
             if [[ "$DB_LAST_ROLE" == "PRIMARY" ]]; then
                 add_html_row "DB open mode check (rollback)" "PASS" \
                     "Database role PRIMARY reached OPEN READ WRITE — running datapatch."
-                add_report_step "DB ready state" "PASS" "PRIMARY reached OPEN READ WRITE — running datapatch"
                 sid_for_rb=$(get_db_sid "$DB_UNIQUE_NAME")
                 [[ -z "$sid_for_rb" ]] && sid_for_rb="$DB_UNIQUE_NAME"
                 if [[ -n "$sid_for_rb" ]]; then
-                    add_report_step "Datapatch" "INFO" "Running datapatch on $OLD_DB_HOME"
+                    add_html_row "Datapatch" "INFO" "Running datapatch on $OLD_DB_HOME..."
                     run_cmd "ORACLE_HOME=\"$OLD_DB_HOME\" ORACLE_SID=\"$sid_for_rb\" PATH=\"$OLD_DB_HOME/bin:\$PATH\" \"$OLD_DB_HOME/OPatch/datapatch\" -verbose"
                     ran_datapatch=true
-                    add_report_step "Datapatch" "PASS" "datapatch completed on $OLD_DB_HOME"
+                    add_html_row "Datapatch" "PASS" "datapatch completed on $OLD_DB_HOME"
                 fi
             else
                 add_html_row "DB open mode check (rollback)" "PASS" \
                     "Database role $DB_LAST_ROLE — datapatch skipped (standby)."
-                add_report_step "DB ready state" "PASS" "Role $DB_LAST_ROLE — datapatch skipped (standby)"
             fi
         else
             add_html_row "DB open mode check (rollback)" "WARN" \
                 "Database did not reach target state — datapatch skipped."
-            add_report_step "DB ready state" "WARN" "Did not reach open state — datapatch skipped"
         fi
 
         local msg="Database $DB_UNIQUE_NAME rolled back to OLD_DB_HOME (${OLD_DB_HOME}) via SQL*Plus. [DB_ONLY_MODE]"
         if [[ "$ran_datapatch" == true ]]; then
             add_html_row "DB Rollback Result" "PASS" "$msg Datapatch executed."
-            add_report_step "DB Rollback Result" "PASS" "$msg Datapatch executed."
         else
             add_html_row "DB Rollback Result" "WARN" "$msg Datapatch did NOT run."
-            add_report_step "DB Rollback Result" "WARN" "$msg Datapatch did NOT run."
         fi
 
         send_phase_html_report "DB Rollback" "DB Rollback Report - $HOST" "PASS"
@@ -7422,71 +7423,55 @@ SQEOF
     local db_type
     db_type=$(get_db_type "$DB_UNIQUE_NAME" | tr '[:upper:]' '[:lower:]')
 
-    add_html_row "Database type" "INFO" "$DB_UNIQUE_NAME type detected as '${db_type:-UNKNOWN}'"
-    add_report_step "Database type" "INFO" "$DB_UNIQUE_NAME detected as '${db_type:-UNKNOWN}'"
+    add_html_row "Database type" "INFO" "$DB_UNIQUE_NAME type detected as ${db_type:-UNKNOWN}"
 
     if [[ "$db_type" == rac* && "$db_type" != "raconenode" ]]; then
         add_html_row "Rollback mode" "INFO" "RAC — rolling per instance"
-        add_report_step "Rollback mode" "INFO" "RAC — rolling per-instance srvctl stop/modify/start"
         for inst in $("$SRVCTL_BIN" status database -d "$DB_UNIQUE_NAME" | awk '/Instance/ {print $2}'); do
-            add_report_step "Instance $inst" "INFO" "Stopping instance $inst"
+            add_html_row "Instance $inst" "INFO" "Stopping and rolling back instance $inst"
             run_cmd "$SRVCTL_BIN stop instance -d $DB_UNIQUE_NAME -i $inst || true"
             run_cmd "$SRVCTL_BIN modify database -d $DB_UNIQUE_NAME -oraclehome $OLD_DB_HOME"
             run_cmd "$SRVCTL_BIN start instance -d $DB_UNIQUE_NAME -i $inst || true"
-            add_report_step "Instance $inst" "PASS" "Rolled back and restarted instance $inst"
+            add_html_row "Instance $inst" "PASS" "Rolled back and restarted"
         done
     elif [[ "$db_type" == "raconenode" ]]; then
         add_html_row "Rollback mode" "INFO" "RACOneNode — srvctl stop/modify/start"
-        add_report_step "Rollback mode" "INFO" "RACOneNode — srvctl stop/modify/start"
-        add_report_step "DB Stop" "INFO" "Stopping $DB_UNIQUE_NAME"
         run_cmd "$SRVCTL_BIN stop database -d $DB_UNIQUE_NAME || true"
         run_cmd "$SRVCTL_BIN modify database -d $DB_UNIQUE_NAME -oraclehome $OLD_DB_HOME"
-        add_report_step "DB Modify home" "INFO" "Modifying srvctl home to $OLD_DB_HOME"
         run_cmd "$SRVCTL_BIN start database -d $DB_UNIQUE_NAME || true"
-        add_report_step "DB Start" "INFO" "Starting $DB_UNIQUE_NAME"
     else
         add_html_row "Rollback mode" "INFO" "Single-instance — srvctl stop/modify/start"
-        add_report_step "Rollback mode" "INFO" "Single-instance — srvctl stop/modify/start"
-        add_report_step "DB Stop" "INFO" "Stopping $DB_UNIQUE_NAME"
         run_cmd "$SRVCTL_BIN stop database -d $DB_UNIQUE_NAME || true"
         run_cmd "$SRVCTL_BIN modify database -d $DB_UNIQUE_NAME -oraclehome $OLD_DB_HOME"
-        add_report_step "DB Modify home" "INFO" "Modifying srvctl home to $OLD_DB_HOME"
         run_cmd "$SRVCTL_BIN start database -d $DB_UNIQUE_NAME || true"
-        add_report_step "DB Start" "INFO" "Starting $DB_UNIQUE_NAME"
     fi
 
     local ran_datapatch=false
     local sid_for_dp
     sid_for_dp=$(get_db_sid "$DB_UNIQUE_NAME")
-    add_report_step "DB ready state" "INFO" "Waiting for $DB_UNIQUE_NAME to reach open state"
 
     if wait_for_db_ready_state "$DB_UNIQUE_NAME" "$OLD_DB_HOME"; then
         send_db_open_notification "DB Rollback" "$DB_UNIQUE_NAME" "$OLD_DB_HOME" "$DB_LAST_ROLE" "$DB_LAST_MODE"
         if [[ "$DB_LAST_ROLE" == "PRIMARY" ]]; then
             add_html_row "DB open mode check (rollback)" "PASS" \
                 "Database role PRIMARY reached OPEN READ WRITE — running datapatch."
-            add_report_step "DB ready state" "PASS" "PRIMARY reached OPEN READ WRITE — running datapatch"
             if [[ -n "$sid_for_dp" ]]; then
-                add_report_step "Datapatch" "INFO" "Running datapatch on $OLD_DB_HOME"
+                add_html_row "Datapatch" "INFO" "Running datapatch on $OLD_DB_HOME..."
                 run_cmd "ORACLE_HOME=\"$OLD_DB_HOME\" ORACLE_SID=\"$sid_for_dp\" PATH=\"$OLD_DB_HOME/bin:\$PATH\" \"$OLD_DB_HOME/OPatch/datapatch\" -verbose"
                 ran_datapatch=true
-                add_report_step "Datapatch" "PASS" "datapatch completed on $OLD_DB_HOME"
+                add_html_row "Datapatch" "PASS" "datapatch completed on $OLD_DB_HOME"
             fi
         else
             add_html_row "DB open mode check (rollback)" "PASS" \
                 "Database role $DB_LAST_ROLE — datapatch skipped (standby)."
-            add_report_step "DB ready state" "PASS" "Role $DB_LAST_ROLE — datapatch skipped (standby)"
         fi
     else
         add_html_row "DB open mode check (rollback)" "WARN" \
             "Database did not reach target state — datapatch skipped."
-        add_report_step "DB ready state" "WARN" "Did not reach open state — datapatch skipped"
     fi
 
     if [[ "$DRYRUN" == false ]]; then
-        add_report_step "oratab update" "INFO" "Updating /etc/oratab to OLD_DB_HOME"
         update_oratab_db_after_rollback
-        add_report_step "oratab update" "PASS" "oratab updated to $OLD_DB_HOME"
     fi
 
     if [[ -f "${LOG_DIR}/db_old_patchlevel.html" ]]; then
@@ -7498,10 +7483,8 @@ SQEOF
     local msg="Database $DB_UNIQUE_NAME rolled back to OLD_DB_HOME (${OLD_DB_HOME})."
     if [[ "$ran_datapatch" == true ]]; then
         add_html_row "DB Rollback Result" "PASS" "$msg Datapatch executed."
-        add_report_step "DB Rollback Result" "PASS" "$msg Datapatch executed."
     else
         add_html_row "DB Rollback Result" "WARN" "$msg Datapatch did NOT run."
-        add_report_step "DB Rollback Result" "WARN" "$msg Datapatch did NOT run."
     fi
 
     send_phase_html_report "DB Rollback" "DB Rollback Report - $HOST" "PASS"

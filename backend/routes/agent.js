@@ -90,6 +90,11 @@ router.get('/poll', (req, res) => {
     var dbOldHome = vm.old_db_home || vm.current_db_home || '';
     if (vm.old_gi_home) env.OLD_GI_HOME = vm.old_gi_home;
     if (dbOldHome)      env.OLD_DB_HOME  = dbOldHome;
+    // Rollback homes — snapshotted at last gi_switch/db_switch via home_switched DISCOVERY_JSON.
+    // Required by gi_rollback/db_rollback so the script targets the pre-switch home even after
+    // discovery updates old_gi_home/old_db_home to the post-switch value.
+    if (job.rollback_gi_home) env.ROLLBACK_GI_HOME = job.rollback_gi_home;
+    if (job.rollback_db_home) env.ROLLBACK_DB_HOME = job.rollback_db_home;
 
     var pv = null, pvVersion = vm.patch_target || '';
     if (vm.target_patch_version_id) {
