@@ -176,9 +176,10 @@ def discover():
                 if sid not in result['running_dbs']:
                     result['running_dbs'].append(sid)
 
-    # Grid home — detect from running CRS processes first, fall back to +ASM oratab entry
-    # only if ASM is actually running (pmon_+ASM* or pmon_ASM* process present)
-    crs_out = _run("ps -eo args 2>/dev/null | grep -E 'ocssd\\.bin|crsd\\.bin|cssdagent' | grep -v grep | head -1")
+    # Grid home — detect from running CRS/HAS processes first, fall back to +ASM oratab entry
+    # only if ASM is actually running (pmon_+ASM* or pmon_ASM* process present).
+    # ohasd.bin = Oracle Restart (HAS/standalone ASM); ocssd/crsd/cssdagent = full RAC cluster.
+    crs_out = _run("ps -eo args 2>/dev/null | grep -E 'ocssd\\.bin|crsd\\.bin|cssdagent|ohasd\\.bin' | grep -v grep | head -1")
     if crs_out:
         m = re.match(r'(/[^\s]+/bin/)', crs_out)
         if m:
