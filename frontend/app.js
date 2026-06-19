@@ -2290,7 +2290,9 @@ function updateTransferSourceInfo() {
     } else if (fileType === 'db_base') {
         html = srcLine('Source path', patch.db_base_zip) + extractLine(_xferExtractionHints.db_base);
     } else if (fileType === 'ojvm') {
-        html = srcLine('Source path', patch.ojvm_zip || patch.patch_search_root) + extractLine(_xferExtractionHints.ojvm);
+        html = patch.ojvm_zip
+            ? srcLine('Source path', patch.ojvm_zip) + extractLine(_xferExtractionHints.ojvm)
+            : '<div style="color:var(--color-warning);font-size:12px">⚠ No OJVM ZIP path set — edit this patch version and fill in the OJVM ZIP field</div>';
     } else if (fileType === 'all') {
         var files = [
             patch.gi_base_zip  ? ['GI Base',  patch.gi_base_zip,          'gi_base']  : null,
