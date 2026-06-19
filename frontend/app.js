@@ -5,6 +5,7 @@ let currentUser = localStorage.getItem('currentUser') || '';
 let vms = [];
 let selectedVm = null;
 let ws = null;
+let wsLogCount = 0;
 let activeLogJobId = null;
 let autoRefreshTimer = null;
 let autoRefreshMs = parseInt(localStorage.getItem('autoRefreshMs') || '30000');
@@ -539,6 +540,7 @@ function openLogViewer(jobId, hostname, operation) {
     '<span id="logJobStatus" class="status-badge status-running">\u25CF Running</span>';
   switchLogView('logs');
   document.getElementById('logModal').classList.remove('hidden');
+  wsLogCount = 0;
   connectLogWS(jobId);
   startLogPolling(jobId);
 }
@@ -629,12 +631,17 @@ function connectLogWS(jobId) {
     updateConnStatus(true);
     ws.send(JSON.stringify({ action: 'subscribe', jobId: jobId }));
   };
-  ws.onclose = function() { updateConnStatus(false); checkJobStatus(jobId); };
+  ws.onclose = function() {
+    updateConnStatus(false);
+    checkJobStatus(jobId);
+    // Hand off to REST polling from where WS left off to catch any missed lines
+    logPollOffset = wsLogCount;
+  };
   ws.onerror = function() { updateConnStatus(false); };
   ws.onmessage = function(evt) {
     try {
       var msg = JSON.parse(evt.data);
-      if (msg.type === 'log') { appendLogLine(msg); }
+      if (msg.type === 'log') { appendLogLine(msg); wsLogCount++; }
       else if (msg.type === 'done') {
         updateJobStatus(msg.status);
         if (msg.status === 'success') { showToast('Job completed successfully', 'success'); if (ws) ws.close(); }
@@ -1203,6 +1210,8 @@ function stopLogPolling() {
 
 async function fetchLogsIncremental() {
   if (!logPollJobId) return;
+  // WS is the authoritative real-time source; only poll REST when WS is gone
+  if (ws && ws.readyState === WebSocket.OPEN) return;
   try {
     var logs = await api('/logs/' + logPollJobId + '?offset=' + logPollOffset);
     if (Array.isArray(logs) && logs.length) {

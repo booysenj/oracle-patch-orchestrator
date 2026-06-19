@@ -1286,6 +1286,29 @@ stage_software() {
     log "INFO: =========================================="
 
     local drop="${STAGING_DROP_DIR:-/home/oracle/staging}"
+
+    # Detect the version from the staged RU ZIP FIRST — this is the authoritative
+    # source for what version is being staged, overriding whatever homes were derived.
+    local _ru_detected=""
+    for _zip in "${drop}"/p[0-9]*_190000_*.zip "${drop}"/p[0-9]*_190000_LINUX.zip; do
+        [[ -f "$_zip" ]] || continue
+        local _sz; _sz=$(stat -c%s "$_zip" 2>/dev/null || echo 0)
+        (( _sz > 500000000 )) || continue   # skip OPatch/OJVM (<500 MB)
+        local _ver
+        _ver=$(unzip -p "$_zip" "*/README.html" 2>/dev/null \
+               | grep -oE '19\.[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)
+        if [[ "$_ver" =~ (19\.[0-9]+) ]]; then
+            _ru_detected="${BASH_REMATCH[1]}"
+            if [[ -n "${OLD_GI_HOME:-}" ]]; then
+                NEW_GI_HOME="${OLD_GI_HOME%/*}/$_ru_detected"
+            fi
+            if [[ -n "${OLD_DB_HOME:-}" ]]; then
+                NEW_DB_HOME="${OLD_DB_HOME%/*}/$_ru_detected"
+            fi
+            break
+        fi
+    done
+
     local target_version
     target_version=$(derive_patchset_version)
 
