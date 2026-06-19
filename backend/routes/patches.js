@@ -65,6 +65,28 @@ function initPatchTables() {
     `);
     console.log('[db] Patch catalog extensions + transfer tables initialised');
     _autoPopulateOjvmZip(db);
+    _resumePendingTransfers(db);
+}
+
+function _resumePendingTransfers(db) {
+    // Any transfer stuck in TRANSFERRING was killed by a server restart — reset to PENDING
+    try {
+        var stuck = db.prepare("UPDATE patch_transfers SET status='PENDING', bytes_transferred=0, started_at=NULL WHERE status='TRANSFERRING'").run();
+        if (stuck.changes > 0) console.log('[transfer] Reset', stuck.changes, 'stuck TRANSFERRING -> PENDING on startup');
+    } catch(e) {}
+
+    // Kick off all PENDING API transfers that were never executed
+    setImmediate(function() {
+        try {
+            var { executeApiTransfer } = require('../lib/transfer-executor');
+            var pending = db.prepare("SELECT id FROM patch_transfers WHERE status='PENDING' AND (transfer_method='API' OR transfer_method IS NULL)").all();
+            var agentSecret = process.env.AGENT_SECRET || '';
+            pending.forEach(function(t) {
+                console.log('[transfer] Resuming pending transfer', t.id);
+                executeApiTransfer(db, t.id, agentSecret, null);
+            });
+        } catch(e) { console.error('[transfer] Resume error:', e.message); }
+    });
 }
 
 function _autoPopulateOjvmZip(db) {
@@ -476,13 +498,20 @@ module.exports = function (authenticateToken) {
         try {
             const row = db.prepare('SELECT * FROM patch_transfers WHERE id = ?').get(req.params.id);
             if (!row) return res.status(404).json({ error: 'Transfer not found' });
-            if (row.status !== 'FAILED') return res.status(400).json({ error: 'Can only retry FAILED transfers' });
+            if (!['FAILED','PENDING'].includes(row.status)) return res.status(400).json({ error: 'Can only retry FAILED transfers' });
             db.prepare(`UPDATE patch_transfers SET
                 status='PENDING', bytes_transferred=0, checksum_verified=0,
                 error_message='', started_at=NULL, completed_at=NULL,
                 retry_count=retry_count+1
                 WHERE id=?`).run(req.params.id);
             res.json({ message: 'Transfer queued for retry' });
+            // Actually execute it — same as create
+            if ((row.transfer_method || 'SCP').toUpperCase() === 'API') {
+                var agentSecret = process.env.AGENT_SECRET || '';
+                setImmediate(function() {
+                    executeApiTransfer(db, req.params.id, agentSecret, null);
+                });
+            }
         } catch (e) {
             res.status(500).json({ error: e.message });
         }
