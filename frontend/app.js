@@ -158,6 +158,7 @@ function showApp() {
   var el = document.getElementById('userDisplay');
   if (el) el.textContent = currentUser;
   loadOrcSettings();
+  loadOrcSshKey();
   loadVMs();
   startAutoRefresh();
   showAdminTab();
@@ -207,6 +208,37 @@ async function saveOrcSettings() {
   }
 }
 
+// -- SSH public key display --
+async function loadOrcSshKey() {
+  var el = document.getElementById('orchSshPubKey');
+  if (!el) return;
+  try {
+    var d = await api('/admin/ssh-public-key');
+    el.value = d.public_key || '';
+  } catch(e) { el.value = 'Failed to load key'; }
+}
+
+function copyOrcSshKey() {
+  var el = document.getElementById('orchSshPubKey');
+  if (!el) return;
+  navigator.clipboard.writeText(el.value).then(function() {
+    showToast('Public key copied to clipboard', 'success');
+  }).catch(function() {
+    el.select(); document.execCommand('copy');
+    showToast('Public key copied', 'success');
+  });
+}
+
+async function regenSshKey() {
+  if (!confirm('Generate a new SSH keypair?\n\nWARNING: You will need to re-authorise this new key on ALL target VMs before agent deployment will work again.')) return;
+  try {
+    var d = await api('/admin/ssh-key/regenerate', { method: 'POST' });
+    var el = document.getElementById('orchSshPubKey');
+    if (el) el.value = d.public_key || '';
+    showToast('New keypair generated — update authorized_keys on all target VMs', 'error');
+  } catch(e) { showToast('Regen failed: ' + e.message, 'error'); }
+}
+
 // -- Tab Navigation --
 document.querySelectorAll('.nav-btn').forEach(function(btn) {
   btn.addEventListener('click', function() {
@@ -214,7 +246,7 @@ document.querySelectorAll('.nav-btn').forEach(function(btn) {
     document.querySelectorAll('.tab-content').forEach(function(t) { t.classList.remove('active'); });
     btn.classList.add('active');
     document.getElementById('tab-' + btn.dataset.tab).classList.add('active');
-    if (btn.dataset.tab === 'jobs') loadJobs(); if (btn.dataset.tab === 'admin') { loadUsers(); loadOrcSettings(); } if (btn.dataset.tab === 'patches') loadPatches();
+    if (btn.dataset.tab === 'jobs') loadJobs(); if (btn.dataset.tab === 'admin') { loadUsers(); loadOrcSettings(); loadOrcSshKey(); } if (btn.dataset.tab === 'patches') loadPatches();
   });
 });
 
@@ -1408,20 +1440,25 @@ function loadOpsForCategory() {
   for (var i = 0; i < items.length; i++) {
     var opt = document.createElement('option');
     opt.value = items[i].key;
-    opt.textContent = items[i].label;
-    if (items[i].downtime) opt.textContent += ' ⚠';
+    var privLabel = items[i].priv === 'root' ? ' 🔴root' : items[i].priv === 'grid' ? ' 🟡grid' : ' 🟢oracle';
+    opt.textContent = items[i].label + (items[i].downtime ? ' ⚠' : '') + privLabel;
     opt.dataset.downtime = items[i].downtime ? '1' : '0';
-    opt.dataset.needsDb = items[i].needsDbName ? '1' : '0';
+    opt.dataset.needsDb  = items[i].needsDbName ? '1' : '0';
+    opt.dataset.priv     = items[i].priv || 'oracle';
     opSel.appendChild(opt);
   }
   opSel.disabled = false;
   opSel.onchange = function() {
     var sel = opSel.options[opSel.selectedIndex];
     if (!sel || !sel.value) { metaEl.classList.add('hidden'); return; }
-    var html = '';
+    var html = '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:6px">';
+    var priv = sel.dataset.priv || 'oracle';
+    var privColor = priv === 'root' ? '#f87171' : priv === 'grid' ? '#fbbf24' : '#4ade80';
+    html += '<span style="font-size:11px;padding:2px 8px;border-radius:10px;background:' + privColor + '22;color:' + privColor + ';border:1px solid ' + privColor + '66;font-weight:600">runs as ' + priv + '</span>';
     if (sel.dataset.downtime === '1') {
-      html += '<span class="op-warn"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg> Downtime operation — requires confirmation</span>';
+      html += '<span class="op-warn" style="font-size:11px"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg> Downtime — requires confirmation</span>';
     }
+    html += '</div>';
     if (sel.dataset.needsDb === '1') {
       var knownDbName = (selectedVm && selectedVm.db_unique_name) ? selectedVm.db_unique_name : '';
       html += '<div class="db-name-group" style="margin-top:8px;">' +

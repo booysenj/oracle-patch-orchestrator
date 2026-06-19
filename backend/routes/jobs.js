@@ -4,46 +4,48 @@ const { runPreflightChecks } = require('../lib/preflight');
 const { logAudit, getAuditLog } = require('../lib/audit');
 const router = express.Router();
 
+// priv: 'oracle' | 'grid' | 'root'
+// root operations require rootcrs.sh / system reboot — script handles sudo internally
 router.get('/operations', (_req, res) => {
     res.json({
         staging: { label: 'Software Staging', items: [
-            { key: 'stage_software', label: 'Stage Software', downtime: false },
+            { key: 'stage_software', label: 'Stage Software', downtime: false, priv: 'oracle' },
         ]},
         gi: { label: 'GI Operations (19c patching)', items: [
-            { key: 'gi_precheck', label: 'GI Precheck', downtime: false },
-            { key: 'gi_install',  label: 'GI Install',  downtime: false },
-            { key: 'gi_switch',   label: 'GI Switch (immediate)', downtime: true },
-            { key: 'gi_rollback', label: 'GI Rollback', downtime: true },
+            { key: 'gi_precheck', label: 'GI Precheck', downtime: false, priv: 'oracle' },
+            { key: 'gi_install',  label: 'GI Install',  downtime: false, priv: 'grid'   },
+            { key: 'gi_switch',   label: 'GI Switch (immediate)', downtime: true, priv: 'root' },
+            { key: 'gi_rollback', label: 'GI Rollback', downtime: true,  priv: 'root'   },
         ]},
         db: { label: 'DB Operations (19c patching)', items: [
-            { key: 'db_precheck',  label: 'DB Precheck',  downtime: false },
-            { key: 'db_install',   label: 'DB Install',   downtime: false },
-            { key: 'db_switch',    label: 'DB Switch (immediate)', downtime: true, needsDbName: true },
-            { key: 'db_rollback',  label: 'DB Rollback',  downtime: true, needsDbName: true },
-            { key: 'db_ojvm_only', label: 'DB OJVM Only', downtime: false },
+            { key: 'db_precheck',  label: 'DB Precheck',  downtime: false, priv: 'oracle' },
+            { key: 'db_install',   label: 'DB Install',   downtime: false, priv: 'oracle' },
+            { key: 'db_switch',    label: 'DB Switch (immediate)', downtime: true, needsDbName: true, priv: 'oracle' },
+            { key: 'db_rollback',  label: 'DB Rollback',  downtime: true,  needsDbName: true, priv: 'oracle' },
+            { key: 'db_ojvm_only', label: 'DB OJVM Only', downtime: false, priv: 'oracle' },
         ]},
         gi_upgrade: { label: 'GI Upgrade (19c to 23/26ai)', items: [
-            { key: 'gi_upgrade_precheck', label: 'GI Upgrade Precheck', downtime: false },
-            { key: 'gi_upgrade_install',  label: 'GI Upgrade Install',  downtime: false },
-            { key: 'gi_upgrade_upgrade',  label: 'GI Upgrade Switch',   downtime: true },
+            { key: 'gi_upgrade_precheck', label: 'GI Upgrade Precheck', downtime: false, priv: 'oracle' },
+            { key: 'gi_upgrade_install',  label: 'GI Upgrade Install',  downtime: false, priv: 'grid'   },
+            { key: 'gi_upgrade_upgrade',  label: 'GI Upgrade Switch',   downtime: true,  priv: 'root'   },
         ]},
         db_upgrade: { label: 'DB Upgrade (19c to 23/26ai)', items: [
-            { key: 'db_upgrade_precheck', label: 'DB Upgrade Precheck', downtime: false },
-            { key: 'db_upgrade_install',  label: 'DB Upgrade Install',  downtime: false },
-            { key: 'db_upgrade_upgrade',  label: 'DB Upgrade Deploy',   downtime: true },
-            { key: 'db_upgrade_rollback', label: 'DB Upgrade Rollback', downtime: true },
+            { key: 'db_upgrade_precheck', label: 'DB Upgrade Precheck', downtime: false, priv: 'oracle' },
+            { key: 'db_upgrade_install',  label: 'DB Upgrade Install',  downtime: false, priv: 'oracle' },
+            { key: 'db_upgrade_upgrade',  label: 'DB Upgrade Deploy',   downtime: true,  priv: 'oracle' },
+            { key: 'db_upgrade_rollback', label: 'DB Upgrade Rollback', downtime: true,  priv: 'oracle' },
         ]},
         cluster: { label: 'Cluster Maintenance', items: [
-            { key: 'cluster_precheck',      label: 'Cluster Precheck',       downtime: false },
-            { key: 'cluster_stop_dbs',       label: 'Stop Local DBs',        downtime: true },
-            { key: 'cluster_os_patch',       label: 'OS Patch',              downtime: false },
-            { key: 'cluster_reboot',         label: 'Reboot Node',           downtime: true },
-            { key: 'cluster_postreboot_db',  label: 'Post-Reboot DB Start',  downtime: false },
-            { key: 'setup_patchuser',        label: 'Setup Patchuser (SSH)', downtime: false },
+            { key: 'cluster_precheck',      label: 'Cluster Precheck',       downtime: false, priv: 'oracle' },
+            { key: 'cluster_stop_dbs',      label: 'Stop Local DBs',         downtime: true,  priv: 'oracle' },
+            { key: 'cluster_os_patch',      label: 'OS Patch',               downtime: false, priv: 'root'   },
+            { key: 'cluster_reboot',        label: 'Reboot Node',            downtime: true,  priv: 'root'   },
+            { key: 'cluster_postreboot_db', label: 'Post-Reboot DB Start',   downtime: false, priv: 'oracle' },
+            { key: 'setup_patchuser',       label: 'Setup Patchuser (SSH)',   downtime: false, priv: 'root'   },
         ]},
         ssh_remote: { label: 'SSH Remote Orchestration', items: [
-            { key: 'remote_shutdown_apps_then_db', label: 'Remote Shutdown APPs then DB', downtime: true },
-            { key: 'batched_startup',              label: 'Batched Startup (DB+APPs)', downtime: false },
+            { key: 'remote_shutdown_apps_then_db', label: 'Remote Shutdown APPs then DB', downtime: true,  priv: 'oracle' },
+            { key: 'batched_startup',              label: 'Batched Startup (DB+APPs)',    downtime: false, priv: 'oracle' },
         ]},
     });
 });

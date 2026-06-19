@@ -213,6 +213,17 @@
           </div>
           <button class="btn btn-primary" onclick="saveOrcSettings()">Save Settings</button>
           <span id="settingsMsg" style="margin-left:12px;font-size:13px;color:var(--success)"></span>
+
+          <hr style="border:none;border-top:1px solid var(--border);margin:24px 0">
+          <p style="font-weight:600;margin:0 0 8px">Orchestrator SSH Public Key</p>
+          <p style="font-size:12px;color:var(--text-dim);margin:0 0 10px">This key is generated once and stored in the database — it survives if the orchestrator is moved to a new server as long as the database file is copied with it. Copy it into <code>~oracle/.ssh/authorized_keys</code> on any target VM to pre-authorise agent deployment without a password.</p>
+          <div style="display:flex;gap:8px;align-items:flex-start">
+            <textarea id="orchSshPubKey" rows="3" readonly style="flex:1;font-family:monospace;font-size:11px;resize:none;background:var(--bg-secondary,#0d1117);border:1px solid var(--border);border-radius:4px;padding:8px;color:var(--text-dim)">Loading…</textarea>
+            <div style="display:flex;flex-direction:column;gap:6px">
+              <button class="btn btn-sm btn-secondary" onclick="copyOrcSshKey()">Copy</button>
+              <button class="btn btn-sm btn-danger" onclick="regenSshKey()" title="Generates a new key — you must re-authorise on all VMs">Regen</button>
+            </div>
+          </div>
         </div>
 
         <div class="section-header" style="margin-top:32px"><h2>Change My Password</h2></div>
