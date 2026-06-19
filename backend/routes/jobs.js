@@ -7,7 +7,7 @@ const router = express.Router();
 router.get('/operations', (_req, res) => {
     res.json({
         staging: { label: 'Software Staging', items: [
-            { key: 'stage_software', label: 'Stage Software Check', downtime: false },
+            { key: 'stage_software', label: 'Stage Software', downtime: false },
         ]},
         gi: { label: 'GI Operations (19c patching)', items: [
             { key: 'gi_precheck', label: 'GI Precheck', downtime: false },

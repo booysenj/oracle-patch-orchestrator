@@ -206,6 +206,10 @@
               <input type="text" id="settingDbHomeBase" placeholder="/app/oracle/product" /></div>
             <div class="form-group" style="grid-column:1/-1"><label>Patches Search Root <span style="font-size:11px;color:var(--text-dim)">(patch version p19.29 appended automatically)</span></label>
               <input type="text" id="settingPatchesBase" placeholder="/backup/patches" /></div>
+            <div class="form-group"><label>Global MAIL_TO <span style="font-size:11px;color:var(--text-dim)">(recipient for patch reports)</span></label>
+              <input type="text" id="settingMailTo" placeholder="ops@example.com" /></div>
+            <div class="form-group"><label>Global MAIL_FROM <span style="font-size:11px;color:var(--text-dim)">(sender address)</span></label>
+              <input type="text" id="settingMailFrom" placeholder="oracle-patching@example.com" /></div>
           </div>
           <button class="btn btn-primary" onclick="saveOrcSettings()">Save Settings</button>
           <span id="settingsMsg" style="margin-left:12px;font-size:13px;color:var(--success)"></span>
