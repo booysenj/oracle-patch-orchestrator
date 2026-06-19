@@ -424,13 +424,7 @@ module.exports = function (authenticateToken) {
             fileType
             );
             res.status(201).json({ id, message: "Transfer created", method: b.transfer_method || "SCP" });
-            // Auto-execute if API method
-            if ((b.transfer_method || "SCP").toUpperCase() === "API") {
-                var agentSecret = process.env.AGENT_SECRET || "";
-                setImmediate(function() {
-                    executeApiTransfer(db, id, agentSecret, null);
-                });
-            }
+            // Agent polls for PENDING transfers and pulls the file — no push needed.
         } catch (e) {
             res.status(500).json({ error: e.message });
         }
@@ -492,13 +486,8 @@ module.exports = function (authenticateToken) {
                 retry_count=retry_count+1
                 WHERE id=?`).run(req.params.id);
             res.json({ message: 'Transfer queued for retry' });
-            // Actually execute it — same as create
-            if ((row.transfer_method || 'SCP').toUpperCase() === 'API') {
-                var agentSecret = process.env.AGENT_SECRET || '';
-                setImmediate(function() {
-                    executeApiTransfer(db, req.params.id, agentSecret, null);
-                });
-            }
+            // Agent polls for PENDING transfers and pulls the file itself —
+            // no need to push; just leaving it as PENDING is sufficient.
         } catch (e) {
             res.status(500).json({ error: e.message });
         }
