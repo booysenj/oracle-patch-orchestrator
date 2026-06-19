@@ -176,14 +176,29 @@ def discover():
                 if sid not in result['running_dbs']:
                     result['running_dbs'].append(sid)
 
-    # Grid home — detect from running CRS/HAS processes first, fall back to +ASM oratab entry
-    # only if ASM is actually running (pmon_+ASM* or pmon_ASM* process present).
-    # ohasd.bin = Oracle Restart (HAS/standalone ASM); ocssd/crsd/cssdagent = full RAC cluster.
-    crs_out = _run("ps -eo args 2>/dev/null | grep -E 'ocssd\\.bin|crsd\\.bin|cssdagent|ohasd\\.bin' | grep -v grep | head -1")
-    if crs_out:
-        m = re.match(r'(/[^\s]+/bin/)', crs_out)
-        if m:
-            result['grid_home'] = m.group(1).rstrip('/').rsplit('/bin', 1)[0]
+    # Grid home — try olr.loc first (most reliable; works for CRS/RAC and HAS alike),
+    # then fall back to process-based detection, then +ASM oratab entry.
+    for _olr in ('/etc/oracle/olr.loc', '/var/opt/oracle/olr.loc'):
+        try:
+            with open(_olr) as _f:
+                for _line in _f:
+                    _m = re.match(r'\s*crs_home\s*=\s*(\S+)', _line)
+                    if _m:
+                        result['grid_home'] = _m.group(1).strip()
+                        break
+        except Exception:
+            pass
+        if result['grid_home']:
+            break
+
+    # Process-based fallback: ohasd.bin = Oracle Restart (HAS); ocssd/crsd/cssdagent = full RAC.
+    if not result['grid_home']:
+        crs_out = _run("ps -eo args 2>/dev/null | grep -E 'ocssd\\.bin|crsd\\.bin|cssdagent|ohasd\\.bin' | grep -v grep | head -1")
+        if crs_out:
+            m = re.match(r'(/[^\s]+/bin/)', crs_out)
+            if m:
+                result['grid_home'] = m.group(1).rstrip('/').rsplit('/bin', 1)[0]
+
     if not result['grid_home'] and asm_home_from_oratab:
         # ASM pmon can appear as different strings depending on OS/Oracle version:
         #   comm: ora_pmon_+ASM1   (most common on Linux)
