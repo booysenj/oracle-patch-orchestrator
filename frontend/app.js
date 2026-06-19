@@ -871,29 +871,264 @@ async function addSingleVm() {
   var hostname = document.getElementById('addVmHostname').value.trim();
   var ip = document.getElementById('addVmIp').value.trim();
   if (!hostname || !ip) { errEl.textContent = 'Hostname and IP are required'; return; }
+  var execMode = document.getElementById('addVmExecMode').value || 'agent';
+  var sshUser  = document.getElementById('addVmSshUser').value.trim() || 'oracle';
   try {
-    await api('/vms', {
+    var created = await api('/vms', {
       method: 'POST',
       body: JSON.stringify({
         hostname: hostname,
         ip: ip,
-        ssh_user: document.getElementById('addVmSshUser').value.trim() || 'oracle',
+        ssh_user: sshUser,
         ssh_port: parseInt(document.getElementById('addVmSshPort').value) || 22,
         node_role: document.getElementById('addVmRole').value,
         environment: document.getElementById('addVmEnv').value,
         patch_target: document.getElementById('addVmPatch').value,
-        execution_mode: document.getElementById('addVmExecMode').value || 'agent',
+        execution_mode: execMode,
         stage_path: document.getElementById('addVmStagePath').value.trim() || null
       })
     });
-    showToast('VM ' + hostname + ' added', 'success');
     closeAddVmModal();
     loadVMs();
+    openOnboardWizard({ id: created.id, hostname: created.hostname, ip: created.ip,
+                        execution_mode: execMode, ssh_user: sshUser });
   } catch (e) {
     errEl.textContent = 'Failed: ' + e.message;
     showToast('Failed to add VM: ' + e.message, 'error');
   }
 }
+
+// ── VM Onboarding Wizard ─────────────────────────────────────────────────────
+var _ob = { vm: null, step: 0, heartbeatTimer: null, deployDone: false };
+
+var ONBOARD_STEPS = [
+  { key: 'registered', label: 'Registered' },
+  { key: 'deploy',     label: 'Deploy Agent' },
+  { key: 'heartbeat', label: 'Agent Online' },
+  { key: 'configure', label: 'Configure' },
+  { key: 'ready',     label: 'Ready' }
+];
+
+function openOnboardWizard(vm) {
+  _ob.vm = vm;
+  _ob.step = 0;
+  _ob.heartbeatTimer = null;
+  _ob.deployDone = false;
+  document.getElementById('onboardTitle').textContent = 'Onboarding — ' + vm.hostname;
+  document.getElementById('onboardWizard').classList.remove('hidden');
+  _renderOnboardStep();
+}
+
+function closeOnboardWizard() {
+  if (_ob.heartbeatTimer) { clearInterval(_ob.heartbeatTimer); _ob.heartbeatTimer = null; }
+  document.getElementById('onboardWizard').classList.add('hidden');
+  loadVMs();
+}
+
+function _renderOnboardStepBar() {
+  var isAgent = _ob.vm && _ob.vm.execution_mode !== 'ssh';
+  var html = '';
+  ONBOARD_STEPS.forEach(function(s, i) {
+    var skip = !isAgent && (s.key === 'deploy' || s.key === 'heartbeat');
+    var state = skip ? 'skip' : (i < _ob.step ? 'done' : (i === _ob.step ? 'active' : 'pending'));
+    var icon = state === 'done' ? '✔' : (state === 'skip' ? '—' : (i + 1));
+    var bg = state === 'done' ? 'var(--success,#22c55e)' : (state === 'active' ? 'var(--primary,#3b82f6)' : (state === 'skip' ? 'var(--border,#334)' : 'var(--bg,#1a1f2e)'));
+    var col = (state === 'done' || state === 'active') ? '#fff' : 'var(--text-muted,#888)';
+    html += '<div style="flex:1;padding:8px 4px;text-align:center;background:' + bg + ';color:' + col + ';font-size:11px;border-right:1px solid var(--border,#334)">' +
+              '<div style="font-weight:700;font-size:13px">' + icon + '</div>' +
+              '<div>' + s.label + '</div>' +
+            '</div>';
+  });
+  document.getElementById('onboardSteps').innerHTML = html;
+}
+
+function _obNext() {
+  var isAgent = _ob.vm.execution_mode !== 'ssh';
+  _ob.step++;
+  // Auto-skip deploy/heartbeat for SSH mode
+  while (_ob.step < ONBOARD_STEPS.length) {
+    var key = ONBOARD_STEPS[_ob.step].key;
+    if (!isAgent && (key === 'deploy' || key === 'heartbeat')) { _ob.step++; }
+    else break;
+  }
+  _renderOnboardStep();
+}
+
+function _renderOnboardStep() {
+  _renderOnboardStepBar();
+  var body = document.getElementById('onboardBody');
+  var step = ONBOARD_STEPS[_ob.step];
+  if (!step) return;
+
+  if (step.key === 'registered') {
+    var isAgent = _ob.vm.execution_mode !== 'ssh';
+    body.innerHTML =
+      '<div style="text-align:center;padding:16px 0 8px">' +
+        '<div style="font-size:40px;margin-bottom:8px">✔</div>' +
+        '<p style="font-size:15px;font-weight:600;margin:0 0 4px">' + esc(_ob.vm.hostname) + ' registered</p>' +
+        '<p style="color:var(--text-muted);font-size:13px;margin:0 0 20px">IP: ' + esc(_ob.vm.ip) + ' &nbsp;|&nbsp; Mode: ' + esc(_ob.vm.execution_mode) + '</p>' +
+      '</div>' +
+      '<div style="background:var(--bg-secondary,#0d1117);border:1px solid var(--border);border-radius:6px;padding:14px 16px;font-size:13px;margin-bottom:20px">' +
+        '<p style="margin:0 0 10px;font-weight:600">Next steps:</p>' +
+        (isAgent
+          ? '<ol style="margin:0;padding-left:18px;line-height:2"><li>Deploy the agent via SSH</li><li>Wait for agent to check in</li><li>Set GI/DB home paths</li></ol>'
+          : '<ol style="margin:0;padding-left:18px;line-height:2"><li>Set GI/DB home paths</li><li>Run GI Precheck to discover inventory</li></ol>') +
+      '</div>' +
+      '<div style="display:flex;justify-content:flex-end">' +
+        '<button class="btn btn-primary" onclick="_obNext()">Start &rarr;</button>' +
+      '</div>';
+
+  } else if (step.key === 'deploy') {
+    body.innerHTML =
+      '<p style="font-size:13px;color:var(--text-muted);margin:0 0 16px">Deploy the Insight Agent to <strong>' + esc(_ob.vm.hostname) + '</strong> via SSH. The agent connects back to this orchestrator and executes patching jobs.</p>' +
+      '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">' +
+        '<div class="form-group"><label>SSH Username</label><input id="ob-sshuser" value="' + esc(_ob.vm.ssh_user || 'oracle') + '" /></div>' +
+        '<div class="form-group"><label>SSH Password <span style="font-size:11px;color:var(--text-muted)">(first time only)</span></label><input id="ob-sshpass" type="password" placeholder="Leave blank if key already set up" /></div>' +
+      '</div>' +
+      '<div class="form-group" style="margin-bottom:16px">' +
+        '<label style="display:flex;align-items:center;gap:8px;cursor:pointer"><input id="ob-sudo" type="checkbox" checked style="width:14px;height:14px"> Use sudo for privileged commands</label>' +
+      '</div>' +
+      '<div id="ob-deploy-out" style="display:none;background:var(--bg-secondary,#0d1117);border:1px solid var(--border);border-radius:4px;padding:10px;font-family:monospace;font-size:11px;white-space:pre-wrap;max-height:160px;overflow-y:auto;margin-bottom:12px"></div>' +
+      '<div style="display:flex;gap:8px;justify-content:flex-end">' +
+        '<button class="btn btn-secondary" onclick="_obNext()">Skip</button>' +
+        '<button id="ob-deploy-btn" class="btn btn-primary" onclick="_obDeploy()">Deploy Agent</button>' +
+      '</div>';
+
+  } else if (step.key === 'heartbeat') {
+    body.innerHTML =
+      '<div style="text-align:center;padding:12px 0">' +
+        '<div id="ob-hb-icon" style="font-size:36px;margin-bottom:10px">&#8987;</div>' +
+        '<p id="ob-hb-msg" style="font-size:14px;margin:0 0 6px;font-weight:600">Waiting for agent heartbeat&hellip;</p>' +
+        '<p style="font-size:12px;color:var(--text-muted);margin:0 0 20px">The agent polls every 30 s. This should appear within a minute.</p>' +
+      '</div>' +
+      '<div style="display:flex;justify-content:space-between">' +
+        '<button class="btn btn-secondary" onclick="_obNext()">Skip</button>' +
+      '</div>';
+    _obPollHeartbeat();
+
+  } else if (step.key === 'configure') {
+    var giBase = (orchSettings.gi_home_base || '/grid/oracle/product') + '/';
+    var dbBase = (orchSettings.db_home_base || '/app/oracle/product') + '/';
+    body.innerHTML =
+      '<p style="font-size:13px;color:var(--text-muted);margin:0 0 16px">Set the target patch homes and staging path for <strong>' + esc(_ob.vm.hostname) + '</strong>. These are passed as environment variables to every operation.</p>' +
+      '<div class="form-group"><label>NEW_GI_HOME <span style="font-size:11px;color:var(--text-muted)">(GI home to patch into)</span></label>' +
+        '<input id="ob-new-gi" placeholder="' + esc(giBase) + '19.30" /></div>' +
+      '<div class="form-group"><label>NEW_DB_HOME <span style="font-size:11px;color:var(--text-muted)">(DB home to patch into)</span></label>' +
+        '<input id="ob-new-db" placeholder="' + esc(dbBase) + '19.30" /></div>' +
+      '<div class="form-group"><label>Stage Path <span style="font-size:11px;color:var(--text-muted)">(where patch ZIPs land on this VM)</span></label>' +
+        '<input id="ob-stage" placeholder="/app/software/patches" /></div>' +
+      '<div class="form-group"><label>MAIL_TO override <span style="font-size:11px;color:var(--text-muted)">(optional — uses global if blank)</span></label>' +
+        '<input id="ob-mailto" placeholder="' + esc(orchSettings.mail_to || '') + '" /></div>' +
+      '<div id="ob-cfg-err" style="color:var(--danger,#f87171);font-size:12px;margin-bottom:8px"></div>' +
+      '<div style="display:flex;gap:8px;justify-content:flex-end">' +
+        '<button class="btn btn-secondary" onclick="_obNext()">Skip</button>' +
+        '<button class="btn btn-primary" onclick="_obSaveCfg()">Save &amp; Continue</button>' +
+      '</div>';
+
+  } else if (step.key === 'ready') {
+    var isAgent = _ob.vm.execution_mode !== 'ssh';
+    body.innerHTML =
+      '<div style="text-align:center;padding:16px 0 8px">' +
+        '<div style="font-size:40px;margin-bottom:8px">&#127881;</div>' +
+        '<p style="font-size:15px;font-weight:600;margin:0 0 4px">' + esc(_ob.vm.hostname) + ' is ready</p>' +
+        '<p style="font-size:13px;color:var(--text-muted);margin:0 0 20px">Run <strong>GI Precheck</strong> first to discover the current homes and validate the environment.</p>' +
+      '</div>' +
+      '<div style="background:var(--bg-secondary,#0d1117);border:1px solid var(--border);border-radius:6px;padding:14px 16px;font-size:13px;margin-bottom:20px">' +
+        '<p style="margin:0 0 10px;font-weight:600">Recommended first operations:</p>' +
+        '<ol style="margin:0;padding-left:18px;line-height:2">' +
+          '<li><strong>GI Precheck</strong> — discovers homes, validates cluster health</li>' +
+          '<li><strong>DB Precheck</strong> — validates DB readiness</li>' +
+          '<li><strong>Stage Software</strong> — verifies patch ZIPs are staged correctly</li>' +
+          '<li><strong>GI Install</strong> — applies patch to new GI home (no downtime)</li>' +
+          '<li><strong>DB Install</strong> — applies patch to new DB home (no downtime)</li>' +
+          '<li><strong>GI Switch</strong> — switches cluster to new home (downtime window)</li>' +
+        '</ol>' +
+      '</div>' +
+      '<div style="display:flex;justify-content:flex-end">' +
+        '<button class="btn btn-primary" onclick="closeOnboardWizard()">Done</button>' +
+      '</div>';
+  }
+}
+
+async function _obDeploy() {
+  var btn = document.getElementById('ob-deploy-btn');
+  var out = document.getElementById('ob-deploy-out');
+  btn.disabled = true;
+  btn.textContent = 'Deploying…';
+  out.style.display = 'block';
+  out.textContent = 'Connecting to ' + _ob.vm.hostname + '…\n';
+  try {
+    var result = await api('/admin/vms/' + _ob.vm.id + '/deploy-agent', {
+      method: 'POST',
+      body: JSON.stringify({
+        sshUser: document.getElementById('ob-sshuser').value.trim() || 'oracle',
+        sshPassword: document.getElementById('ob-sshpass').value,
+        useSudo: document.getElementById('ob-sudo').checked
+      })
+    });
+    out.textContent = result.output || '(no output)';
+    out.textContent += '\n\n✔ Deployment successful';
+    _ob.deployDone = true;
+    setTimeout(_obNext, 1200);
+  } catch(e) {
+    out.textContent += '\n✘ ' + (e.message || 'Unknown error');
+    btn.disabled = false;
+    btn.textContent = 'Retry';
+  }
+}
+
+function _obPollHeartbeat() {
+  if (_ob.heartbeatTimer) clearInterval(_ob.heartbeatTimer);
+  var attempts = 0;
+  _ob.heartbeatTimer = setInterval(async function() {
+    attempts++;
+    try {
+      var vmList = await api('/vms');
+      var vm = vmList.find(function(v) { return v.id === _ob.vm.id; });
+      if (vm && vm.agent_last_seen) {
+        var age = (Date.now() - new Date(vm.agent_last_seen).getTime()) / 1000;
+        if (age < 120) {
+          clearInterval(_ob.heartbeatTimer);
+          _ob.heartbeatTimer = null;
+          var icon = document.getElementById('ob-hb-icon');
+          var msg  = document.getElementById('ob-hb-msg');
+          if (icon) icon.textContent = '✔';
+          if (msg)  msg.textContent  = 'Agent is online!';
+          setTimeout(_obNext, 1000);
+          return;
+        }
+      }
+    } catch(_) {}
+    if (attempts > 40) { // 2 min timeout
+      clearInterval(_ob.heartbeatTimer);
+      _ob.heartbeatTimer = null;
+      var msg = document.getElementById('ob-hb-msg');
+      if (msg) msg.textContent = 'Timed out — agent not seen. Check agent service on the VM.';
+    }
+  }, 3000);
+}
+
+async function _obSaveCfg() {
+  var errEl = document.getElementById('ob-cfg-err');
+  errEl.textContent = '';
+  var newGi    = (document.getElementById('ob-new-gi')  || {}).value || '';
+  var newDb    = (document.getElementById('ob-new-db')  || {}).value || '';
+  var stage    = (document.getElementById('ob-stage')   || {}).value || '';
+  var mailTo   = (document.getElementById('ob-mailto')  || {}).value || '';
+  try {
+    var r = await fetch(API + '/vms/' + _ob.vm.id + '/config', {
+      method: 'PATCH',
+      headers: { 'Authorization': 'Bearer ' + TOKEN, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ new_gi_home: newGi, new_db_home: newDb, preferred_staging_mount: stage, mail_to: mailTo })
+    });
+    var d = await r.json();
+    if (d.ok || d.updated) { _obNext(); }
+    else { errEl.textContent = 'Save failed: ' + (d.error || 'unknown'); }
+  } catch(e) {
+    errEl.textContent = 'Save failed: ' + e.message;
+  }
+}
+// ─────────────────────────────────────────────────────────────────────────────
 
 async function bulkImportVms() {
   var errEl = document.getElementById('addVmError');

@@ -546,6 +546,24 @@
       </div>
     </div>
 
+    <!-- VM Onboarding Wizard -->
+    <div id="onboardWizard" class="modal hidden">
+      <div class="modal-content" style="max-width:600px">
+        <div class="modal-header">
+          <h2 id="onboardTitle">VM Onboarding</h2>
+          <button class="modal-close" onclick="closeOnboardWizard()">&#215;</button>
+        </div>
+        <div class="modal-body">
+          <!-- Step progress -->
+          <div id="onboardSteps" style="display:flex;gap:0;margin-bottom:24px;border-radius:6px;overflow:hidden;border:1px solid var(--border)">
+            <!-- injected by JS -->
+          </div>
+          <!-- Step content -->
+          <div id="onboardBody"></div>
+        </div>
+      </div>
+    </div>
+
     <footer>
       <span>Insight Patch UI v1.0</span>
       <span>&#8226;</span>
