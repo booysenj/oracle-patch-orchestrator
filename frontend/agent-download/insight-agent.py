@@ -334,13 +334,34 @@ def discover():
         except Exception:
             pass
 
-    # Cluster name — olsnodes or cemutlo
+    # Cluster name, SCAN name, and node list — from srvctl / olsnodes
     gi = result['grid_home']
+    result['scan_name'] = None
+    result['scan_port'] = None
+    result['nodes'] = []
     if gi:
         cn = _run('%s/bin/olsnodes -c 2>/dev/null | head -1' % gi) or \
              _run('%s/bin/cemutlo -n 2>/dev/null | head -1' % gi)
         if cn:
             result['cluster_name'] = cn
+        # SCAN name from srvctl config scan
+        srvctl = gi + '/bin/srvctl'
+        if os.path.isfile(srvctl):
+            scan_out = _run('%s config scan 2>/dev/null' % srvctl)
+            for line in scan_out.splitlines():
+                if 'SCAN name' in line or 'scan name' in line.lower():
+                    parts = line.split(':', 1)
+                    if len(parts) == 2:
+                        result['scan_name'] = parts[1].strip().rstrip(',').split(',')[0].strip()
+                if 'SCAN port' in line or 'scan port' in line.lower():
+                    parts = line.split(':', 1)
+                    if len(parts) == 2:
+                        try: result['scan_port'] = int(parts[1].strip().split()[0])
+                        except Exception: pass
+        # Node list
+        nodes_out = _run('%s/bin/olsnodes 2>/dev/null' % gi)
+        if nodes_out:
+            result['nodes'] = [n.strip() for n in nodes_out.splitlines() if n.strip()]
 
     # OS identity — discover oracle/grid user and oinstall group from file ownership
     db_homes = list({e['home'] for e in result['oratab'] if e.get('home')})

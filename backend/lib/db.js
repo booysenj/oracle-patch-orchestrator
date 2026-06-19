@@ -86,6 +86,8 @@ function initDB() {
     try { d.exec(`ALTER TABLE vms ADD COLUMN oracle_user TEXT`); } catch(_) {}
     try { d.exec(`ALTER TABLE vms ADD COLUMN grid_user TEXT`); } catch(_) {}
     try { d.exec(`ALTER TABLE vms ADD COLUMN oinstall_group TEXT`); } catch(_) {}
+    try { d.exec(`ALTER TABLE vms ADD COLUMN scan_name TEXT`); } catch(_) {}
+    try { d.exec(`ALTER TABLE vms ADD COLUMN scan_port INTEGER`); } catch(_) {}
     try { d.exec(`ALTER TABLE vms ADD COLUMN mail_to TEXT`); } catch(_) {}
     try { d.exec(`ALTER TABLE vms ADD COLUMN mail_from TEXT`); } catch(_) {}
     // patch_reports migrations — run before CREATE TABLE so existing DBs get the columns

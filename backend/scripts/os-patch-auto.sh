@@ -245,12 +245,39 @@ current_phase_log_dir() {
     esac
 }
 
-GI_SCAN_NAME="zacptuatvmatp-scan"
-GI_SCAN_PORT="1521"
-GI_CLUSTER_NAME=""
-GI_CLUSTER_NODES=""
+# Cluster / SCAN — injected by orchestrator from agent discovery.
+# Fallback: query CRS directly at runtime if not supplied.
+GI_SCAN_NAME="${GI_SCAN_NAME:-}"
+GI_SCAN_PORT="${GI_SCAN_PORT:-1521}"
+GI_CLUSTER_NAME="${GI_CLUSTER_NAME:-}"
+GI_CLUSTER_NODES="${GI_CLUSTER_NODES:-}"
+DB_CLUSTER_NODES="${DB_CLUSTER_NODES:-${GI_CLUSTER_NODES:-}}"
 
-DB_CLUSTER_NODES=""
+# Auto-discover scan/cluster info from CRS when not injected
+_autodetect_cluster_identity() {
+    local _srvctl=""
+    for _h in "${OLD_GI_HOME:-}" "${NEW_GI_HOME:-}"; do
+        [[ -n "$_h" && -x "$_h/bin/srvctl" ]] && _srvctl="$_h/bin/srvctl" && break
+    done
+
+    if [[ -z "${GI_SCAN_NAME:-}" && -n "$_srvctl" ]]; then
+        GI_SCAN_NAME=$("$_srvctl" config scan 2>/dev/null | awk -F': *' '/SCAN name/{print $2; exit}' || true)
+    fi
+    if [[ -z "${GI_CLUSTER_NAME:-}" && -n "$_srvctl" ]]; then
+        GI_CLUSTER_NAME=$("$_srvctl" config cluster 2>/dev/null | awk -F': *' '/Cluster name/{print $2; exit}' || true)
+        # Fallback: olsnodes -c
+        [[ -z "$GI_CLUSTER_NAME" && -x "${OLD_GI_HOME:-x}/bin/olsnodes" ]] && \
+            GI_CLUSTER_NAME=$("${OLD_GI_HOME}/bin/olsnodes" -c 2>/dev/null || true)
+    fi
+    if [[ -z "${GI_CLUSTER_NODES:-}" && -n "$_srvctl" ]]; then
+        GI_CLUSTER_NODES=$(command -v olsnodes >/dev/null 2>&1 && olsnodes 2>/dev/null | paste -sd ',' - || true)
+        [[ -z "$GI_CLUSTER_NODES" && -x "${OLD_GI_HOME:-x}/bin/olsnodes" ]] && \
+            GI_CLUSTER_NODES=$("${OLD_GI_HOME}/bin/olsnodes" 2>/dev/null | paste -sd ',' - || true)
+    fi
+    # DB cluster nodes default to same as GI nodes
+    [[ -z "${DB_CLUSTER_NODES:-}" ]] && DB_CLUSTER_NODES="${GI_CLUSTER_NODES:-}"
+}
+_autodetect_cluster_identity
 
 DRYRUN=false
 REPORT_BODY=""

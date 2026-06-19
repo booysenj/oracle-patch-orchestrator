@@ -169,6 +169,12 @@ router.post('/discover', (req, res) => {
     if (oracleUser && !vm.oracle_user) updates.oracle_user = oracleUser;
     if (gridUser && !vm.grid_user) updates.grid_user = gridUser;
     if (oinstallGroup && !vm.oinstall_group) updates.oinstall_group = oinstallGroup;
+    var scanName = payload.scan_name || null;
+    var scanPort = payload.scan_port || null;
+    var nodesList = payload.nodes || [];
+    if (scanName) updates.scan_name = scanName;
+    if (scanPort) updates.scan_port = scanPort;
+    if (nodesList.length) updates.nodes_json = JSON.stringify(nodesList);
 
     // Dynamic values — always overwrite
     updates.database_role = databaseRole;
@@ -268,20 +274,29 @@ router.get('/:jobId/runtime-config', (req, res) => {
         '# Database Identity',
         'DB_UNIQUE_NAME=' + (job.db_unique_name || ''),
         'DATABASE_ROLE=' + (job.database_role || ''),
-        'CLUSTER_NAME=' + (job.cluster_name || ''),
+        '',
+        '# Cluster / SCAN — populated from agent discovery',
+        'GI_CLUSTER_NAME=' + (job.cluster_name || ''),
+        'GI_SCAN_NAME=' + (job.scan_name || ''),
+        'GI_SCAN_PORT=' + (job.scan_port || '1521'),
+        'GI_CLUSTER_NODES=' + (function() {
+            try { return (JSON.parse(job.nodes_json || '[]')).join(','); } catch(_) { return ''; }
+        })(),
+        'DB_CLUSTER_NODES=' + (function() {
+            try { return (JSON.parse(job.nodes_json || '[]')).join(','); } catch(_) { return ''; }
+        })(),
         '',
         '# Patch Software',
         'GI_BASE_ZIP=' + (pv && pv.gi_base_zip ? pv.gi_base_zip : ''),
         'DB_BASE_ZIP=' + (pv && pv.db_base_zip ? pv.db_base_zip : ''),
         'OPATCH_ZIP=' + (pv && pv.opatch_zip ? pv.opatch_zip : ''),
-        'PATCH_SEARCH_ROOTS_ENV=' + (pv && pv.patch_search_root ? pv.patch_search_root : stagingRoot),
         '',
         '# Staging',
         'STAGE_PATH=' + stagingRoot,
-        // Build PATCH_SEARCH_ROOTS_ENV from preferred staging mount + well-known fallbacks.
-        // The preferred mount (e.g. /grid/software) is placed first so stage_software
-        // writes patches there and autoconfigure_patches finds them immediately.
+        // Preferred staging mount first so stage_software and autoconfigure_patches
+        // find patches immediately; well-known fallbacks cover manual layouts.
         'PATCH_SEARCH_ROOTS_ENV=' + (function() {
+            if (pv && pv.patch_search_root) return pv.patch_search_root;
             var roots = [];
             if (stagingRoot && stagingRoot !== '/home/oracle/staging') roots.push(stagingRoot);
             ['/grid/software', '/app/software', '/app/software/db_software/patches', '/staging/software']
