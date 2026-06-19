@@ -144,12 +144,25 @@
       <section id="tab-jobs" class="tab-content">
         <div class="section-header"><h2>Job History</h2></div>
         <div class="toolbar">
+          <input type="text" id="jobHostnameFilter" placeholder="Hostname" style="width:150px" />
+          <select id="jobOperationFilter">
+            <option value="">All Operations</option>
+            <option value="gi_precheck">GI Precheck</option>
+            <option value="db_precheck">DB Precheck</option>
+            <option value="gi_patch">GI Patch</option>
+            <option value="db_patch">DB Patch</option>
+            <option value="db_switch">DB Switch</option>
+            <option value="gi_switch">GI Switch</option>
+            <option value="discovery">Discovery</option>
+          </select>
           <select id="jobStatusFilter">
             <option value="">All Statuses</option>
             <option value="success">Success</option>
             <option value="failed">Failed</option>
             <option value="running">Running</option>
+            <option value="cancelled">Cancelled</option>
           </select>
+          <input type="date" id="jobBeforeDate" title="Show jobs started before this date" style="font-size:13px" />
           <button id="refreshJobs" class="btn btn-sm btn-secondary">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
             Refresh

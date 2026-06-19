@@ -703,7 +703,16 @@ async function loadJobs() {
   try {
     var jobs = await api('/jobs');
     var statusFilter = document.getElementById('jobStatusFilter').value;
-    var filtered = statusFilter ? jobs.filter(function(j) { return j.status === statusFilter; }) : jobs;
+    var hostnameFilter = (document.getElementById('jobHostnameFilter').value || '').trim().toLowerCase();
+    var operationFilter = document.getElementById('jobOperationFilter').value;
+    var beforeDate = document.getElementById('jobBeforeDate').value;
+    var filtered = jobs.filter(function(j) {
+      if (statusFilter && j.status !== statusFilter) return false;
+      if (hostnameFilter && !(j.hostname || '').toLowerCase().includes(hostnameFilter)) return false;
+      if (operationFilter && j.operation !== operationFilter) return false;
+      if (beforeDate && j.started_at && j.started_at.slice(0, 10) >= beforeDate) return false;
+      return true;
+    });
     if (!filtered.length) {
       tbody.innerHTML = '<tr><td colspan="6" class="loading"><div class="empty-state-inline"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg><p>No jobs found</p></div></td></tr>';
       return;
@@ -727,6 +736,9 @@ async function loadJobs() {
 }
 
 document.getElementById('jobStatusFilter').addEventListener('change', loadJobs);
+document.getElementById('jobOperationFilter').addEventListener('change', loadJobs);
+document.getElementById('jobBeforeDate').addEventListener('change', loadJobs);
+document.getElementById('jobHostnameFilter').addEventListener('input', loadJobs);
 document.getElementById('refreshJobs').addEventListener('click', function() { loadJobs(); showToast('Jobs refreshed','info'); });
 
 // -- Auto Refresh --

@@ -282,6 +282,8 @@ router.post('/:jobId/logs', (req, res) => {
         'INSERT INTO discoveries (id, job_id, hostname, type, payload) VALUES (?, ?, ?, ?, ?)'
     );
 
+    var wsEvents = []; // collect events to emit after transaction commits
+
     const insertBatch = db.transaction(function(items) {
         for (var i = 0; i < items.length; i++) {
             var line = items[i].line || '';
@@ -369,14 +371,19 @@ router.post('/:jobId/logs', (req, res) => {
             }
 
             stmt.run(jobId, items[i].stream || 'stdout', line);
-            jobEvents.emit('log:' + jobId, {
-                stream: items[i].stream || 'stdout',
-                line: line,
-                ts: new Date().toISOString()
-            });
+            wsEvents.push({ stream: items[i].stream || 'stdout', line: line, ts: new Date().toISOString() });
         }
     });
-    insertBatch(lines);
+    try {
+        insertBatch(lines);
+    } catch(e) {
+        console.error('[agent] insertBatch failed:', e.message);
+        return res.status(500).json({ error: 'Failed to store logs: ' + e.message });
+    }
+    // Emit WebSocket events after transaction commits — keeps WS errors from rolling back DB writes
+    for (var i = 0; i < wsEvents.length; i++) {
+        try { jobEvents.emit('log:' + jobId, wsEvents[i]); } catch(_) {}
+    }
     res.json({ ok: true, count: lines.length });
 });
 
