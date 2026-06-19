@@ -69,24 +69,11 @@ function initPatchTables() {
 }
 
 function _resumePendingTransfers(db) {
-    // Any transfer stuck in TRANSFERRING was killed by a server restart — reset to PENDING
+    // Any transfer stuck in TRANSFERRING was killed by a server restart — reset to PENDING so the user can retry
     try {
         var stuck = db.prepare("UPDATE patch_transfers SET status='PENDING', bytes_transferred=0, started_at=NULL WHERE status='TRANSFERRING'").run();
         if (stuck.changes > 0) console.log('[transfer] Reset', stuck.changes, 'stuck TRANSFERRING -> PENDING on startup');
     } catch(e) {}
-
-    // Kick off all PENDING API transfers that were never executed
-    setImmediate(function() {
-        try {
-            var { executeApiTransfer } = require('../lib/transfer-executor');
-            var pending = db.prepare("SELECT id FROM patch_transfers WHERE status='PENDING' AND (transfer_method='API' OR transfer_method IS NULL)").all();
-            var agentSecret = process.env.AGENT_SECRET || '';
-            pending.forEach(function(t) {
-                console.log('[transfer] Resuming pending transfer', t.id);
-                executeApiTransfer(db, t.id, agentSecret, null);
-            });
-        } catch(e) { console.error('[transfer] Resume error:', e.message); }
-    });
 }
 
 function _autoPopulateOjvmZip(db) {
