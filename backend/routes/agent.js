@@ -216,18 +216,28 @@ router.get('/:jobId/runtime-config', (req, res) => {
     var mailFrom = job.mail_from || globalMailFrom  || '';
 
     // Derive new homes: explicit VM override > patch version explicit > auto from base+version
+    // Falls back to vm.patch_target as version when no patch_version record is linked
     function deriveHome(explicitVal, pvVal, base, version) {
         if (explicitVal) return explicitVal;
         if (pvVal) return pvVal;
         if (base && version) return base + '/' + version;
         return '';
     }
-    var pvVersion = (pv && pv.version) ? pv.version : '';
+    // Auto-derive base from old home when no global setting configured
+    // e.g. old_gi_home=/grid/oracle/product/19c  → giHomeBase=/grid/oracle/product
+    function baseFromOldHome(oldHome, configBase) {
+        if (configBase) return configBase;
+        if (!oldHome) return '';
+        return oldHome.replace(/\/[^/]+$/, ''); // strip last path segment
+    }
+    var pvVersion = (pv && pv.version) ? pv.version : (job.patch_target || '');
+    var effectiveGiBase = baseFromOldHome(job.old_gi_home, giHomeBase);
+    var effectiveDbBase = baseFromOldHome(job.old_db_home, dbHomeBase);
     // Only derive NEW_GI_HOME if this VM actually has GI (old_gi_home is set)
     var newGiHome = job.old_gi_home
-        ? deriveHome(job.new_gi_home, pv && pv.new_gi_home, giHomeBase, pvVersion)
+        ? deriveHome(job.new_gi_home, pv && pv.new_gi_home, effectiveGiBase, pvVersion)
         : '';
-    var newDbHome = deriveHome(job.new_db_home, pv && pv.new_db_home, dbHomeBase, pvVersion);
+    var newDbHome = deriveHome(job.new_db_home, pv && pv.new_db_home, effectiveDbBase, pvVersion);
 
     var stagingRoot = job.preferred_staging_mount || job.stage_path || '/home/oracle/staging';
 

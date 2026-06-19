@@ -267,11 +267,24 @@ def discover():
             _env['ORACLE_SID'] = _sid
             _env['ORACLE_HOME'] = _home
             _env['PATH'] = _home + '/bin:' + _env.get('PATH', '')
-            out = subprocess.check_output(
-                [_home + '/bin/sqlplus', '-S', '/ as sysdba'],
-                input=sql, text=True, env=_env, timeout=15,
-                stderr=subprocess.DEVNULL
-            )
+            # sqlplus OS auth (/ as sysdba) requires membership in the dba group.
+            # When the agent runs as root, wrap with su -s /bin/bash oracle so the
+            # call is made as the oracle OS user who has dba group membership.
+            _uid = os.getuid() if hasattr(os, 'getuid') else -1
+            if _uid == 0:
+                _cmd = ['su', '-s', '/bin/bash', 'oracle', '-c',
+                        'ORACLE_SID=%s ORACLE_HOME=%s PATH=%s/bin:$PATH %s/bin/sqlplus -S / as sysdba' % (
+                            _sid, _home, _home, _home)]
+                out = subprocess.check_output(
+                    _cmd, input=sql, text=True, timeout=15,
+                    stderr=subprocess.DEVNULL
+                )
+            else:
+                out = subprocess.check_output(
+                    [_home + '/bin/sqlplus', '-S', '/ as sysdba'],
+                    input=sql, text=True, env=_env, timeout=15,
+                    stderr=subprocess.DEVNULL
+                )
             for line in out.splitlines():
                 line = line.strip()
                 if line.startswith('UNIQUE=') and not result['db_unique_name']:
