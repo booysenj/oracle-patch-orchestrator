@@ -42,6 +42,27 @@ module.exports = function(authenticateToken) {
         res.send(row.html_content);
     });
 
+    // Download report as a standalone HTML file
+    router.get('/:id/download', authFlexible, (req, res) => {
+        const db = getDB();
+        const row = db.prepare('SELECT html_content, subject, hostname, operation, created_at FROM patch_reports WHERE id = ?').get(req.params.id);
+        if (!row) return res.status(404).json({ error: 'Report not found' });
+        const safe = (s) => (s || '').replace(/[^a-zA-Z0-9._-]/g, '_');
+        const filename = `${safe(row.hostname)}_${safe(row.operation)}_${safe((row.created_at || '').slice(0,10))}.html`;
+        res.setHeader('Content-Type', 'text/html; charset=utf-8');
+        res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+        res.send(row.html_content);
+    });
+
+    // List reports for a specific job
+    router.get('/by-job/:jobId', authenticateToken, (req, res) => {
+        const db = getDB();
+        const rows = db.prepare(
+            'SELECT id, hostname, operation, subject, result, created_at FROM patch_reports WHERE job_id = ? ORDER BY created_at ASC'
+        ).all(req.params.jobId);
+        res.json(rows);
+    });
+
     // Delete a report
     router.delete('/:id', authenticateToken, (req, res) => {
         const db = getDB();

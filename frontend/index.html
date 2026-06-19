@@ -351,7 +351,12 @@
       <div class="modal-content modal-wide">
         <div class="modal-header">
           <h2 id="logModalTitle">Job Logs</h2>
-          <button class="modal-close" onclick="closeLogModal()">&#215;</button>
+          <div style="display:flex;gap:8px;align-items:center">
+            <button id="logReportDownloadBtn" class="btn btn-sm btn-secondary hidden" onclick="downloadJobReport()" title="Download full HTML report">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-2px;margin-right:4px"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>HTML Report
+            </button>
+            <button class="modal-close" onclick="closeLogModal()">&#215;</button>
+          </div>
         </div>
         <div class="modal-body">
           <div id="jobMeta" class="job-meta"></div>

@@ -511,6 +511,9 @@ document.getElementById('executeBtn').addEventListener('click', async function()
 // -- Log Viewer --
 function openLogViewer(jobId, hostname, operation) {
   activeLogJobId = jobId;
+  _jobReportId = null;
+  var dlBtn = document.getElementById('logReportDownloadBtn');
+  if (dlBtn) dlBtn.classList.add('hidden');
   document.getElementById('logModalTitle').textContent = 'Logs \u2014 ' + hostname + ' \u2014 ' + operation;
   document.getElementById('logOutput').innerHTML = '';
   reportRows = [];
@@ -1185,8 +1188,27 @@ async function fetchLogsIncremental() {
     if (job && (job.status === 'success' || job.status === 'failed' || job.status === 'cancelled')) {
       updateJobStatus(job.status);
       stopLogPolling();
+      checkJobReport(logPollJobId);
     }
   } catch(e) { /* silent */ }
+}
+
+var _jobReportId = null;
+
+async function checkJobReport(jobId) {
+  try {
+    var reports = await api('/reports/by-job/' + jobId);
+    if (reports && reports.length) {
+      _jobReportId = reports[reports.length - 1].id; // most recent
+      var btn = document.getElementById('logReportDownloadBtn');
+      if (btn) btn.classList.remove('hidden');
+    }
+  } catch(e) { /* no report yet */ }
+}
+
+function downloadJobReport() {
+  if (!_jobReportId) return;
+  window.open(API + '/reports/' + _jobReportId + '/download?token=' + encodeURIComponent(TOKEN), '_blank');
 }
 
 // -- Init --
@@ -1761,17 +1783,26 @@ async function loadReports() {
     }
 }
 
+var _viewingReportId = null;
+
 function openReportViewer(id, title) {
+    _viewingReportId = id;
     var modal = document.getElementById('reportViewerModal');
     if (!modal) {
         modal = document.createElement('div');
         modal.id = 'reportViewerModal';
         modal.className = 'modal hidden';
         modal.innerHTML =
-            '<div class="modal-content" style="max-width:900px;height:85vh;display:flex;flex-direction:column">' +
+            '<div class="modal-content" style="max-width:960px;height:88vh;display:flex;flex-direction:column">' +
             '<div class="modal-header">' +
                 '<h2 id="reportViewerTitle">Report</h2>' +
-                '<button class="modal-close" onclick="document.getElementById(\'reportViewerModal\').classList.add(\'hidden\')">&#215;</button>' +
+                '<div style="display:flex;gap:8px;align-items:center">' +
+                    '<button class="btn btn-sm btn-secondary" onclick="downloadViewingReport()" title="Save as HTML file">' +
+                        '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-2px;margin-right:4px"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>Download' +
+                    '</button>' +
+                    '<button class="btn btn-sm btn-secondary" onclick="document.getElementById(\'reportViewerFrame\').contentWindow.print()">Print</button>' +
+                    '<button class="modal-close" onclick="document.getElementById(\'reportViewerModal\').classList.add(\'hidden\')">&#215;</button>' +
+                '</div>' +
             '</div>' +
             '<div style="flex:1;overflow:auto;padding:0">' +
                 '<iframe id="reportViewerFrame" style="width:100%;height:100%;border:none;background:#fff"></iframe>' +
@@ -1783,6 +1814,11 @@ function openReportViewer(id, title) {
     document.getElementById('reportViewerTitle').textContent = title;
     document.getElementById('reportViewerFrame').src = API + '/reports/' + id + '/html?token=' + encodeURIComponent(TOKEN);
     modal.classList.remove('hidden');
+}
+
+function downloadViewingReport() {
+    if (!_viewingReportId) return;
+    window.open(API + '/reports/' + _viewingReportId + '/download?token=' + encodeURIComponent(TOKEN), '_blank');
 }
 
 async function deleteReport(id) {
