@@ -5161,7 +5161,17 @@ phase_rollback() {
     LOG_FILE="${GI_LOG_DIR}/gi_rollback_$(date +%F_%H%M%S).log"
     log "GI ROLLBACK (19c OOP)"
 
-    add_html_row "GI Rollback" "INFO" "Rolling back CRS/HAS home to OLD_GI_HOME"
+    # After a switch, OLD_GI_HOME is now the patched (active) home and ROLLBACK_GI_HOME
+    # is the pre-switch home snapshotted at switch time. Swap them so the rollback uses
+    # the correct homes: NEW_GI_HOME = currently active (to roll back FROM),
+    # OLD_GI_HOME = pre-switch home (to roll back TO).
+    if [[ -n "${ROLLBACK_GI_HOME:-}" && "$ROLLBACK_GI_HOME" != "$OLD_GI_HOME" ]]; then
+        log "INFO: Using ROLLBACK_GI_HOME=${ROLLBACK_GI_HOME} as rollback target (OLD_GI_HOME was ${OLD_GI_HOME})"
+        NEW_GI_HOME="${OLD_GI_HOME}"
+        OLD_GI_HOME="${ROLLBACK_GI_HOME}"
+    fi
+
+    add_html_row "GI Rollback" "INFO" "Rolling back CRS/HAS home: NEW=${NEW_GI_HOME} → OLD=${OLD_GI_HOME}"
 
     local mode="${GI_CLUSTER_MODE:-UNKNOWN}"
     [[ "$mode" == "UNKNOWN" ]] && mode=$(detect_gi_cluster_mode)
@@ -7213,7 +7223,15 @@ db_rollback() {
     LOG_FILE="${DB_LOG_DIR}/db_rollback_$(date +%F_%H%M%S).log"
     log "DB ROLLBACK (19c OOP)"
 
-    add_html_row "DB Rollback" "INFO" "Reverting database home back to OLD_DB_HOME."
+    # After a switch, OLD_DB_HOME is the patched (active) home. Use ROLLBACK_DB_HOME
+    # (snapshotted at switch time) as the rollback target.
+    if [[ -n "${ROLLBACK_DB_HOME:-}" && "$ROLLBACK_DB_HOME" != "$OLD_DB_HOME" ]]; then
+        log "INFO: Using ROLLBACK_DB_HOME=${ROLLBACK_DB_HOME} as rollback target (OLD_DB_HOME was ${OLD_DB_HOME})"
+        NEW_DB_HOME="${OLD_DB_HOME}"
+        OLD_DB_HOME="${ROLLBACK_DB_HOME}"
+    fi
+
+    add_html_row "DB Rollback" "INFO" "Reverting database home: NEW=${NEW_DB_HOME} → OLD=${OLD_DB_HOME}"
     add_report_step "DB Rollback" "INFO" "Reverting $DB_UNIQUE_NAME to OLD_DB_HOME (${OLD_DB_HOME})"
 
     if [[ -z "${DB_UNIQUE_NAME:-}" ]]; then
