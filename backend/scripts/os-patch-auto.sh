@@ -1661,10 +1661,36 @@ add_html_section() {
 
 add_attachment() {
     local f="$1"
-
-    [[ -f "$f" ]] || return 0   # 🔥 critical fix
-
+    [[ -f "$f" ]] || return 0
     ATTACH_FILES+=("$f")
+}
+
+# Wrap a plain-text log file in a minimal HTML page and attach the .html version.
+# For crs_stat logs, uses format_crs_stat_html() for a proper table; all others get <pre>.
+add_html_attachment() {
+    local src="$1"
+    local title="${2:-$(basename "$src")}"
+    [[ -f "$src" ]] || return 0
+    local html_file="${src%.log}.html"
+    local is_crs_stat=false
+    [[ "$(basename "$src")" == crs_stat_* ]] && is_crs_stat=true
+    {
+        printf '<!DOCTYPE html><html><head><meta charset="UTF-8"><title>%s</title>\n' "$title"
+        printf '<style>body{font-family:Arial,sans-serif;font-size:12px;background:#0d1117;color:#e0e0e0;padding:16px;margin:0}'
+        printf 'h3{color:#94a3b8;font-size:13px;margin:0 0 12px}'
+        printf 'pre{white-space:pre-wrap;word-break:break-all;font-family:monospace;font-size:11px;'
+        printf 'background:#1e293b;padding:12px;border-radius:4px;border:1px solid #334155}</style></head><body>\n'
+        printf '<h3>%s &mdash; %s &mdash; %s</h3>\n' "$title" "$(hostname -s)" "$(date '+%F %T')"
+        if $is_crs_stat; then
+            format_crs_stat_html "$src"
+        else
+            printf '<pre>'
+            escape_html < "$src"
+            printf '</pre>'
+        fi
+        printf '\n</body></html>\n'
+    } > "$html_file"
+    ATTACH_FILES+=("$html_file")
 }
 send_html_report() {
     local subject="$1"
@@ -1737,9 +1763,11 @@ send_html_report() {
                     local fname fsize
                     fname=$(basename "$f")
                     fsize=$(stat -c%s "$f" 2>/dev/null || echo 0)
+                    local ctype="text/plain"
+                    [[ "$fname" == *.html ]] && ctype="text/html"
                     echo
                     echo "--${boundary}"
-                    echo "Content-Type: text/plain; name=\"${fname}\""
+                    echo "Content-Type: ${ctype}; charset=UTF-8; name=\"${fname}\""
                     echo "Content-Transfer-Encoding: 8bit"
                     echo "Content-Disposition: attachment; filename=\"${fname}\""
                     echo
@@ -2976,7 +3004,7 @@ check_gi_cvu_preinstall() {
     if [[ "$mode" == "CRS" ]]; then
         if [[ -x "$home/runcluvfy.sh" ]]; then
             run_cmd "\"$home/runcluvfy.sh\" stage -pre crsinst -n $(hostname -s) > \"$cvulog\" 2>&1 || true"
-            add_attachment "$cvulog"
+            add_html_attachment "$cvulog" "GI CVU Precheck (CRS)"
             log_file_content "$cvulog" "GI: CVU precheck CRS"
             if grep -qi "FAILED" "$cvulog" 2>/dev/null; then
                 add_html_row "GI CVU precheck (CRS)" "FAIL" \
@@ -2992,7 +3020,7 @@ check_gi_cvu_preinstall() {
     elif [[ "$mode" == "HAS" ]]; then
         if [[ -x "$home/bin/cluvfy" ]]; then
             run_cmd "\"$home/bin/cluvfy\" stage -pre hacfg -verbose > \"$cvulog\" 2>&1 || true"
-            add_attachment "$cvulog"
+            add_html_attachment "$cvulog" "GI CVU Precheck (HAS)"
             log_file_content "$cvulog" "GI: CVU precheck HAS"
             if grep -qi "FAILED" "$cvulog" 2>/dev/null; then
                 add_html_row "GI CVU precheck (HAS)" "FAIL" \
@@ -4398,7 +4426,7 @@ gi_precheck() {
             add_html_row "CRS resource status" "INFO" \
                 "$(format_crs_stat_html "$crs_log")"
         fi
-        add_attachment "$crs_log"
+        add_html_attachment "$crs_log" "CRS Resource Status"
         log_file_content "$crs_log" "GI: CRS/HAS resource status"
     else
         add_html_row "CRS/HAS status" "WARN" \
