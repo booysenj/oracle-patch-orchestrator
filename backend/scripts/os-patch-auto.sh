@@ -2431,8 +2431,10 @@ assert_precheck_homes_safe() {
 # OPATCH HELPERS
 # ------------------------------------------------------------
 required_opatch_version() {
+    # NOTE: called inside $() — write diagnostic messages only to log file (not stdout)
+    # to avoid polluting the captured version string.
     if [[ ! -f "$RU_README" ]]; then
-        log "WARN: RU README not found at $RU_README ? cannot determine required OPatch version."
+        { echo "$(date '+%F %T') - WARN: RU README not found at $RU_README — cannot determine required OPatch version." >> "$LOG_FILE"; } 2>/dev/null
         echo ""
         return 0
     fi
@@ -2444,11 +2446,11 @@ required_opatch_version() {
               grep -oE '[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+' | head -n1 || true)
     fi
     if [[ -z "$req" ]]; then
-        log "WARN: Could not parse required OPatch version from $RU_README"
+        { echo "$(date '+%F %T') - WARN: Could not parse required OPatch version from $RU_README" >> "$LOG_FILE"; } 2>/dev/null
         echo ""
         return 0
     fi
-    log "INFO: Parsed required OPatch version from README: $req"
+    { echo "$(date '+%F %T') - INFO: Parsed required OPatch version from README: $req" >> "$LOG_FILE"; } 2>/dev/null
     echo "$req"
 }
 current_opatch_version() {
