@@ -396,6 +396,7 @@ function closeModal() {
 }
 
 var PRECHECK_OPS = ['gi_precheck','db_precheck','gi_upgrade_precheck','db_upgrade_precheck','cluster_precheck','stage_software'];
+var OJVM_OPS = ['gi_install','db_install','gi_upgrade_install','db_upgrade_install'];
 
 document.getElementById('opSelect').addEventListener('change', function() {
   var op = document.getElementById('opSelect').value;
@@ -404,6 +405,16 @@ document.getElementById('opSelect').addEventListener('change', function() {
   document.getElementById('preflightResult').classList.add('hidden');
   // Auto-enable verbose for non-destructive precheck ops
   document.getElementById('verboseCheck').checked = PRECHECK_OPS.indexOf(op) >= 0;
+  // Show OJVM checkbox only for install operations
+  var ojvmLabel = document.getElementById('ojvmCheckLabel');
+  if (ojvmLabel) {
+    if (OJVM_OPS.indexOf(op) >= 0) {
+      ojvmLabel.classList.remove('hidden');
+    } else {
+      ojvmLabel.classList.add('hidden');
+      document.getElementById('ojvmCheck').checked = false;
+    }
+  }
 });
 
 // -- Preflight --
@@ -484,11 +495,13 @@ document.getElementById('executeBtn').addEventListener('click', async function()
         return;
       }
     }
+    var ojvmEl = document.getElementById('ojvmCheck');
     var body = {
       vmId: selectedVm.id,
       operation: op,
       dryRun: dryRun,
       verbose: document.getElementById('verboseCheck').checked,
+      applyOjvm: ojvmEl ? ojvmEl.checked : false,
       dbUniqueName: dbUniqueName,
       confirmationToken: 'CONFIRMED'
     };

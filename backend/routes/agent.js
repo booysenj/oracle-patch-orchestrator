@@ -98,6 +98,7 @@ router.get('/poll', (req, res) => {
         phaseArg: phaseArg,
         dryRun: job.dry_run,
         verbose: job.verbose ? true : false,
+        applyOjvm: job.apply_ojvm ? true : false,
         nodeRole: job.node_role,
         stagePath: vm.stage_path || null,
         env: env
@@ -277,6 +278,19 @@ router.get('/:jobId/runtime-config', (req, res) => {
         '',
         '# Staging',
         'STAGE_PATH=' + stagingRoot,
+        // Build PATCH_SEARCH_ROOTS_ENV from preferred staging mount + well-known fallbacks.
+        // The preferred mount (e.g. /grid/software) is placed first so stage_software
+        // writes patches there and autoconfigure_patches finds them immediately.
+        'PATCH_SEARCH_ROOTS_ENV=' + (function() {
+            var roots = [];
+            if (stagingRoot && stagingRoot !== '/home/oracle/staging') roots.push(stagingRoot);
+            ['/grid/software', '/app/software', '/app/software/db_software/patches', '/staging/software']
+                .forEach(function(r) { if (roots.indexOf(r) < 0) roots.push(r); });
+            return roots.join(':');
+        })(),
+        '',
+        '# Job options — injected flags override script defaults',
+        'APPLY_OJVM=' + (job.apply_ojvm ? 'true' : 'false'),
         '',
         '# OS Identity (discovered from file ownership on the target VM)',
         'ORACLE_USER=' + (job.oracle_user || 'oracle'),

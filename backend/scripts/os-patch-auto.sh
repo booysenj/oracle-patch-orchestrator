@@ -104,25 +104,39 @@ GI_BASE_ZIP="${GI_BASE_ZIP:-}"
 DB_BASE_ZIP="${DB_BASE_ZIP:-}"
 
 # ----------------------------
-# PATCH DISCOVERY CONFIG
-# Set AUTO_DISCOVER_PATCHES=true (default) to auto-find latest RU/OPatch/OJVM
-# Set to false and fill in the explicit paths below to use manual overrides
+# PATCH DISCOVERY
+# Always auto — stage_software writes to known locations derived from STAGE_PATH
+# so the script always knows where to find RU, OPatch, and OJVM.
 # ----------------------------
 AUTO_DISCOVER_PATCHES=true
 
-# Search roots: script will look for p19.* directories under these
-PATCH_SEARCH_ROOTS=( /grid/software /app/software /app/software/db_software/patches /staging/software )
+# Search roots — injected via PATCH_SEARCH_ROOTS_ENV (colon-separated) from
+# the orchestrator, which derives it from the VM's preferred_staging_mount.
+# Falls back to well-known defaults so manual CLI use still works.
+if [[ -n "${PATCH_SEARCH_ROOTS_ENV:-}" ]]; then
+    IFS=':' read -ra PATCH_SEARCH_ROOTS <<< "$PATCH_SEARCH_ROOTS_ENV"
+else
+    PATCH_SEARCH_ROOTS=( /grid/software /app/software /app/software/db_software/patches /staging/software )
+fi
 
-# OPatch ZIP pattern (glob used to find OPatch zip inside the patchset dir)
+# OPatch ZIP pattern — internal constant, no need to expose in UI
 OPATCH_ZIP_PATTERN='p688088*_190000_Linux-x86-64.zip'
 
-# OJVM config
-APPLY_OJVM_ON_DB_INSTALL=false
-APPLY_OJVM_DURING_DB_INSTALL=false
-OJVM_ZIP_DIR=/app/software/db_software/ojvm
+# ----------------------------
+# OJVM — opt-in per run, off by default.
+# Turned on by the "Apply OJVM" checkbox in the Run Job modal, which injects
+# APPLY_OJVM=true into the runtime config. OJVM paths derive from STAGE_PATH
+# so they follow wherever stage_software staged the zip.
+# ----------------------------
+APPLY_OJVM_ON_DB_INSTALL="${APPLY_OJVM:-false}"
+APPLY_OJVM_DURING_DB_INSTALL="${APPLY_OJVM:-false}"
+# OJVM zip dir: stage_software puts it at <STAGE_PATH>/db_software/ojvm
+# Fall back to the traditional hardcoded path if STAGE_PATH is not set.
+OJVM_ZIP_DIR="${OJVM_ZIP_DIR:-${STAGE_PATH:+${STAGE_PATH}/db_software/ojvm}}"
+OJVM_ZIP_DIR="${OJVM_ZIP_DIR:-/app/software/db_software/ojvm}"
 OJVM_ZIP_PATTERN='p*_190000_Linux-x86-64.zip'
-OJVM_ONEOFF_DIR=/app/software/db_software/ojvm/ojvm_extracted
-OJVM_PATCH_DIR="$OJVM_ONEOFF_DIR"
+OJVM_ONEOFF_DIR="${OJVM_ONEOFF_DIR:-${OJVM_ZIP_DIR}/ojvm_extracted}"
+OJVM_PATCH_DIR="${OJVM_PATCH_DIR:-$OJVM_ONEOFF_DIR}"
 
 # ----------------------------
 # SOFTWARE STAGING

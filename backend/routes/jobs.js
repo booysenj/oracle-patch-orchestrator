@@ -72,7 +72,7 @@ router.get('/:id', (req, res) => {
 
 router.post('/', (req, res) => {
     try {
-        const { vmId, operation, dryRun, verbose, dbUniqueName, confirmationToken } = req.body;
+        const { vmId, operation, dryRun, verbose, applyOjvm, dbUniqueName, confirmationToken } = req.body;
         if (!vmId || !operation) {
             return res.status(400).json({ error: 'vmId and operation are required' });
         }
@@ -97,7 +97,7 @@ router.post('/', (req, res) => {
         }
 
         const result = createJob({
-            vmId, operation, dryRun: !!dryRun, verbose: !!verbose,
+            vmId, operation, dryRun: !!dryRun, verbose: !!verbose, applyOjvm: !!applyOjvm,
             dbUniqueName: dbUniqueName || '',
             createdBy: req.user.username
         });

@@ -26,7 +26,7 @@ const OPERATION_PHASES = {
     batched_startup: 'batched_startup'
 };
 
-function createJob({ vmId, operation, dryRun = false, verbose = false, createdBy = 'system', dbUniqueName = '' }) {
+function createJob({ vmId, operation, dryRun = false, verbose = false, applyOjvm = false, createdBy = 'system', dbUniqueName = '' }) {
     const db = getDB();
     const vm = db.prepare('SELECT * FROM vms WHERE id = ?').get(vmId);
     if (!vm) throw new Error(`VM not found: ${vmId}`);
@@ -35,25 +35,27 @@ function createJob({ vmId, operation, dryRun = false, verbose = false, createdBy
     if (!phase) throw new Error(`Unknown operation: ${operation}`);
     const jobId = uuidv4();
 
-    // Ensure verbose column exists (safe on old DBs)
+    // Ensure optional columns exist (safe on old DBs)
     try { db.exec('ALTER TABLE jobs ADD COLUMN verbose INTEGER DEFAULT 0'); } catch(_) {}
+    try { db.exec('ALTER TABLE jobs ADD COLUMN apply_ojvm INTEGER DEFAULT 0'); } catch(_) {}
 
     // Agent mode: insert as 'queued' — the Python agent polls and picks it up
     if ((vm.execution_mode || 'agent') === 'agent') {
         db.prepare(
-            `INSERT INTO jobs (id, vm_id, operation, phase, status, dry_run, verbose, created_by, db_unique_name)
-             VALUES (?, ?, ?, ?, 'queued', ?, ?, ?, ?)`
-        ).run(jobId, vmId, operation, phase, dryRun ? 1 : 0, verbose ? 1 : 0, createdBy, dbUniqueName || '');
-        return { jobId, vmId, operation, phase, dryRun, verbose, mode: 'agent' };
+            `INSERT INTO jobs (id, vm_id, operation, phase, status, dry_run, verbose, apply_ojvm, created_by, db_unique_name)
+             VALUES (?, ?, ?, ?, 'queued', ?, ?, ?, ?, ?)`
+        ).run(jobId, vmId, operation, phase, dryRun ? 1 : 0, verbose ? 1 : 0, applyOjvm ? 1 : 0, createdBy, dbUniqueName || '');
+        return { jobId, vmId, operation, phase, dryRun, verbose, applyOjvm, mode: 'agent' };
     }
 
     // SSH mode: execute immediately via SSH (legacy / direct-network environments)
     db.prepare(
-        `INSERT INTO jobs (id, vm_id, operation, phase, status, dry_run, verbose, created_by, db_unique_name)
-         VALUES (?, ?, ?, ?, 'pending', ?, ?, ?, ?)`
-    ).run(jobId, vmId, operation, phase, dryRun ? 1 : 0, verbose ? 1 : 0, createdBy, dbUniqueName || '');
+        `INSERT INTO jobs (id, vm_id, operation, phase, status, dry_run, verbose, apply_ojvm, created_by, db_unique_name)
+         VALUES (?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?)`
+    ).run(jobId, vmId, operation, phase, dryRun ? 1 : 0, verbose ? 1 : 0, applyOjvm ? 1 : 0, createdBy, dbUniqueName || '');
     const envVars = [];
     if (dryRun) envVars.push('DRYRUN=true');
+    if (applyOjvm) envVars.push('APPLY_OJVM=true');
     envVars.push(`INSIGHT_NODE_ROLE=${vm.node_role}`);
     const bashCmd = verbose ? 'bash -x' : 'bash';
     const cmd = [...envVars, bashCmd, vm.script_path, phase].join(' ');

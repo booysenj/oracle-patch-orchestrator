@@ -524,6 +524,7 @@ def execute_job(job):
     job_id = job['jobId']
     phase_arg = job['phaseArg']
     dry_run = job.get('dryRun', False)
+    apply_ojvm = job.get('applyOjvm', False)
     node_role = job.get('nodeRole', '')
 
     # Download script from orchestrator (cached by SHA256 — only re-downloads on change)
@@ -537,6 +538,8 @@ def execute_job(job):
     env['JOB_ID'] = job_id
     if dry_run:
         env['DRYRUN'] = 'true'
+    if apply_ojvm:
+        env['APPLY_OJVM'] = 'true'
     if node_role:
         env['INSIGHT_NODE_ROLE'] = node_role
     if job.get('env'):
