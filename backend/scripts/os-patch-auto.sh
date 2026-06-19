@@ -1644,6 +1644,93 @@ format_oratab_html() {
     echo "$html"
 }
 
+format_crs_stat_html() {
+    local log_file="$1"
+    [[ ! -f "$log_file" ]] && echo "(log not found: $log_file)" && return
+    local html=""
+    html+="<table style='border-collapse:collapse;font-size:12px;width:100%;font-family:monospace'>"
+    html+="<thead><tr>"
+    html+="<th style='background:#1a3a2a;color:#aee8c0;padding:5px 10px;text-align:left;border:1px solid #2d6a4f'>Resource</th>"
+    html+="<th style='background:#1a3a2a;color:#aee8c0;padding:5px 10px;text-align:left;border:1px solid #2d6a4f'>Target</th>"
+    html+="<th style='background:#1a3a2a;color:#aee8c0;padding:5px 10px;text-align:left;border:1px solid #2d6a4f'>State</th>"
+    html+="<th style='background:#1a3a2a;color:#aee8c0;padding:5px 10px;text-align:left;border:1px solid #2d6a4f'>Server</th>"
+    html+="<th style='background:#1a3a2a;color:#aee8c0;padding:5px 10px;text-align:left;border:1px solid #2d6a4f'>Details</th>"
+    html+="</tr></thead><tbody>"
+    local current_resource="" current_section="" row_idx=0
+    while IFS= read -r line; do
+        # Section headers
+        if [[ "$line" =~ ^"Local Resources" ]]; then
+            html+="<tr><td colspan='5' style='background:#0d2418;color:#6fcf97;padding:4px 10px;font-weight:bold;border:1px solid #2d6a4f'>▶ Local Resources</td></tr>"
+            current_section="local"; continue
+        fi
+        if [[ "$line" =~ ^"Cluster Resources" ]]; then
+            html+="<tr><td colspan='5' style='background:#0d2418;color:#6fcf97;padding:4px 10px;font-weight:bold;border:1px solid #2d6a4f'>▶ Cluster Resources</td></tr>"
+            current_section="cluster"; continue
+        fi
+        # Skip separator lines
+        [[ "$line" =~ ^-+ ]] && continue
+        [[ "$line" =~ ^"Name" ]] && continue
+        [[ -z "${line// }" ]] && continue
+        # Resource name line (starts without leading spaces)
+        if [[ "$line" =~ ^[^[:space:]] ]]; then
+            current_resource=$(echo "$line" | awk '{print $1}')
+            # If the line also has status columns on same line (local resources)
+            local rest
+            rest="${line#$current_resource}"
+            if [[ "$rest" =~ ([A-Z]+)[[:space:]]+([A-Z]+)[[:space:]]+([^[:space:]].*) ]]; then
+                local tgt="${BASH_REMATCH[1]}" st="${BASH_REMATCH[2]}" srv_det="${BASH_REMATCH[3]}"
+                local srv det
+                srv=$(echo "$srv_det" | awk '{print $1}')
+                det=$(echo "$srv_det" | cut -d' ' -f2-)
+                local state_color="#c3e6cb"
+                [[ "$st" == "OFFLINE" ]] && state_color="#f5c6cb"
+                [[ "$st" == "ONLINE"  ]] && state_color="#c3e6cb"
+                local row_bg; (( row_idx % 2 == 0 )) && row_bg="#0f2d1e" || row_bg="#122a1c"
+                local esc_res esc_det
+                esc_res=$(printf '%s' "$current_resource" | escape_html)
+                esc_det=$(printf '%s' "$det" | escape_html)
+                html+="<tr style='background:${row_bg}'>"
+                html+="<td style='padding:4px 10px;border:1px solid #2d6a4f;color:#e0ffe0'>${esc_res}</td>"
+                html+="<td style='padding:4px 10px;border:1px solid #2d6a4f;color:#aaa'>${tgt}</td>"
+                html+="<td style='padding:4px 10px;border:1px solid #2d6a4f;font-weight:bold;color:${state_color}'>${st}</td>"
+                html+="<td style='padding:4px 10px;border:1px solid #2d6a4f;color:#ccc'>${srv}</td>"
+                html+="<td style='padding:4px 10px;border:1px solid #2d6a4f;color:#aaa'>${esc_det}</td>"
+                html+="</tr>"
+                (( row_idx++ )) || true
+                current_resource=""
+            fi
+        # Numbered instance line (cluster resources): "      1        ONLINE  ONLINE  server  details"
+        elif [[ "$line" =~ ^[[:space:]]+([0-9]+)[[:space:]]+([A-Z]+)[[:space:]]+([A-Z]+)[[:space:]]*(.*) ]]; then
+            local inst="${BASH_REMATCH[1]}" tgt="${BASH_REMATCH[2]}" st="${BASH_REMATCH[3]}" rest="${BASH_REMATCH[4]}"
+            local srv det
+            srv=$(echo "$rest" | awk '{print $1}')
+            det=$(echo "$rest" | cut -d' ' -f2-)
+            [[ -z "$srv" ]] && srv="—"
+            local state_color="#c3e6cb"
+            [[ "$st" == "OFFLINE" ]] && state_color="#f5c6cb"
+            local row_bg; (( row_idx % 2 == 0 )) && row_bg="#0f2d1e" || row_bg="#122a1c"
+            local esc_res esc_det
+            esc_res=$(printf '%s' "${current_resource}" | escape_html)
+            esc_det=$(printf '%s' "$det" | escape_html)
+            html+="<tr style='background:${row_bg}'>"
+            html+="<td style='padding:4px 10px;border:1px solid #2d6a4f;color:#e0ffe0'>${esc_res}</td>"
+            html+="<td style='padding:4px 10px;border:1px solid #2d6a4f;color:#aaa'>${tgt}</td>"
+            html+="<td style='padding:4px 10px;border:1px solid #2d6a4f;font-weight:bold;color:${state_color}'>${st}</td>"
+            html+="<td style='padding:4px 10px;border:1px solid #2d6a4f;color:#ccc'>${srv}</td>"
+            html+="<td style='padding:4px 10px;border:1px solid #2d6a4f;color:#aaa'>${esc_det}</td>"
+            html+="</tr>"
+            (( row_idx++ )) || true
+        # Continuation line (wrapped State details column)
+        elif [[ -n "$current_resource" && "$line" =~ ^[[:space:]] ]]; then
+            local cont
+            cont=$(echo "$line" | xargs)
+            [[ -n "$cont" ]] && html+="<tr style='background:#0a1f12'><td colspan='4'></td><td style='padding:2px 10px;border:1px solid #2d6a4f;color:#888;font-size:11px'>${cont}</td></tr>"
+        fi
+    done < "$log_file"
+    html+="</tbody></table>"
+    echo "$html"
+}
+
 backup_oratab() {
     if [[ ! -f "$ORATAB_FILE" ]]; then
         log "WARN: $ORATAB_FILE not found; nothing to back up."
@@ -4070,18 +4157,14 @@ gi_precheck() {
     # CRS/HAS status snapshot
     local crs_log="${GI_LOG_DIR}/crs_stat_$(date +%F_%H%M%S).log"
     if [[ -x "$OLD_GI_HOME/bin/crsctl" ]]; then
-        if [[ "$GI_CLUSTER_MODE" == "CRS" ]]; then
-            run_cmd "\"$OLD_GI_HOME/bin/crsctl\" stat res -t > \"$crs_log\" 2>&1 || true"
-            add_html_row "CRS resources status" "INFO" \
-                "crsctl stat res -t (OLD_GI_HOME) output saved to $crs_log"
-        elif [[ "$GI_CLUSTER_MODE" == "HAS" ]]; then
+        if [[ "$GI_CLUSTER_MODE" == "HAS" ]]; then
             run_cmd "\"$OLD_GI_HOME/bin/crsctl\" check has > \"$crs_log\" 2>&1 || true"
             add_html_row "HAS status" "INFO" \
-                "crsctl check has (OLD_GI_HOME) output saved to $crs_log"
+                "<pre style='margin:0;font-size:12px'>$(cat "$crs_log" 2>/dev/null | escape_html)</pre>"
         else
             run_cmd "\"$OLD_GI_HOME/bin/crsctl\" stat res -t > \"$crs_log\" 2>&1 || true"
-            add_html_row "CRS/HAS status" "INFO" \
-                "crsctl stat res -t (OLD_GI_HOME) output saved to $crs_log"
+            add_html_row "CRS resource status" "INFO" \
+                "$(format_crs_stat_html "$crs_log")"
         fi
         add_attachment "$crs_log"
         log_file_content "$crs_log" "GI: CRS/HAS resource status"
