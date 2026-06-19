@@ -42,7 +42,7 @@ router.get('/poll', (req, res) => {
         return res.json({
             transfer: {
                 id: pendingTransfer.id,
-                filename: pendingTransfer.file_name,
+                filename: pendingTransfer.file_name || require('path').basename(pendingTransfer.source_path || '') || ('transfer_' + pendingTransfer.id),
                 destPath: pendingTransfer.target_stage_path,
                 totalBytes: pendingTransfer.total_bytes || 0
             }

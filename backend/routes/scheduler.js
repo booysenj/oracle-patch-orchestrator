@@ -132,8 +132,8 @@ module.exports = function(getDB, authenticateToken) {
         };
 
         db.prepare(`INSERT INTO jobs (id, vm_id, hostname, operation, phase, status, env, meta, created_at)
-            VALUES (?, ?, ?, ?, 'scheduled', 'queued', ?, ?, datetime('now'))`).run(
-            jobId, vmId, vm.hostname, sched.operation,
+            VALUES (?, ?, ?, ?, ?, 'queued', ?, ?, datetime('now'))`).run(
+            jobId, vmId, vm.hostname, sched.operation, sched.operation,
             JSON.stringify(env), JSON.stringify(meta));
 
         return jobId;
