@@ -1300,36 +1300,88 @@ function closeDiscoveryPanel() {
   if (el) el.remove();
 }
 
-async function openVmConfigOverride(vmId) {
+function openVmConfigOverride(vmId) {
   var vm = vms.find(function(v) { return v.id === vmId; });
   if (!vm) return;
-  var newGI = prompt('NEW_GI_HOME (target GI home after patching):', vm.new_gi_home || '');
-  if (newGI === null) return;
-  var newDB = prompt('NEW_DB_HOME (target DB home after patching):', vm.new_db_home || '');
-  if (newDB === null) return;
-  var staging = prompt('Preferred staging mount (e.g. /staging/software):', vm.preferred_staging_mount || '');
-  if (staging === null) return;
-  var mailTo = prompt('MAIL_TO (leave blank to use global setting):', vm.mail_to || '');
-  if (mailTo === null) return;
-  var mailFrom = prompt('MAIL_FROM (leave blank to use global setting):', vm.mail_from || '');
-  if (mailFrom === null) return;
 
+  var overlay = document.createElement('div');
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:9999;display:flex;align-items:center;justify-content:center';
+
+  var roleOpts = ['UNKNOWN','PRIMARY','STANDBY','HUB','LEAF'].map(function(r) {
+    return '<option value="' + r + '"' + (vm.node_role === r ? ' selected' : '') + '>' + r + '</option>';
+  }).join('');
+  var envOpts = ['PROD','UAT','DEV','DR'].map(function(e) {
+    return '<option value="' + e + '"' + (vm.environment === e ? ' selected' : '') + '>' + e + '</option>';
+  }).join('');
+  var patchOpts = ['19.26','19.27','19.28','19.29','19.30','23ai','26ai'].map(function(p) {
+    return '<option value="' + p + '"' + (vm.patch_target === p ? ' selected' : '') + '>' + p + '</option>';
+  }).join('');
+
+  overlay.innerHTML =
+    '<div style="background:var(--bg-card,#1e293b);border:1px solid var(--border,#334155);border-radius:10px;width:520px;max-width:95vw;max-height:90vh;overflow-y:auto">' +
+      '<div style="display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border-bottom:1px solid var(--border,#334155)">' +
+        '<span style="font-weight:600;font-size:14px">VM Settings — ' + esc(vm.hostname) + '</span>' +
+        '<button onclick="this.closest(\'[data-vmcfg]\').remove()" style="background:none;border:none;cursor:pointer;font-size:18px;color:var(--text-muted)">&times;</button>' +
+      '</div>' +
+      '<div style="padding:16px 18px;display:grid;grid-template-columns:1fr 1fr;gap:12px">' +
+        '<div class="form-group" style="grid-column:1/-1"><label>Node Role</label>' +
+          '<select id="vcf-role">' + roleOpts + '</select></div>' +
+        '<div class="form-group"><label>Environment</label>' +
+          '<select id="vcf-env">' + envOpts + '</select></div>' +
+        '<div class="form-group"><label>Patch Target</label>' +
+          '<select id="vcf-patch">' + patchOpts + '</select></div>' +
+        '<div class="form-group" style="grid-column:1/-1"><label>NEW_GI_HOME <span style="font-size:11px;color:var(--text-muted)">target GI home after patching</span></label>' +
+          '<input id="vcf-new-gi" value="' + esc(vm.new_gi_home || '') + '" placeholder="/grid/oracle/product/19.30"/></div>' +
+        '<div class="form-group" style="grid-column:1/-1"><label>NEW_DB_HOME <span style="font-size:11px;color:var(--text-muted)">target DB home after patching</span></label>' +
+          '<input id="vcf-new-db" value="' + esc(vm.new_db_home || '') + '" placeholder="/app/oracle/product/19.30"/></div>' +
+        '<div class="form-group" style="grid-column:1/-1"><label>Stage Path <span style="font-size:11px;color:var(--text-muted)">where patch ZIPs are staged</span></label>' +
+          '<input id="vcf-stage" value="' + esc(vm.preferred_staging_mount || '') + '" placeholder="/app/software/patches"/></div>' +
+        '<div class="form-group"><label>MAIL_TO override <span style="font-size:11px;color:var(--text-muted)">(optional)</span></label>' +
+          '<input id="vcf-mailto" value="' + esc(vm.mail_to || '') + '"/></div>' +
+        '<div class="form-group"><label>MAIL_FROM override <span style="font-size:11px;color:var(--text-muted)">(optional)</span></label>' +
+          '<input id="vcf-mailfrom" value="' + esc(vm.mail_from || '') + '"/></div>' +
+      '</div>' +
+      '<div id="vcf-err" style="color:var(--danger,#f87171);font-size:12px;padding:0 18px 8px"></div>' +
+      '<div style="padding:12px 18px;border-top:1px solid var(--border,#334155);display:flex;justify-content:flex-end;gap:8px">' +
+        '<button class="btn btn-secondary" onclick="this.closest(\'[data-vmcfg]\').remove()">Cancel</button>' +
+        '<button class="btn btn-primary" onclick="_saveVmConfig(\'' + vmId + '\')">Save</button>' +
+      '</div>' +
+    '</div>';
+
+  overlay.setAttribute('data-vmcfg', '1');
+  document.body.appendChild(overlay);
+}
+
+async function _saveVmConfig(vmId) {
+  var errEl = document.getElementById('vcf-err');
+  errEl.textContent = '';
+  var payload = {
+    node_role:                document.getElementById('vcf-role').value,
+    environment:              document.getElementById('vcf-env').value,
+    patch_target:             document.getElementById('vcf-patch').value,
+    new_gi_home:              document.getElementById('vcf-new-gi').value.trim(),
+    new_db_home:              document.getElementById('vcf-new-db').value.trim(),
+    preferred_staging_mount:  document.getElementById('vcf-stage').value.trim(),
+    mail_to:                  document.getElementById('vcf-mailto').value.trim(),
+    mail_from:                document.getElementById('vcf-mailfrom').value.trim()
+  };
   try {
     var r = await fetch(API + '/vms/' + vmId + '/config', {
       method: 'PATCH',
       headers: { 'Authorization': 'Bearer ' + TOKEN, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ new_gi_home: newGI, new_db_home: newDB, preferred_staging_mount: staging, mail_to: mailTo, mail_from: mailFrom })
+      body: JSON.stringify(payload)
     });
     var d = await r.json();
     if (d.ok) {
-      showToast('VM config updated', 'success');
+      document.querySelector('[data-vmcfg]').remove();
+      showToast('VM settings saved', 'success');
       closeDiscoveryPanel();
       loadVMs();
     } else {
-      showToast('Update failed: ' + (d.error || 'unknown'), 'error');
+      errEl.textContent = 'Save failed: ' + (d.error || 'unknown');
     }
   } catch(e) {
-    showToast('Update failed: ' + e.message, 'error');
+    errEl.textContent = 'Save failed: ' + e.message;
   }
 }
 

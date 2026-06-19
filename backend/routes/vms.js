@@ -133,7 +133,7 @@ router.get('/:id/resolved-config', (req, res) => {
 router.patch('/:id/config', (req, res) => {
     const allowed = ['old_gi_home', 'new_gi_home', 'old_db_home', 'new_db_home',
                      'db_unique_name', 'preferred_staging_mount', 'cluster_name',
-                     'mail_to', 'mail_from'];
+                     'mail_to', 'mail_from', 'node_role', 'environment', 'patch_target'];
     const updates = {};
     for (const k of allowed) {
         if (req.body[k] !== undefined) updates[k] = req.body[k];
