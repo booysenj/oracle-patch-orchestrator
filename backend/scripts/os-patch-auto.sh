@@ -546,6 +546,31 @@ derive_patchset_version() {
         version="$gi_ver"
     fi
 
+    # Fallback: peek at the RU ZIP in the staging drop dir to detect version without
+    # needing NEW_GI_HOME/NEW_DB_HOME pre-set. Uses unzip -p to read only README.html.
+    if [[ -z "$version" ]]; then
+        local _drop="${STAGING_DROP_DIR:-/home/oracle/staging}"
+        for _zip in "${_drop}"/p[0-9]*_190000_*.zip "${_drop}"/p[0-9]*_190000_LINUX.zip; do
+            [[ -f "$_zip" ]] || continue
+            local _sz; _sz=$(stat -c%s "$_zip" 2>/dev/null || echo 0)
+            (( _sz > 500000000 )) || continue  # skip OPatch/OJVM zips (<500 MB)
+            local _ver
+            _ver=$(unzip -p "$_zip" "*/README.html" 2>/dev/null \
+                   | grep -oE '19\.[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)
+            if [[ "$_ver" =~ (19\.[0-9]+) ]]; then
+                version="${BASH_REMATCH[1]}"
+                # Back-derive NEW homes so the rest of the script has correct paths
+                if [[ -z "${NEW_GI_HOME:-}" && -n "${OLD_GI_HOME:-}" ]]; then
+                    NEW_GI_HOME="${OLD_GI_HOME%/*}/$version"
+                fi
+                if [[ -z "${NEW_DB_HOME:-}" && -n "${OLD_DB_HOME:-}" ]]; then
+                    NEW_DB_HOME="${OLD_DB_HOME%/*}/$version"
+                fi
+                break
+            fi
+        done
+    fi
+
     printf '%s' "$version"
 }
 

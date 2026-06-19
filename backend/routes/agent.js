@@ -65,23 +65,51 @@ router.get('/poll', (req, res) => {
         phaseArg = job.phase + ' ' + job.db_unique_name;
     }
 
-    var env = {};
-    if (vm.old_gi_home) env.OLD_GI_HOME = vm.old_gi_home;
-    if (vm.new_gi_home) env.NEW_GI_HOME = vm.new_gi_home;
-    if (vm.old_db_home) env.OLD_DB_HOME = vm.old_db_home;
-    if (vm.new_db_home) env.NEW_DB_HOME = vm.new_db_home;
+    // Get configured home base paths from app_settings (may be empty — fallback to auto-strip)
+    var giHomeBase = '', dbHomeBase = '';
+    try {
+        var _s = db.prepare("SELECT value FROM app_settings WHERE key='gi_home_base'").get();
+        if (_s && _s.value) giHomeBase = _s.value.replace(/\/$/, '');
+        _s = db.prepare("SELECT value FROM app_settings WHERE key='db_home_base'").get();
+        if (_s && _s.value) dbHomeBase = _s.value.replace(/\/$/, '');
+    } catch(_e) {}
 
+    function _base(oldHome, cfgBase) {
+        if (cfgBase) return cfgBase;
+        if (!oldHome) return '';
+        return oldHome.replace(/\/[^/]+$/, '');  // strip last segment e.g. 19c → base
+    }
+    function _deriveHome(explicit, pvExplicit, base, version) {
+        if (explicit) return explicit;
+        if (pvExplicit) return pvExplicit;
+        if (!base || !version) return '';
+        return base + '/' + version;
+    }
+
+    var env = {};
+    var dbOldHome = vm.old_db_home || vm.current_db_home || '';
+    if (vm.old_gi_home) env.OLD_GI_HOME = vm.old_gi_home;
+    if (dbOldHome)      env.OLD_DB_HOME  = dbOldHome;
+
+    var pv = null, pvVersion = vm.patch_target || '';
     if (vm.target_patch_version_id) {
-        const pv = db.prepare('SELECT * FROM patch_versions WHERE id = ?').get(vm.target_patch_version_id);
+        pv = db.prepare('SELECT * FROM patch_versions WHERE id = ?').get(vm.target_patch_version_id);
         if (pv) {
-            if (pv.gi_base_zip) env.GI_BASE_ZIP = pv.gi_base_zip;
-            if (pv.db_base_zip) env.DB_BASE_ZIP = pv.db_base_zip;
-            if (pv.opatch_zip) env.OPATCH_ZIP = pv.opatch_zip;
+            if (pv.version)          pvVersion              = pv.version;
+            if (pv.gi_base_zip)      env.GI_BASE_ZIP        = pv.gi_base_zip;
+            if (pv.db_base_zip)      env.DB_BASE_ZIP        = pv.db_base_zip;
+            if (pv.opatch_zip)       env.OPATCH_ZIP         = pv.opatch_zip;
             if (pv.patch_search_root) env.PATCH_SEARCH_ROOTS_ENV = pv.patch_search_root;
-            if (pv.new_gi_home) env.NEW_GI_HOME = pv.new_gi_home;
-            if (pv.new_db_home) env.NEW_DB_HOME = pv.new_db_home;
         }
     }
+
+    // Derive NEW_GI_HOME / NEW_DB_HOME: explicit stored > patch version explicit > base + version
+    var newGiHome = vm.old_gi_home
+        ? _deriveHome(vm.new_gi_home, pv && pv.new_gi_home, _base(vm.old_gi_home, giHomeBase), pvVersion)
+        : '';
+    var newDbHome = _deriveHome(vm.new_db_home, pv && pv.new_db_home, _base(dbOldHome, dbHomeBase), pvVersion);
+    if (newGiHome) env.NEW_GI_HOME = newGiHome;
+    if (newDbHome) env.NEW_DB_HOME = newDbHome;
 
     var crypto = require('crypto'), fs = require('fs'), path = require('path');
     var scriptFile = path.join(__dirname, '..', 'scripts', 'os-patch-auto.sh');
