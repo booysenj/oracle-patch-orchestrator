@@ -1104,149 +1104,196 @@ distribute_staged_files() {
 stage_software() {
     reset_report
     reset_html_report
-
     ensure_phase_log_dirs all
 
     LOG_FILE="${LOG_DIR}/stage_software_$(date +%F_%H%M%S).log"
     add_attachment "$LOG_FILE"
-    log "SOFTWARE STAGING"
+
+    # ── Dry-run banner ────────────────────────────────────────────────────────
+    if [[ "${DRYRUN:-false}" == true ]]; then
+        log "INFO: =========================================="
+        log "INFO:  DRY-RUN MODE — no files will be moved"
+        log "INFO:  or extracted. Review the plan below."
+        log "INFO: =========================================="
+        add_html_row "DRY-RUN MODE" "WARN" \
+            "<b style='color:#856404;font-size:13px'>This is a dry-run — no files will be moved, directories created, or software extracted. All steps are simulated.</b>"
+    fi
+
+    log "INFO: =========================================="
+    log "INFO:  SOFTWARE STAGING"
+    log "INFO: =========================================="
 
     local drop="${STAGING_DROP_DIR:-/home/oracle/staging}"
     local target_version
     target_version=$(derive_patchset_version)
 
-    # ── Environment summary ──────────────────────────────────────────────────
-    add_html_row "Staging drop directory" "INFO" "$drop"
-    add_report_step "Staging drop directory" "INFO" "$drop"
+    # ── Environment summary ───────────────────────────────────────────────────
+    add_html_row "Staging drop directory" "INFO" "<code>$drop</code>"
+    log "INFO: Staging drop directory : $drop"
 
     if [[ "${DB_ONLY_MODE:-false}" == true ]]; then
-        local pv_detail="p${target_version:-UNKNOWN} (NEW_DB_HOME=$NEW_DB_HOME) [DB-only mode]"
-        add_html_row "Target patchset" "INFO" "$pv_detail"
-        add_report_step "Target patchset" "INFO" "$pv_detail"
+        local pv_detail="p${target_version:-UNKNOWN} — DB-only mode (NEW_DB_HOME=$NEW_DB_HOME)"
     else
         local pv_detail="p${target_version:-UNKNOWN} (NEW_GI_HOME=$NEW_GI_HOME / NEW_DB_HOME=$NEW_DB_HOME)"
-        add_html_row "Target patchset" "INFO" "$pv_detail"
-        add_report_step "Target patchset" "INFO" "$pv_detail"
+    fi
+    add_html_row "Target patchset" "INFO" "$pv_detail"
+    log "INFO: Target patchset        : $pv_detail"
+
+    local instr_patchset_dir
+    if [[ "${DB_ONLY_MODE:-false}" == true ]]; then
+        instr_patchset_dir="$(dirname "$DB_BASE_ZIP")/patches/p${target_version}"
+    else
+        instr_patchset_dir="${PATCH_SEARCH_ROOTS[0]:-/grid/software}/p${target_version}"
     fi
 
-    # ── Show what is currently in the drop directory ─────────────────────────
+    # ── Show drop directory contents ──────────────────────────────────────────
+    log "INFO: ------------------------------------------"
+    log "INFO: Scanning drop directory: $drop"
     if [[ -d "$drop" ]]; then
         shopt -s nullglob
         local all_files=( "$drop"/*.zip )
         shopt -u nullglob
-
         if (( ${#all_files[@]} > 0 )); then
-            local file_list=""
+            local file_html=""
+            file_html+="<table style='border-collapse:collapse;font-size:12px;width:100%'>"
+            file_html+="<thead><tr style='background:#1a3a2a;color:#aee8c0'>"
+            file_html+="<th style='padding:5px 10px;text-align:left'>File</th>"
+            file_html+="<th style='padding:5px 10px;text-align:left'>Size</th>"
+            file_html+="<th style='padding:5px 10px;text-align:left'>Detected as</th>"
+            file_html+="<th style='padding:5px 10px;text-align:left'>Will be moved to</th></tr></thead><tbody>"
+            local ridx=0
             for f in "${all_files[@]}"; do
-                local sz fname detected=""
+                local sz fname detected dest
                 fname=$(basename "$f")
                 sz=$(du -h "$f" 2>/dev/null | awk '{print $1}' || echo "?")
-
                 if [[ "$fname" == V982068* ]]; then
                     detected="GI Base Media"
+                    dest="$(dirname "$GI_BASE_ZIP")/"
                 elif [[ "$fname" == V982063* ]]; then
                     detected="DB Base Media"
+                    dest="$(dirname "$DB_BASE_ZIP")/"
                 elif [[ "$fname" == p688088* ]]; then
                     detected="OPatch Utility"
+                    dest="${instr_patchset_dir}/"
                 else
-                    detected="RU or OJVM patch"
+                    detected="RU / OJVM patch (sorted by size)"
+                    dest="${instr_patchset_dir}/ (auto-extracted)"
                 fi
-
-                log "Found in drop dir: $fname ($sz) — $detected"
-                add_report_step "Drop dir: $fname" "INFO" "$sz — $detected"
-                file_list+="${fname} (${sz}) <b>→ ${detected}</b><br/>"
+                log "INFO:   Found: $fname ($sz) → $detected"
+                local bg; (( ridx % 2 == 0 )) && bg="#0f2d1e" || bg="#122a1c"
+                file_html+="<tr style='background:${bg}'>"
+                file_html+="<td style='padding:4px 10px;color:#e0ffe0;font-family:monospace'>${fname}</td>"
+                file_html+="<td style='padding:4px 10px;color:#aaa'>${sz}</td>"
+                file_html+="<td style='padding:4px 10px;color:#6fcf97;font-weight:bold'>${detected}</td>"
+                file_html+="<td style='padding:4px 10px;color:#aaa;font-family:monospace'>${dest}</td>"
+                file_html+="</tr>"
+                (( ridx++ )) || true
             done
-            add_html_row "Files in staging drop" "INFO" "$file_list"
+            file_html+="</tbody></table>"
+            add_html_row "Files in drop directory (${#all_files[@]} found)" "INFO" "$file_html"
         else
-            add_html_row "Files in staging drop" "WARN" \
-                "No ZIP files found in $drop — upload your patches via the UI Software Staging tab"
-            add_report_step "Files in staging drop" "WARN" \
-                "No ZIP files found in $drop"
+            log "WARN: No ZIP files found in $drop"
+            add_html_row "Files in drop directory" "WARN" \
+                "No ZIP files found in <code>$drop</code> — transfer patch ZIPs to this directory first, then re-run Stage Software."
         fi
     else
-        add_html_row "Staging drop directory" "WARN" "$drop does not exist — will be created"
-        add_report_step "Staging drop directory" "WARN" "$drop does not exist — will be created"
+        log "WARN: Drop directory does not exist: $drop (will be created)"
+        add_html_row "Drop directory" "WARN" "<code>$drop</code> does not exist — will be created in Step 1"
     fi
 
     # ── Step 1: Create target directories ────────────────────────────────────
-    log "Step 1: Creating target directories"
-    add_html_row "Step 1" "INFO" "Creating target directories"
-    add_report_step "Step 1: Create directories" "INFO" "Running ensure_staging_dirs"
+    log "INFO: ------------------------------------------"
+    log "INFO: Step 1/3 — Create target directories"
+    add_html_row "Step 1/3 — Create directories" "INFO" \
+        "Creating staging tree under <code>${PATCH_SEARCH_ROOTS[0]:-/grid/software}</code>"
     ensure_staging_dirs
-    add_report_step "Step 1: Create directories" "PASS" "Target directories ready"
+    log "INFO: Step 1/3 complete — directories ready"
+    add_html_row "Step 1/3 — Directories" "PASS" "All target directories exist or were created"
 
     # ── Step 2: Identify, distribute, and extract ─────────────────────────────
-    log "Step 2: Distributing and extracting software"
-    add_html_row "Step 2" "INFO" "Distributing and extracting software from drop directory"
-    add_report_step "Step 2: Distribute files" "INFO" "Running distribute_staged_files"
+    log "INFO: ------------------------------------------"
+    log "INFO: Step 2/3 — Distribute and extract software"
+    add_html_row "Step 2/3 — Distribute &amp; extract" "INFO" \
+        "Moving ZIPs from drop directory to target locations and extracting patches${DRYRUN:+ <b>(DRY-RUN — simulated only)</b>}"
     distribute_staged_files
-    add_report_step "Step 2: Distribute files" "PASS" "File distribution complete"
+    log "INFO: Step 2/3 complete — distribution done"
+    add_html_row "Step 2/3 — Distribution" "PASS" \
+        "File distribution and extraction complete${DRYRUN:+ <b>(dry-run — no actual changes made)</b>}"
 
     # ── Step 3: Validate ──────────────────────────────────────────────────────
-    log "Step 3: Validating staged software"
-    add_html_row "Step 3" "INFO" "Validating all software is in place"
-    add_report_step "Step 3: Validate software" "INFO" "Running validate_staged_software_html"
+    log "INFO: ------------------------------------------"
+    log "INFO: Step 3/3 — Validate staged software"
+    add_html_row "Step 3/3 — Validation" "INFO" "Checking all required files are present in target locations"
     local staging_ok=true
     validate_staged_software_html all || staging_ok=false
 
     if [[ "$staging_ok" != true ]]; then
-        local instr_patchset_dir
-        if [[ "${DB_ONLY_MODE:-false}" == true ]]; then
-            instr_patchset_dir="$(dirname "$DB_BASE_ZIP")/patches/p${target_version}"
-        else
-            instr_patchset_dir="${PATCH_SEARCH_ROOTS[0]:-/grid/software}/p${target_version}"
-        fi
-
+        log "WARN: Software staging validation FAILED — missing files"
         local instructions=""
-        instructions+="<b>Upload all patch ZIPs via the UI → Software Staging tab → Transfer Files,<br/>"
-        instructions+="or drop them manually into:</b> <code>$drop</code><br/><br/>"
-        instructions+="<b>File identification (automatic by filename):</b><br/>"
-        instructions+="<table border='1' cellpadding='4' cellspacing='0' style='font-size:11px;'>"
-        instructions+="<tr style='background:#343a40;color:#fff;'><th>Filename pattern</th><th>Detected as</th><th>Moved to</th></tr>"
+        instructions+="<b>Transfer the missing patch ZIPs to the drop directory:</b><br/>"
+        instructions+="<code>$drop</code><br/><br/>"
+        instructions+="<table style='border-collapse:collapse;font-size:11px;width:100%'>"
+        instructions+="<thead><tr style='background:#343a40;color:#fff'>"
+        instructions+="<th style='padding:4px 8px'>Filename pattern</th>"
+        instructions+="<th style='padding:4px 8px'>Detected as</th>"
+        instructions+="<th style='padding:4px 8px'>Target location</th></tr></thead><tbody>"
         if [[ "${DB_ONLY_MODE:-false}" != true ]]; then
-            instructions+="<tr><td>V982068*.zip</td><td>GI Base Media</td><td>$(dirname "$GI_BASE_ZIP")/</td></tr>"
+            instructions+="<tr><td style='padding:4px 8px'><code>V982068*.zip</code></td><td>GI Base Media</td><td><code>$(dirname "$GI_BASE_ZIP")/</code></td></tr>"
         fi
-        instructions+="<tr><td>V982063*.zip</td><td>DB Base Media</td><td>$(dirname "$DB_BASE_ZIP")/</td></tr>"
-        instructions+="<tr><td>p688088*_190000_*.zip</td><td>OPatch Utility</td><td>${instr_patchset_dir}/</td></tr>"
-        instructions+="<tr><td>p*_190000_*.zip (largest)</td><td>RU Patch</td><td>${instr_patchset_dir}/ (auto-extracted)</td></tr>"
-        instructions+="<tr><td>p*_190000_*.zip (smaller)</td><td>OJVM One-off</td><td>${OJVM_ZIP_DIR}/ (auto-extracted)</td></tr>"
-        instructions+="</table><br/>"
+        instructions+="<tr><td style='padding:4px 8px'><code>V982063*.zip</code></td><td>DB Base Media</td><td><code>$(dirname "$DB_BASE_ZIP")/</code></td></tr>"
+        instructions+="<tr><td style='padding:4px 8px'><code>p688088*_190000_*.zip</code></td><td>OPatch Utility</td><td><code>${instr_patchset_dir}/</code></td></tr>"
+        instructions+="<tr><td style='padding:4px 8px'><code>p*_190000_*.zip</code> (largest)</td><td>RU Patch</td><td><code>${instr_patchset_dir}/</code> (auto-extracted)</td></tr>"
+        instructions+="<tr><td style='padding:4px 8px'><code>p*_190000_*.zip</code> (smaller)</td><td>OJVM patch</td><td><code>${OJVM_ZIP_DIR}/</code> (auto-extracted)</td></tr>"
+        instructions+="</tbody></table><br/>"
         instructions+="<b>Then re-run Stage Software from the UI.</b>"
-
-        add_html_row "Staging instructions" "WARN" "$instructions"
-        add_html_row "Overall staging" "FAIL" "Software staging incomplete — see instructions above"
-        add_report_step "Step 3: Validate software" "FAIL" "Staging incomplete — missing files"
-        add_report_step "Overall staging" "FAIL" "Re-run after uploading missing software"
-
+        add_html_row "How to complete staging" "WARN" "$instructions"
+        add_html_row "Step 3/3 — Validation" "FAIL" "Staging INCOMPLETE — see missing files above"
+        add_html_row "Overall result" "FAIL" "Re-run Stage Software after transferring missing files"
         send_html_report "Software Staging INCOMPLETE - $HOST" "Software Staging Report"
-        log "Software staging incomplete."
+        log "WARN: Software staging incomplete."
         return 1
     fi
 
-    add_report_step "Step 3: Validate software" "PASS" "All required software validated in target locations"
+    log "INFO: Step 3/3 complete — all software validated"
+    add_html_row "Step 3/3 — Validation" "PASS" "All required software present and validated in target locations"
 
-    # ── Cleanup drop directory ────────────────────────────────────────────────
+    # ── Cleanup drop directory (skipped in dry-run) ───────────────────────────
+    log "INFO: ------------------------------------------"
     if [[ -d "$drop" ]]; then
         shopt -s nullglob
         local staged_zips=( "$drop"/*.zip )
         shopt -u nullglob
         if (( ${#staged_zips[@]} > 0 )); then
+            local cleanup_list=""
             for f in "${staged_zips[@]}"; do
-                rm -f "$f"
-                log "Cleaned up staging file: $(basename "$f")"
+                log "INFO: Removing staging drop file: $(basename "$f")"
+                cleanup_list+="$(basename "$f")<br/>"
+                run_cmd "rm -f \"$f\""
             done
-            local cleanup_msg="Removed ${#staged_zips[@]} ZIP file(s) from $drop (all validated in target locations)"
-            add_html_row "Staging cleanup" "PASS" "$cleanup_msg"
-            add_report_step "Staging cleanup" "PASS" "$cleanup_msg"
+            if [[ "${DRYRUN:-false}" == true ]]; then
+                add_html_row "Drop directory cleanup" "INFO" \
+                    "<b>(DRY-RUN)</b> Would remove ${#staged_zips[@]} ZIP(s) from <code>$drop</code>:<br/>${cleanup_list}"
+            else
+                add_html_row "Drop directory cleanup" "PASS" \
+                    "Removed ${#staged_zips[@]} ZIP(s) from <code>$drop</code> (all verified in target locations):<br/>${cleanup_list}"
+            fi
+        else
+            log "INFO: Drop directory already empty — no cleanup needed"
         fi
     fi
 
-    add_html_row "Overall staging" "PASS" \
-        "All required software staged and ready. Proceed with gi_precheck / db_precheck."
-    add_report_step "Overall staging" "PASS" \
-        "All software staged. Proceed with gi_precheck / db_precheck."
-    send_html_report "Software Staging OK - $HOST" "Software Staging Report"
-    log "All software staged successfully."
+    # ── Final summary ─────────────────────────────────────────────────────────
+    if [[ "${DRYRUN:-false}" == true ]]; then
+        add_html_row "Overall result (DRY-RUN)" "WARN" \
+            "<b>Dry-run complete — no files were moved.</b> Review the plan above and re-run without dry-run to apply."
+        log "INFO: Dry-run complete. Re-run without dry-run to apply staging."
+        send_html_report "Software Staging DRY-RUN - $HOST" "Software Staging Report (Dry-run)"
+    else
+        add_html_row "Overall result" "PASS" \
+            "All required software staged and validated. Ready to proceed with <b>gi_precheck</b> / <b>db_precheck</b>."
+        log "INFO: All software staged successfully. Ready for gi_precheck / db_precheck."
+        send_html_report "Software Staging OK - $HOST" "Software Staging Report"
+    fi
     return 0
 }
 # ------------------------------------------------------------
