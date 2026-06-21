@@ -90,7 +90,11 @@ function checkDueSchedules(wsBroadcast) {
     const db = getDB();
     const now = new Date().toISOString();
     const due = db.prepare("SELECT * FROM scheduled_jobs WHERE status = 'PENDING' AND scheduled_at <= ?").all(now);
+    if (due.length > 0) {
+        console.log('[SCHEDULER] checkDueSchedules: found ' + due.length + ' due at ' + now);
+    }
     for (const sched of due) {
+        console.log('[SCHEDULER] Firing: "' + sched.name + '" (' + sched.operation + ') scheduled_at=' + sched.scheduled_at);
         fireScheduleAsJob(sched, wsBroadcast);
     }
     return due.length;

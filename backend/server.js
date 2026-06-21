@@ -66,6 +66,17 @@ server.listen(PORT, '0.0.0.0', () => {
     timeoutStaleJobs();
     setInterval(timeoutStaleJobs, 5 * 60 * 1000);
 
-    setInterval(() => { checkDueSchedules(); checkPreDowntimeNotifications(); }, 30 * 1000);
-    console.log('[SCHEDULER] Tick started (30s interval)');
+    const _schedulerTick = () => {
+        try {
+            const fired = checkDueSchedules();
+            if (fired > 0) console.log('[SCHEDULER] Fired ' + fired + ' due schedule(s)');
+        } catch (e) {
+            console.error('[SCHEDULER] checkDueSchedules error:', e.message);
+        }
+        try { checkPreDowntimeNotifications(); } catch(e) {}
+    };
+    // Run once immediately on startup (catches schedules missed during downtime)
+    setTimeout(_schedulerTick, 5000);
+    setInterval(_schedulerTick, 30 * 1000);
+    console.log('[SCHEDULER] Tick started (30s interval, initial check in 5s)');
 });
