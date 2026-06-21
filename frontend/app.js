@@ -698,8 +698,9 @@ function connectLogWS(jobId) {
   ws.onclose = function() {
     updateConnStatus(false);
     checkJobStatus(jobId);
-    // Hand off to REST polling from where WS left off to catch any missed lines
-    logPollOffset = wsLogCount;
+    // Hand off to REST polling from where WS left off — but never regress the offset
+    // (REST may have already advanced it during the WS CONNECTING phase)
+    if (wsLogCount > logPollOffset) logPollOffset = wsLogCount;
   };
   ws.onerror = function() { updateConnStatus(false); };
   ws.onmessage = function(evt) {

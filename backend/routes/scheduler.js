@@ -1,5 +1,6 @@
 const { v4: uuidv4 } = require('uuid');
 const schedule = require('node-schedule');
+const { createJob } = require('../lib/job-runner');
 
 module.exports = function(getDB, authenticateToken) {
     const router = require('express').Router();
@@ -104,40 +105,25 @@ module.exports = function(getDB, authenticateToken) {
     }
 
     function createJobForVM(db, vmId, sched, seqIndex, seqVmIds) {
-        const vm = db.prepare('SELECT * FROM vms WHERE id = ?').get(vmId);
-        if (!vm) return;
+        // Use createJob from job-runner so the job is inserted with the correct schema
+        // and picked up by the agent poll endpoint.
+        const result = createJob({
+            vmId,
+            operation: sched.operation,
+            dryRun: false,
+            createdBy: 'scheduler:' + (sched.name || sched.id)
+        });
+        const jobId = result.jobId;
 
-        const jobId = uuidv4();
-        const env = {};
-
-        // Load patch version paths
-        if (sched.patch_version_id) {
-            const pv = db.prepare('SELECT * FROM patch_versions WHERE id = ?').get(sched.patch_version_id);
-            if (pv) {
-                if (pv.gi_base_zip) env.GI_BASE_ZIP = pv.gi_base_zip;
-                if (pv.db_base_zip) env.DB_BASE_ZIP = pv.db_base_zip;
-                if (pv.opatch_zip) env.OPATCH_ZIP = pv.opatch_zip;
-                if (pv.patch_search_root) env.PATCH_SEARCH_ROOTS_ENV = pv.patch_search_root;
-                if (pv.new_gi_home) env.NEW_GI_HOME = pv.new_gi_home;
-                if (pv.new_db_home) env.NEW_DB_HOME = pv.new_db_home;
-            }
-        }
-
-        // VM homes
-        if (vm.old_gi_home) env.OLD_GI_HOME = vm.old_gi_home;
-        if (vm.old_db_home) env.OLD_DB_HOME = vm.old_db_home;
-        if (vm.oracle_base) env.ORACLE_BASE = vm.oracle_base;
-
+        // Store scheduling metadata for sequential orchestration and linking
         const meta = {
             scheduled_job_id: sched.id,
             seq_index: seqIndex,
             seq_vm_ids: seqVmIds
         };
-
-        db.prepare(`INSERT INTO jobs (id, vm_id, hostname, operation, phase, status, env, meta, created_at)
-            VALUES (?, ?, ?, ?, ?, 'queued', ?, ?, datetime('now'))`).run(
-            jobId, vmId, vm.hostname, sched.operation, sched.operation,
-            JSON.stringify(env), JSON.stringify(meta));
+        try {
+            db.prepare('UPDATE jobs SET meta = ? WHERE id = ?').run(JSON.stringify(meta), jobId);
+        } catch(_) {}
 
         return jobId;
     }

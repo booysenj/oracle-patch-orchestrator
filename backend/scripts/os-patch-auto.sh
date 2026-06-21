@@ -1887,6 +1887,25 @@ send_db_open_notification() {
         fi
     fi
 
+    # Listener status — checked here so the notification reflects the live state
+    # (manage_db_only_listener should have already been called to start the listener)
+    if [[ -x "$home/bin/lsnrctl" ]]; then
+        local _lsnr_out _lsnr_rc=0
+        _lsnr_out=$(sudo -u "$ORACLE_USER" bash -c "
+            export ORACLE_HOME=\"$home\"
+            export PATH=\"$home/bin:\$PATH\"
+            \"$home/bin/lsnrctl\" status 2>&1
+        " 2>/dev/null) || _lsnr_rc=$?
+        if echo "$_lsnr_out" | grep -qi "The command completed successfully"; then
+            local _lsnr_svc
+            _lsnr_svc=$(echo "$_lsnr_out" | grep -i "Service\|Listening on" | head -3 | tr '\n' ' ')
+            _html_row "Listener" "INFO" "Listener UP from ${home}. ${_lsnr_svc:+Services: ${_lsnr_svc}}"
+        else
+            _html_row "Listener" "WARN" \
+                "Listener from ${home} did not confirm READY (RC=${_lsnr_rc}). Users may need to start it manually: lsnrctl start"
+        fi
+    fi
+
     send_html_report "DB OPEN (${phase}) - ${db} - ${HOST}" "Database Open Notification (${phase})"
 
     HTML_ROWS="$saved_rows"
@@ -7210,8 +7229,13 @@ SQEOF
         # -------------------------------------------------------
         local ran_datapatch=false
 
+        # Ensure oratab reflects NEW_DB_HOME before starting listener
+        normalize_oratab_for_sid "$DB_UNIQUE_NAME" "$NEW_DB_HOME"
+
         if [[ "$au_switch_used" == true ]]; then
             if wait_for_db_ready_state "$DB_UNIQUE_NAME" "$NEW_DB_HOME"; then
+                # Start listener from new home so clients can connect before notification is sent
+                manage_db_only_listener "$current_home" "$NEW_DB_HOME"
                 send_db_open_notification "DB Switch" "$DB_UNIQUE_NAME" "$NEW_DB_HOME" "$DB_LAST_ROLE" "$DB_LAST_MODE"
                 add_html_row "DB open mode check" "PASS" "Database reached target state (AutoUpgrade handled datapatch)."
                 ran_datapatch=true
@@ -7221,6 +7245,8 @@ SQEOF
             fi
         else
             if wait_for_db_ready_state "$DB_UNIQUE_NAME" "$NEW_DB_HOME"; then
+                # Start listener from new home so clients can connect before notification is sent
+                manage_db_only_listener "$current_home" "$NEW_DB_HOME"
                 send_db_open_notification "DB Switch" "$DB_UNIQUE_NAME" "$NEW_DB_HOME" "$DB_LAST_ROLE" "$DB_LAST_MODE"
                 add_html_row "DB open mode check" "PASS" "Database reached target state — running datapatch."
 
@@ -7237,13 +7263,6 @@ SQEOF
                 add_html_row "DB open mode check" "WARN" "Database did not reach target state — datapatch skipped."
             fi
         fi
-
-        # Ensure oratab reflects NEW_DB_HOME (AutoUpgrade may have already done this;
-        # normalize_oratab_for_sid is idempotent so safe to call either way)
-        normalize_oratab_for_sid "$DB_UNIQUE_NAME" "$NEW_DB_HOME"
-
-        # Restart listener from new home (DB-only: listener lives in DB home)
-        manage_db_only_listener "$current_home" "$NEW_DB_HOME"
 
         local switch_method="SQL*Plus"
         [[ "$au_switch_used" == true ]] && switch_method="AutoUpgrade"
@@ -7487,10 +7506,13 @@ SQEOF
                 "Startup RC=$startup_rc. Output: $(echo "$startup_out" | head -5). Check manually."
         fi
 
-        # --- Wait for ready state + datapatch ---
+        # --- Wait for ready state + listener start + datapatch ---
         local ran_datapatch=false
 
         if wait_for_db_ready_state "$DB_UNIQUE_NAME" "$OLD_DB_HOME"; then
+            # Start listener from rollback home before sending the open notification
+            # so the notification reflects the live listener state
+            manage_db_only_listener "$current_home" "$OLD_DB_HOME"
             send_db_open_notification "DB Rollback" "$DB_UNIQUE_NAME" "$OLD_DB_HOME" "$DB_LAST_ROLE" "$DB_LAST_MODE"
             if [[ "$DB_LAST_ROLE" == "PRIMARY" ]]; then
                 add_html_row "DB open mode check (rollback)" "PASS" \
@@ -7511,9 +7533,6 @@ SQEOF
             add_html_row "DB open mode check (rollback)" "WARN" \
                 "Database did not reach target state — datapatch skipped."
         fi
-
-        # Restart listener from rollback home (DB-only: listener lives in DB home)
-        manage_db_only_listener "$current_home" "$OLD_DB_HOME"
 
         local msg="Database $DB_UNIQUE_NAME rolled back to OLD_DB_HOME (${OLD_DB_HOME}) via SQL*Plus. [DB_ONLY_MODE]"
         if [[ "$ran_datapatch" == true ]]; then

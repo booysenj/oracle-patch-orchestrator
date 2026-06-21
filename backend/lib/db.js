@@ -62,6 +62,8 @@ function initDB() {
     try { d.exec(`ALTER TABLE vms ADD COLUMN agent_last_seen TEXT`); } catch(_) {}
     try { d.exec(`ALTER TABLE jobs ADD COLUMN db_unique_name TEXT`); } catch(_) {}
     try { d.exec(`ALTER TABLE jobs ADD COLUMN script_hash TEXT`); } catch(_) {}
+    try { d.exec(`ALTER TABLE jobs ADD COLUMN meta TEXT`); } catch(_) {}
+    try { d.exec(`ALTER TABLE jobs ADD COLUMN env TEXT`); } catch(_) {}
     try { d.exec(`ALTER TABLE vms ADD COLUMN stage_path TEXT`); } catch(_) {}
     try { d.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_patch_versions_unique ON patch_versions(version, patch_type)`); } catch(_) {}
     // VM discovery columns — auto-populated by agent on each poll
