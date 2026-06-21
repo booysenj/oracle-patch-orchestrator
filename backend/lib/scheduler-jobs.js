@@ -1,5 +1,6 @@
 // scheduler-jobs.js - Wires scheduler tick to create Dashboard jobs
 const { getDB } = require('./db');
+const { createJob } = require('./job-runner');
 const { exec } = require('child_process');
 
 const DOWNTIME_OPS = new Set([
@@ -43,44 +44,46 @@ function sendPreNotificationEmail(schedule, mailTo, mailFrom) {
     });
 }
 
-async function fireScheduleAsJob(schedule, wsBroadcast) {
+function fireScheduleAsJob(schedule, wsBroadcast) {
     const db = getDB();
-    const jobId = 'job-' + Date.now() + '-' + Math.random().toString(36).substr(2, 6);
-
-    try {
-        const vmIds = JSON.parse(schedule.vm_ids || '[]');
-
-        db.prepare(`INSERT INTO jobs (id, operation, patch_version, vm_ids, exec_mode, status, notes, created_by, created_at)
-                    VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, datetime('now'))`).run(
-            jobId,
-            schedule.operation,
-            schedule.patch_version || null,
-            schedule.vm_ids,
-            schedule.exec_mode || 'serial',
-            'Triggered by schedule: ' + schedule.name,
-            schedule.created_by || 'scheduler'
-        );
-
-        db.prepare("UPDATE scheduled_jobs SET status = 'triggered', job_id = ?, triggered_at = datetime('now') WHERE id = ?")
-            .run(jobId, schedule.id);
-
-        console.log('[SCHEDULER] Schedule "' + schedule.name + '" fired -> Job ' + jobId);
-
-        if (wsBroadcast) {
-            wsBroadcast({
-                type: 'schedule-fired',
-                scheduleId: schedule.id,
-                scheduleName: schedule.name,
-                jobId: jobId,
-                operation: schedule.operation
-            });
-        }
-        return jobId;
-    } catch (err) {
-        console.error('[SCHEDULER] Failed to fire schedule:', err.message);
-        db.prepare("UPDATE scheduled_jobs SET status = 'failed' WHERE id = ?").run(schedule.id);
+    const vmIds = JSON.parse(schedule.vm_ids || '[]');
+    if (!vmIds.length) {
+        console.error('[SCHEDULER] Schedule "' + schedule.name + '" has no target VMs — marking failed');
+        db.prepare("UPDATE scheduled_jobs SET status = 'failed', last_error = 'No target VMs configured' WHERE id = ?").run(schedule.id);
         return null;
     }
+
+    const jobIds = [];
+    const errors = [];
+    for (const vmId of vmIds) {
+        try {
+            const result = createJob({
+                vmId,
+                operation: schedule.operation,
+                dryRun: false,
+                createdBy: 'scheduler:' + schedule.name
+            });
+            jobIds.push(result.jobId);
+            console.log('[SCHEDULER] Schedule "' + schedule.name + '" -> Job ' + result.jobId + ' queued for VM ' + vmId);
+        } catch (err) {
+            console.error('[SCHEDULER] Failed to create job for VM ' + vmId + ':', err.message);
+            errors.push(vmId + ': ' + err.message);
+        }
+    }
+
+    if (!jobIds.length) {
+        db.prepare("UPDATE scheduled_jobs SET status = 'failed', last_error = ? WHERE id = ?")
+            .run(errors.join('; '), schedule.id);
+        return null;
+    }
+
+    db.prepare("UPDATE scheduled_jobs SET status = 'triggered', job_id = ?, triggered_at = datetime('now'), started_at = datetime('now') WHERE id = ?")
+        .run(jobIds.join(','), schedule.id);
+
+    if (wsBroadcast) {
+        wsBroadcast({ type: 'schedule-fired', scheduleId: schedule.id, scheduleName: schedule.name, jobIds, operation: schedule.operation });
+    }
+    return jobIds[0];
 }
 
 function checkDueSchedules(wsBroadcast) {
