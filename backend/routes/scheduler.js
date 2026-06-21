@@ -30,6 +30,7 @@ module.exports = function(getDB, authenticateToken) {
         )`);
         db.exec("CREATE INDEX IF NOT EXISTS idx_sched_status ON scheduled_jobs(status)");
         db.exec("CREATE INDEX IF NOT EXISTS idx_sched_at ON scheduled_jobs(scheduled_at)");
+        try { db.exec("ALTER TABLE scheduled_jobs ADD COLUMN notification_sent_at TEXT DEFAULT ''"); } catch(_) {}
 
         db.exec(`CREATE TABLE IF NOT EXISTS maintenance_windows (
             id TEXT PRIMARY KEY,

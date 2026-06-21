@@ -17,7 +17,7 @@ const { initDB } = require('./lib/db');
 const { initAuditTable } = require('./lib/audit');
 const { attachWSS } = require('./lib/ws-relay');
 const { setupTransferRoutes } = require('./lib/transfer-api');
-const { checkDueSchedules, timeoutStaleJobs } = require('./lib/scheduler-jobs');
+const { checkDueSchedules, timeoutStaleJobs, checkPreDowntimeNotifications } = require('./lib/scheduler-jobs');
 
 const app = express();
 const server = http.createServer(app);
@@ -66,6 +66,6 @@ server.listen(PORT, '0.0.0.0', () => {
     timeoutStaleJobs();
     setInterval(timeoutStaleJobs, 5 * 60 * 1000);
 
-    setInterval(() => checkDueSchedules(), 30 * 1000);
+    setInterval(() => { checkDueSchedules(); checkPreDowntimeNotifications(); }, 30 * 1000);
     console.log('[SCHEDULER] Tick started (30s interval)');
 });

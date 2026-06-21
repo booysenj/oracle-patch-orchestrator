@@ -1,5 +1,47 @@
 // scheduler-jobs.js - Wires scheduler tick to create Dashboard jobs
 const { getDB } = require('./db');
+const { exec } = require('child_process');
+
+const DOWNTIME_OPS = new Set([
+    'gi_switch','gi_rollback','db_switch','db_rollback',
+    'gi_upgrade_upgrade','db_upgrade_upgrade','db_upgrade_rollback',
+    'cluster_stop_dbs','cluster_reboot','remote_shutdown_apps_then_db'
+]);
+
+function getSetting(db, key) {
+    const row = db.prepare('SELECT value FROM app_settings WHERE key = ?').get(key);
+    return row ? row.value : '';
+}
+
+function sendPreNotificationEmail(schedule, mailTo, mailFrom) {
+    const vmIds = JSON.parse(schedule.vm_ids || '[]');
+    const db = getDB();
+    const vmNames = vmIds.map(id => {
+        const v = db.prepare('SELECT hostname FROM vms WHERE id = ?').get(id);
+        return v ? v.hostname : id;
+    }).join(', ');
+
+    const scheduledLocal = new Date(schedule.scheduled_at).toLocaleString('en-ZA', { timeZone: 'Africa/Johannesburg' });
+    const subject = `[Downtime Alert] ${schedule.operation.toUpperCase()} on ${vmNames} scheduled in ~4 hours`;
+    const body = [
+        `SCHEDULED DOWNTIME NOTIFICATION`,
+        ``,
+        `Operation : ${schedule.operation}`,
+        `Target VMs: ${vmNames}`,
+        `Scheduled : ${scheduledLocal} (SAST)`,
+        `Created by: ${schedule.created_by || 'unknown'}`,
+        schedule.notes ? `Notes     : ${schedule.notes}` : '',
+        ``,
+        `This operation causes downtime. If you need to cancel it, log in to the`,
+        `Patch Orchestrator and cancel the scheduled job before it fires.`,
+    ].filter(l => l !== undefined).join('\n');
+
+    const cmd = `printf '%s\n' "To: ${mailTo}" "From: ${mailFrom}" "Subject: ${subject}" "" "${body.replace(/'/g, "'\\''")}" | sendmail -t`;
+    exec(cmd, (err) => {
+        if (err) console.error('[SCHEDULER] Pre-notification email failed:', err.message);
+        else console.log(`[SCHEDULER] Pre-notification sent to ${mailTo} for schedule "${schedule.name}"`);
+    });
+}
 
 async function fireScheduleAsJob(schedule, wsBroadcast) {
     const db = getDB();
@@ -78,4 +120,36 @@ function timeoutStaleJobs() {
     return total;
 }
 
-module.exports = { fireScheduleAsJob, checkDueSchedules, timeoutStaleJobs };
+// Send a pre-notification email ~4 hours before any scheduled downtime operation.
+// Fires once per schedule (notification_sent_at guards against duplicate sends).
+function checkPreDowntimeNotifications() {
+    const db = getDB();
+    let mailTo, mailFrom;
+    try {
+        mailTo   = getSetting(db, 'mail_to');
+        mailFrom = getSetting(db, 'mail_from');
+    } catch(_) { return; }
+    if (!mailTo) return;
+
+    // Window: scheduled_at between now+3h45m and now+4h15m
+    const windowStart = new Date(Date.now() + 3 * 60 * 60 * 1000 + 45 * 60 * 1000).toISOString();
+    const windowEnd   = new Date(Date.now() + 4 * 60 * 60 * 1000 + 15 * 60 * 1000).toISOString();
+
+    let pending;
+    try {
+        pending = db.prepare(`
+            SELECT * FROM scheduled_jobs
+            WHERE status = 'PENDING'
+              AND scheduled_at >= ? AND scheduled_at <= ?
+              AND (notification_sent_at IS NULL OR notification_sent_at = '')
+        `).all(windowStart, windowEnd);
+    } catch(_) { return; }
+
+    for (const sched of pending) {
+        if (!DOWNTIME_OPS.has(sched.operation)) continue;
+        sendPreNotificationEmail(sched, mailTo, mailFrom || 'noreply@patch-orchestrator');
+        db.prepare("UPDATE scheduled_jobs SET notification_sent_at = datetime('now') WHERE id = ?").run(sched.id);
+    }
+}
+
+module.exports = { fireScheduleAsJob, checkDueSchedules, timeoutStaleJobs, checkPreDowntimeNotifications };

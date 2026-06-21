@@ -504,14 +504,42 @@ document.getElementById('preflightBtn').addEventListener('click', async function
   }
 });
 
+function confirmDowntime(hostname, opLabel) {
+  return new Promise(function(resolve) {
+    var modal = document.getElementById('downtimeConfirmModal');
+    document.getElementById('downtimeConfirmHostname').textContent = hostname;
+    document.getElementById('downtimeConfirmOp').textContent = opLabel;
+    var inp = document.getElementById('downtimeConfirmInput');
+    var confirmBtn = document.getElementById('downtimeConfirmBtn');
+    var errEl = document.getElementById('downtimeConfirmError');
+    inp.value = '';
+    inp.placeholder = hostname;
+    confirmBtn.disabled = true;
+    errEl.textContent = '';
+    modal.classList.remove('hidden');
+    inp.focus();
+
+    inp.oninput = function() {
+      confirmBtn.disabled = inp.value !== hostname;
+      errEl.textContent = inp.value && inp.value !== hostname ? 'Hostname does not match' : '';
+    };
+    confirmBtn.onclick = function() { modal.classList.add('hidden'); resolve(true); };
+    document.getElementById('downtimeConfirmCancelBtn').onclick = function() { modal.classList.add('hidden'); resolve(false); };
+  });
+}
+
 document.getElementById('executeBtn').addEventListener('click', async function() {
   var op = document.getElementById('opSelect').value;
   if (!op || !selectedVm) return;
   var dryRun = document.getElementById('dryRunCheck').checked;
-  var needsConfirm = document.getElementById('executeBtn').dataset.confirmed === '1';
+  var opSel = document.getElementById('opSelect');
+  var selOpt = opSel.options[opSel.selectedIndex];
+  var isDowntime = selOpt && selOpt.dataset.downtime === '1';
 
-  if (needsConfirm && !dryRun) {
-    if (!confirm('This is a DOWNTIME operation on ' + selectedVm.hostname + '. Are you sure you want to proceed?')) return;
+  if (isDowntime && !dryRun) {
+    var opLabel = selOpt.textContent.replace(/\s*[⚠🔴🟡🟢].*/u, '').trim();
+    var confirmed = await confirmDowntime(selectedVm.hostname, opLabel);
+    if (!confirmed) return;
   }
 
   var box = document.getElementById('preflightResult');
