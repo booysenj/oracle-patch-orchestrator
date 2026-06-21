@@ -516,15 +516,15 @@ function confirmDowntime(hostname, opLabel) {
     inp.placeholder = hostname;
     confirmBtn.disabled = true;
     errEl.textContent = '';
-    modal.classList.remove('hidden');
+    modal.style.display = 'flex';
     inp.focus();
 
     inp.oninput = function() {
       confirmBtn.disabled = inp.value !== hostname;
       errEl.textContent = inp.value && inp.value !== hostname ? 'Hostname does not match' : '';
     };
-    confirmBtn.onclick = function() { modal.classList.add('hidden'); resolve(true); };
-    document.getElementById('downtimeConfirmCancelBtn').onclick = function() { modal.classList.add('hidden'); resolve(false); };
+    confirmBtn.onclick = function() { modal.style.display = 'none'; resolve(true); };
+    document.getElementById('downtimeConfirmCancelBtn').onclick = function() { modal.style.display = 'none'; resolve(false); };
   });
 }
 
