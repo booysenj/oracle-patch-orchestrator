@@ -458,6 +458,11 @@ def execute_transfer(t):
 
     try:
         os.makedirs(dest_path, exist_ok=True)
+        if not os.access(dest_path, os.W_OK):
+            raise PermissionError(
+                'Staging path %s is not writable by the agent user. '
+                'Fix on the VM: chown oracle:oinstall %s' % (dest_path, dest_path)
+            )
         dest_file = os.path.join(dest_path, filename)
 
         print('[agent] Transfer %s: downloading %s -> %s' % (tid, filename, dest_file))
