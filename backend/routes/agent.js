@@ -120,6 +120,17 @@ router.get('/poll', (req, res) => {
     if (job.rollback_gi_home) env.ROLLBACK_GI_HOME = job.rollback_gi_home;
     if (job.rollback_db_home) env.ROLLBACK_DB_HOME = job.rollback_db_home;
 
+    // Global admin settings — fallback when patch version doesn't override
+    var globalGiZip = '', globalDbZip = '', globalPatchesBase = '';
+    try {
+        var _gs = db.prepare("SELECT value FROM app_settings WHERE key='gi_base_zip_path'").get();
+        if (_gs && _gs.value) globalGiZip = _gs.value;
+        _gs = db.prepare("SELECT value FROM app_settings WHERE key='db_base_zip_path'").get();
+        if (_gs && _gs.value) globalDbZip = _gs.value;
+        _gs = db.prepare("SELECT value FROM app_settings WHERE key='patches_base_path'").get();
+        if (_gs && _gs.value) globalPatchesBase = _gs.value;
+    } catch(_ge) {}
+
     var pv = null, pvVersion = vm.patch_target || '';
     if (vm.target_patch_version_id) {
         pv = db.prepare('SELECT * FROM patch_versions WHERE id = ?').get(vm.target_patch_version_id);
@@ -129,6 +140,19 @@ router.get('/poll', (req, res) => {
             if (pv.db_base_zip)      env.DB_BASE_ZIP        = pv.db_base_zip;
             if (pv.opatch_zip)       env.OPATCH_ZIP         = pv.opatch_zip;
             if (pv.patch_search_root) env.PATCH_SEARCH_ROOTS_ENV = pv.patch_search_root;
+        }
+    }
+
+    // Fall back to global admin ZIP paths when patch version doesn't set them
+    if (!env.GI_BASE_ZIP && globalGiZip) env.GI_BASE_ZIP = globalGiZip;
+    if (!env.DB_BASE_ZIP && globalDbZip) env.DB_BASE_ZIP = globalDbZip;
+    // patches_base_path: add as a search root with version appended (e.g. /backup/patches/p19.30)
+    if (globalPatchesBase && pvVersion) {
+        var _patchRoot = globalPatchesBase + '/p' + pvVersion;
+        if (!env.PATCH_SEARCH_ROOTS_ENV) {
+            env.PATCH_SEARCH_ROOTS_ENV = _patchRoot;
+        } else if (env.PATCH_SEARCH_ROOTS_ENV.indexOf(_patchRoot) < 0) {
+            env.PATCH_SEARCH_ROOTS_ENV = _patchRoot + ':' + env.PATCH_SEARCH_ROOTS_ENV;
         }
     }
 
