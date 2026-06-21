@@ -1542,11 +1542,38 @@ function loadOpsForCategory() {
     html += '</div>';
     if (sel.dataset.needsDb === '1') {
       var knownDbName = (selectedVm && selectedVm.db_unique_name) ? selectedVm.db_unique_name : '';
+      // Collect discovered running DBs from static_json
+      var discoveredDbs = [];
+      try {
+        var _sj = selectedVm && selectedVm.static_json ? JSON.parse(selectedVm.static_json) : {};
+        if (Array.isArray(_sj.running_dbs) && _sj.running_dbs.length) {
+          discoveredDbs = _sj.running_dbs.filter(function(s) { return s && !/^\+ASM/.test(s); });
+        }
+        // Also include the stored db_unique_name if not already in list
+        if (knownDbName && discoveredDbs.indexOf(knownDbName) < 0) {
+          discoveredDbs.unshift(knownDbName);
+        }
+      } catch(_) {}
+
       html += '<div class="db-name-group" style="margin-top:8px;">' +
-        '<label for="dbUniqueName" style="font-weight:600;display:block;margin-bottom:4px;">DB Unique Name <span style="color:#e74c3c;">*</span></label>' +
-        '<input type="text" id="dbUniqueName" placeholder="e.g. ORCL_PRD" value="' + esc(knownDbName) + '" style="width:100%;padding:8px;border:1px solid #555;border-radius:4px;background:#1e1e1e;color:#e0e0e0;font-family:monospace;" />' +
-        (knownDbName ? '<small style="color:var(--text-muted)">Auto-filled from discovery — edit if needed</small>' : '') +
-        '</div>';
+        '<label for="dbUniqueName" style="font-weight:600;display:block;margin-bottom:4px;">DB Unique Name <span style="color:#e74c3c;">*</span></label>';
+
+      if (discoveredDbs.length > 1) {
+        // Multiple databases discovered — show a dropdown
+        html += '<select id="dbUniqueName" style="width:100%;padding:8px;border:1px solid #555;border-radius:4px;background:#1e1e1e;color:#e0e0e0;font-family:monospace;">';
+        html += '<option value="">— select database —</option>';
+        discoveredDbs.forEach(function(d) {
+          html += '<option value="' + esc(d) + '"' + (d === knownDbName ? ' selected' : '') + '>' + esc(d) + '</option>';
+        });
+        html += '</select>';
+        html += '<small style="color:var(--text-muted)">Discovered from running instances — select the target DB</small>';
+      } else {
+        html += '<input type="text" id="dbUniqueName" placeholder="e.g. ORCL_PRD" value="' + esc(discoveredDbs[0] || knownDbName) + '" style="width:100%;padding:8px;border:1px solid #555;border-radius:4px;background:#1e1e1e;color:#e0e0e0;font-family:monospace;" />';
+        if (discoveredDbs[0] || knownDbName) {
+          html += '<small style="color:var(--text-muted)">Auto-filled from discovery — edit if needed</small>';
+        }
+      }
+      html += '</div>';
     }
     if (html) { metaEl.innerHTML = html; metaEl.classList.remove('hidden'); }
     else { metaEl.classList.add('hidden'); }
