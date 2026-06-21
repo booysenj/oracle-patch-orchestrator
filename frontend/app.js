@@ -1250,7 +1250,13 @@ async function openDiscoveryPanel(vmId) {
   var mounts = (disc && disc.mounts) || [];
   var staticInfo = (disc && disc.static) || {};
   var oratab = staticInfo.oratab || [];
-  var runningDbs = staticInfo.running_dbs || [];
+  var runningDbSids = staticInfo.running_dbs || [];
+  var _dbUniqueNamesMap = (staticInfo.db_unique_names && typeof staticInfo.db_unique_names === 'object') ? staticInfo.db_unique_names : {};
+  // Show unique names where available, fall back to SID
+  var runningDbs = runningDbSids.map(function(sid) { return _dbUniqueNamesMap[sid] || sid; });
+  // All known unique names (for DB Unique Name row in multi-DB case)
+  var allUniqueNames = Object.values(_dbUniqueNamesMap).filter(Boolean);
+  if (!allUniqueNames.length && disc && disc.db_unique_name) allUniqueNames = [disc.db_unique_name];
 
   var mountRows = mounts.length
     ? mounts.map(function(m) {
@@ -1277,7 +1283,7 @@ async function openDiscoveryPanel(vmId) {
     '<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">' +
       '<div><div class="disc-section-title">Database Identity</div>' +
         '<table class="disc-table">' +
-          '<tr><td>DB Unique Name</td><td><strong>' + esc(disc && disc.db_unique_name || '—') + '</strong></td></tr>' +
+          '<tr><td>DB Unique Name</td><td><strong>' + (allUniqueNames.length > 1 ? allUniqueNames.map(esc).join(', ') : esc(allUniqueNames[0] || '—')) + '</strong></td></tr>' +
           '<tr><td>Database Role</td><td><span style="color:' + (disc && disc.database_role === 'PRIMARY' ? '#4caf50' : disc && disc.database_role ? '#e3b341' : 'var(--text-muted)') + '">' + esc(disc && disc.database_role || '—') + '</span></td></tr>' +
           '<tr><td>Switchover Status</td><td>' + esc(disc && disc.switchover_status || '—') + '</td></tr>' +
           '<tr><td>Cluster Type</td><td>' + esc(disc && disc.cluster_type || '—') + '</td></tr>' +
@@ -1543,11 +1549,17 @@ function loadOpsForCategory() {
     if (sel.dataset.needsDb === '1') {
       var knownDbName = (selectedVm && selectedVm.db_unique_name) ? selectedVm.db_unique_name : '';
       // Collect discovered running DBs from static_json
+      // Prefer unique names (db_unique_names sid->name map) over raw SIDs
       var discoveredDbs = [];
       try {
         var _sj = selectedVm && selectedVm.static_json ? JSON.parse(selectedVm.static_json) : {};
+        var _uniqueNamesMap = (_sj.db_unique_names && typeof _sj.db_unique_names === 'object') ? _sj.db_unique_names : {};
         if (Array.isArray(_sj.running_dbs) && _sj.running_dbs.length) {
-          discoveredDbs = _sj.running_dbs.filter(function(s) { return s && !/^\+ASM/.test(s); });
+          _sj.running_dbs.filter(function(s) { return s && !/^\+ASM/.test(s); }).forEach(function(sid) {
+            // Use unique name if we have it; otherwise fall back to SID
+            var uname = _uniqueNamesMap[sid] || sid;
+            if (discoveredDbs.indexOf(uname) < 0) discoveredDbs.push(uname);
+          });
         }
         // Also include the stored db_unique_name if not already in list
         if (knownDbName && discoveredDbs.indexOf(knownDbName) < 0) {

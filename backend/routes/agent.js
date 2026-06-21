@@ -212,8 +212,12 @@ router.post('/discover', (req, res) => {
     var oratab = payload.oratab || [];
     var gridHome = payload.grid_home || null;
     var dbUniqueName = payload.db_unique_name || null;
+    var dbUniqueNames = payload.db_unique_names || {};  // sid -> unique_name map
     var databaseRole = payload.database_role || null;
     var clusterName = payload.cluster_name || null;
+    var clusterType = payload.cluster_type || null;
+    var crsVersion = payload.crs_version || null;
+    var dbVersion = payload.db_version || null;
     var runningDbs = payload.running_dbs || [];
     var oracleUser = payload.oracle_user || null;
     var gridUser = payload.grid_user || null;
@@ -245,6 +249,10 @@ router.post('/discover', (req, res) => {
     if (oratab.length > 0) updates.current_db_home = oratab[0].home;
     if (!vm.db_unique_name && dbUniqueName) updates.db_unique_name = dbUniqueName;
     if (!vm.cluster_name && clusterName) updates.cluster_name = clusterName;
+    // cluster_type and CRS version from agent discovery (overwrite — can change after patching)
+    if (clusterType) updates.cluster_type = clusterType;
+    if (crsVersion) updates.crs_version = crsVersion;
+    if (dbVersion) updates.db_version = dbVersion;
     if (!vm.preferred_staging_mount && preferredStaging) updates.preferred_staging_mount = preferredStaging;
     // OS identity — write-once; only updated if discovered and currently unset
     if (oracleUser && !vm.oracle_user) updates.oracle_user = oracleUser;
@@ -264,7 +272,9 @@ router.post('/discover', (req, res) => {
     updates.static_json = JSON.stringify({
         grid_home: gridHome,
         db_unique_name: dbUniqueName,
+        db_unique_names: dbUniqueNames,
         cluster_name: clusterName,
+        cluster_type: clusterType,
         oratab: oratab,
         running_dbs: runningDbs
     });

@@ -150,8 +150,12 @@ def discover():
         'grid_home': None,
         'running_dbs': [],
         'db_unique_name': None,
+        'db_unique_names': {},   # sid -> db_unique_name for all running DBs
         'database_role': None,
         'cluster_name': None,
+        'cluster_type': None,
+        'crs_version': None,
+        'db_version': None,
         'oracle_user': None,
         'grid_user': None,
         'oinstall_group': None,
@@ -274,7 +278,7 @@ def discover():
         if asm_running:
             result['grid_home'] = asm_home_from_oratab
 
-    # DB unique name + role — try each running instance until sqlplus succeeds.
+    # DB unique name, role, and version — query all running instances via sqlplus.
     # RAC instance SIDs have a node-number suffix: source1 → oratab has 'source',
     # or underscore form: sretest_1 → oratab has 'sretest'. Try both strip patterns.
     def _oratab_home(sid):
@@ -294,8 +298,10 @@ def discover():
         "WHENEVER SQLERROR CONTINUE\n"
         "SELECT 'UNIQUE='||db_unique_name FROM v$database;\n"
         "SELECT 'ROLE='||database_role FROM v$database;\n"
+        "SELECT 'VERSION='||version FROM v$instance;\n"
         "EXIT\n"
     )
+    _uid = os.getuid() if hasattr(os, 'getuid') else -1
     for _sid in result['running_dbs']:
         _home = _oratab_home(_sid)
         if not _home or not os.path.isfile(_home + '/bin/sqlplus'):
@@ -308,7 +314,6 @@ def discover():
             # sqlplus OS auth (/ as sysdba) requires membership in the dba group.
             # When the agent runs as root, wrap with su -s /bin/bash oracle so the
             # call is made as the oracle OS user who has dba group membership.
-            _uid = os.getuid() if hasattr(os, 'getuid') else -1
             if _uid == 0:
                 _cmd = ['su', '-s', '/bin/bash', 'oracle', '-c',
                         'ORACLE_SID=%s ORACLE_HOME=%s PATH=%s/bin:$PATH %s/bin/sqlplus -S / as sysdba' % (
@@ -323,14 +328,20 @@ def discover():
                     input=sql, text=True, env=_env, timeout=15,
                     stderr=subprocess.DEVNULL
                 )
+            _uname, _role, _ver = None, None, None
             for line in out.splitlines():
                 line = line.strip()
-                if line.startswith('UNIQUE=') and not result['db_unique_name']:
-                    result['db_unique_name'] = line[7:]
-                elif line.startswith('ROLE=') and not result['database_role']:
-                    result['database_role'] = line[5:]
-            if result['database_role']:
-                break  # got what we need from this instance
+                if line.startswith('UNIQUE='): _uname = line[7:]
+                elif line.startswith('ROLE='): _role = line[5:]
+                elif line.startswith('VERSION='): _ver = line[8:]
+            if _uname:
+                result['db_unique_names'][_sid] = _uname
+                if not result['db_unique_name']:
+                    result['db_unique_name'] = _uname
+            if _role and not result['database_role']:
+                result['database_role'] = _role
+            if _ver and not result['db_version']:
+                result['db_version'] = _ver
         except Exception:
             pass
 
@@ -362,6 +373,22 @@ def discover():
         nodes_out = _run('%s/bin/olsnodes 2>/dev/null' % gi)
         if nodes_out:
             result['nodes'] = [n.strip() for n in nodes_out.splitlines() if n.strip()]
+
+        # CRS version
+        crs_ver_out = _run('%s/bin/crsctl query crs activeversion 2>/dev/null' % gi)
+        m_ver = re.search(r'([0-9]+\.[0-9]+\.[0-9]+\.[0-9]+)', crs_ver_out)
+        if m_ver:
+            result['crs_version'] = m_ver.group(1)
+
+        # Cluster type: full CRS (ocssd/crsd running) vs Oracle Restart (HAS only)
+        # For full CRS: RAC if > 1 node, RAC_ONE_NODE if single node
+        crs_proc = _run("ps -eo comm 2>/dev/null | grep -E '^crsd\\.bin$|^ocssd\\.bin$' | head -1")
+        if crs_proc:
+            result['cluster_type'] = 'RAC' if len(result['nodes']) > 1 else 'RAC_ONE_NODE'
+        else:
+            has_proc = _run("ps -eo comm 2>/dev/null | grep -E '^ohasd\\.bin$' | head -1")
+            if has_proc:
+                result['cluster_type'] = 'STANDALONE'
 
     # OS identity — discover oracle/grid user and oinstall group from file ownership
     db_homes = list({e['home'] for e in result['oratab'] if e.get('home')})

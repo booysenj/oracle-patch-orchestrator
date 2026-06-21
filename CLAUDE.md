@@ -25,7 +25,7 @@ No test suite is configured.
 cd /opt/insight-patch-ui && git pull && systemctl restart insight-patch-ui
 ```
 
-Agent (`insight-agent.py`) auto-updates within ~5 min after server restart via SHA256 check — no manual redeploy needed.
+Agent (`insight-agent.py`) auto-updates within ~5 min after server restart via SHA256 check — **only if the agent already has the self-update mechanism** (the version in `frontend/agent-download/insight-agent.py`). The legacy simple agent in `agent/insight-agent.py` has no self-update; it requires a manual SSH redeploy via the Deploy Agent button in the admin UI.
 
 ## Architecture
 
@@ -108,3 +108,39 @@ New columns are added via `try { d.exec('ALTER TABLE ... ADD COLUMN ...') } catc
 | `routes/reports.js` | `patch_reports` table — HTML report storage and download |
 | `lib/job-runner.js` | `createJob()`, `OPERATION_PHASES` map, `jobEvents` EventEmitter |
 | `lib/scheduler-jobs.js` | Checks due scheduled jobs every 30s, times out stale running jobs every 5 min |
+| `routes/scheduler.js` | Scheduler CRUD + its own tick that calls `createJob()` from `job-runner.js` |
+
+### Scheduler architecture
+
+Two independent ticks both fire every 30s for PENDING schedules — `routes/scheduler.js` `startSchedulerTick()` and `server.js` calling `checkDueSchedules()` from `scheduler-jobs.js`. They don't conflict (first to fire changes status away from PENDING). Always use `createJob()` from `job-runner.js` to queue scheduled jobs — it knows the correct schema and sets `execution_mode`. Never write a raw INSERT into `jobs` from scheduler code.
+
+### Stale-job timeout
+
+Running jobs time out to `failed` after **30 minutes** (`scheduler-jobs.js:timeoutStaleJobs`). AutoUpgrade-based db_switch takes 1–2 hours. If the backend restarts mid-job, the agent continues running and will POST `/api/agent/:jobId/complete` when done — but if the backend was down at that exact moment, the completion is lost and the job will time out to `failed`. The patch itself may have succeeded even when the job shows `failed`; always verify the Oracle DB state (`v$database`, current home in oratab) before re-running.
+
+### Agent discovery
+
+`insight-agent.py` runs `discover()` on startup and every 60 s (~12 poll cycles). It POSTs to `POST /api/agent/discover` which updates `vms` columns. Fields populated by agent discovery:
+
+| Column | Source |
+|---|---|
+| `old_gi_home`, `current_db_home`, `old_db_home` | `olr.loc` / CRS process / oratab |
+| `running_dbs` (in `static_json`) | `pmon_*` processes |
+| `db_unique_name`, `database_role`, `db_version` | sqlplus `v$database` / `v$instance` per SID |
+| `db_unique_names` (in `static_json`) | dict `{sid: unique_name}` for all running DBs |
+| `cluster_type` | CRS daemon detection: `RAC_ONE_NODE` / `RAC` / `STANDALONE` |
+| `crs_version` | `crsctl query crs activeversion` |
+| `cluster_name`, `nodes_json` | `olsnodes` |
+| `oracle_user`, `grid_user`, `oinstall_group` | file ownership of oracle/crsctl binary |
+
+Fields populated only by `[DISCOVERY_JSON]` lines during job execution (not by periodic discovery): `cluster_type`, `db_version`, `switchover_status`, `rollback_gi_home`, `rollback_db_home`.
+
+### Run Operation modal — DB Unique Name field
+
+For VMs with a single DB, the field auto-fills from `vm.db_unique_name` or `static_json.running_dbs[0]`.  
+For VMs with multiple DBs (e.g. OneNodeRAC), a `<select>` dropdown is shown. Values are resolved via `static_json.db_unique_names` (sid→unique_name map) so the actual `db_unique_name` (not the SID) is passed to the bash script. The SID and unique name differ on RAC: SID = `sretest_1`, unique name = `SRETEST`.
+
+### DB-only VMs (DB_ONLY_MODE)
+
+VMs without GI/ASM (`old_gi_home` is null or empty). The listener lives in the DB home and must be managed via `manage_db_only_listener`. In `db_switch_core` and `db_rollback`, `manage_db_only_listener` is called **before** `send_db_open_notification` so users can connect as soon as they receive the "DB Open" email. Listener status is included in that notification via `_html_row` (silent — not shown in main phase Report tab).
+
