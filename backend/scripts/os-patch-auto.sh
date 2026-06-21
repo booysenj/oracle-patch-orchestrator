@@ -2248,6 +2248,96 @@ update_oratab_db_after_rollback() {
     rm -f "$tmp"
 }
 
+# Idempotent oratab normalizer — removes ALL active entries for $sid and writes
+# exactly one: sid:target_home:N. Also strips accumulated OOP comment tags for
+# the same SID to prevent noise from repeated switch/rollback cycles.
+normalize_oratab_for_sid() {
+    local sid="$1"
+    local target_home="${2%/}"
+    if [[ ! -f "$ORATAB_FILE" ]]; then
+        log "WARN: $ORATAB_FILE not found; cannot update."
+        return
+    fi
+    backup_oratab
+    local tmp="${LOG_DIR}/oratab.tmp.$$"
+    : > "$tmp"
+    while IFS= read -r line; do
+        if [[ -z "$line" ]]; then
+            echo "$line" >> "$tmp"; continue
+        fi
+        if [[ "$line" =~ ^# ]]; then
+            # Drop accumulated OOP comment lines for this SID to prevent runaway accumulation
+            if [[ "$line" =~ OOP-(SWITCH|ROLLBACK-REMOVED).*${sid}: ]]; then
+                continue
+            fi
+            echo "$line" >> "$tmp"; continue
+        fi
+        local _sid _home _flag
+        IFS=: read -r _sid _home _flag _ <<<"$line"
+        if [[ "$_sid" == "$sid" ]]; then
+            continue  # Remove all existing active entries for this SID
+        fi
+        echo "$line" >> "$tmp"
+    done < "$ORATAB_FILE"
+    echo "${sid}:${target_home}:N" >> "$tmp"
+    if ! sudo cp -p "$tmp" "$ORATAB_FILE" 2>/dev/null; then
+        if ! run_cmd "sudo cp -p \"$tmp\" \"$ORATAB_FILE\""; then
+            add_html_row "/etc/oratab" "FAIL" "Could not update $ORATAB_FILE; set ${sid}:${target_home}:N manually."
+            rm -f "$tmp"; return
+        fi
+    fi
+    add_html_row "/etc/oratab" "PASS" "${sid} → ${target_home} (single active entry written)."
+    rm -f "$tmp"
+}
+
+# Stop listener from $1 home, copy missing network/admin files, start from $2 home.
+# Used for DB-only hosts where the listener is managed from the DB home (no GI/srvctl).
+manage_db_only_listener() {
+    local from_home="${1%/}"
+    local to_home="${2%/}"
+
+    # Copy missing network/admin files so the listener in the new home can start
+    if [[ -d "$from_home/network/admin" && "$from_home" != "$to_home" ]]; then
+        sudo -u "$ORACLE_USER" bash -c "
+            mkdir -p \"$to_home/network/admin\"
+            for f in listener.ora tnsnames.ora sqlnet.ora; do
+                src=\"$from_home/network/admin/\$f\"
+                dst=\"$to_home/network/admin/\$f\"
+                [[ -f \"\$src\" && ! -f \"\$dst\" ]] && cp -p \"\$src\" \"\$dst\" && echo \"Copied \$f\"
+            done
+        " 2>&1 | while IFS= read -r _l; do [[ -n "$_l" ]] && log "network/admin copy: $_l"; done || true
+        add_html_row "Listener network/admin" "INFO" "Missing files copied from $from_home/network/admin to $to_home/network/admin."
+    fi
+
+    # Stop listener from the OLD home (best-effort; may already be down)
+    if [[ -x "$from_home/bin/lsnrctl" ]]; then
+        sudo -u "$ORACLE_USER" bash -c "
+            export ORACLE_HOME=\"$from_home\"
+            export PATH=\"$from_home/bin:\$PATH\"
+            \"$from_home/bin/lsnrctl\" stop 2>&1 | tail -3
+        " 2>&1 | while IFS= read -r _l; do log "lsnrctl stop: $_l"; done || true
+        add_html_row "Listener stop" "INFO" "Stopped listener from $from_home (may have already been down)."
+    fi
+
+    # Start listener from the NEW home
+    if [[ -x "$to_home/bin/lsnrctl" ]]; then
+        local lsnr_out lsnr_rc=0
+        lsnr_out=$(sudo -u "$ORACLE_USER" bash -c "
+            export ORACLE_HOME=\"$to_home\"
+            export PATH=\"$to_home/bin:\$PATH\"
+            \"$to_home/bin/lsnrctl\" start 2>&1
+        ") || lsnr_rc=$?
+        if echo "$lsnr_out" | grep -qi "The command completed successfully"; then
+            add_html_row "Listener start" "PASS" "Listener started from $to_home."
+        else
+            add_html_row "Listener start" "WARN" \
+                "lsnrctl start RC=${lsnr_rc}. Last output: $(echo "$lsnr_out" | grep -v '^[[:space:]]*$' | tail -3 | tr '\n' ' '). May need manual start."
+        fi
+    else
+        add_html_row "Listener start" "WARN" "lsnrctl not found at $to_home/bin — start listener manually."
+    fi
+}
+
 ensure_asm_oratab_entry_for_gi_home() {
     local gi_home="$1"
     if [[ ! -f "$ORATAB_FILE" ]]; then
@@ -7089,7 +7179,7 @@ SQEOF
                     "Shutdown RC=$shutdown_rc. Output: $(echo "$shutdown_out" | head -5). Proceeding."
             fi
 
-            update_oratab_db_after_switch
+            normalize_oratab_for_sid "$DB_UNIQUE_NAME" "$NEW_DB_HOME"
 
             log "Starting $DB_UNIQUE_NAME (SID=$sid_for_switch) from new home $NEW_DB_HOME..."
             local startup_out startup_rc=0
@@ -7147,6 +7237,13 @@ SQEOF
                 add_html_row "DB open mode check" "WARN" "Database did not reach target state — datapatch skipped."
             fi
         fi
+
+        # Ensure oratab reflects NEW_DB_HOME (AutoUpgrade may have already done this;
+        # normalize_oratab_for_sid is idempotent so safe to call either way)
+        normalize_oratab_for_sid "$DB_UNIQUE_NAME" "$NEW_DB_HOME"
+
+        # Restart listener from new home (DB-only: listener lives in DB home)
+        manage_db_only_listener "$current_home" "$NEW_DB_HOME"
 
         local switch_method="SQL*Plus"
         [[ "$au_switch_used" == true ]] && switch_method="AutoUpgrade"
@@ -7250,7 +7347,7 @@ SQEOF
     fi
 
     if [[ "$DRYRUN" == false ]]; then
-        update_oratab_db_after_switch
+        normalize_oratab_for_sid "$DB_UNIQUE_NAME" "$NEW_DB_HOME"
     fi
 
     if [[ "$ran_datapatch" == true ]]; then
@@ -7364,7 +7461,7 @@ SQEOF
         fi
 
         # --- Update /etc/oratab ---
-        update_oratab_db_after_rollback
+        normalize_oratab_for_sid "$DB_UNIQUE_NAME" "$OLD_DB_HOME"
 
         # --- Startup from OLD_DB_HOME (untouched, no file copies needed) ---
         log "Starting $DB_UNIQUE_NAME (SID=${sid_for_rb}) from old home $OLD_DB_HOME..."
@@ -7414,6 +7511,9 @@ SQEOF
             add_html_row "DB open mode check (rollback)" "WARN" \
                 "Database did not reach target state — datapatch skipped."
         fi
+
+        # Restart listener from rollback home (DB-only: listener lives in DB home)
+        manage_db_only_listener "$current_home" "$OLD_DB_HOME"
 
         local msg="Database $DB_UNIQUE_NAME rolled back to OLD_DB_HOME (${OLD_DB_HOME}) via SQL*Plus. [DB_ONLY_MODE]"
         if [[ "$ran_datapatch" == true ]]; then
@@ -7480,7 +7580,7 @@ SQEOF
     fi
 
     if [[ "$DRYRUN" == false ]]; then
-        update_oratab_db_after_rollback
+        normalize_oratab_for_sid "$DB_UNIQUE_NAME" "$OLD_DB_HOME"
     fi
 
     if [[ -f "${LOG_DIR}/db_old_patchlevel.html" ]]; then
