@@ -86,10 +86,23 @@ router.get('/poll', (req, res) => {
         return base + '/' + version;
     }
 
+    // Email settings: per-VM override > global admin setting
+    var globalMailTo = '', globalMailFrom = '';
+    try {
+        var _ms = db.prepare("SELECT value FROM app_settings WHERE key='mail_to'").get();
+        if (_ms && _ms.value) globalMailTo = _ms.value;
+        _ms = db.prepare("SELECT value FROM app_settings WHERE key='mail_from'").get();
+        if (_ms && _ms.value) globalMailFrom = _ms.value;
+    } catch(_e) {}
+    var _mailTo   = vm.mail_to   || globalMailTo;
+    var _mailFrom = vm.mail_from || globalMailFrom;
+
     var env = {};
     var dbOldHome = vm.old_db_home || vm.current_db_home || '';
     if (vm.old_gi_home) env.OLD_GI_HOME = vm.old_gi_home;
     if (dbOldHome)      env.OLD_DB_HOME  = dbOldHome;
+    if (_mailTo)        env.MAIL_TO      = _mailTo;
+    if (_mailFrom)      env.MAIL_FROM    = _mailFrom;
     // Rollback homes — snapshotted at last gi_switch/db_switch via home_switched DISCOVERY_JSON.
     // Required by gi_rollback/db_rollback so the script targets the pre-switch home even after
     // discovery updates old_gi_home/old_db_home to the post-switch value.

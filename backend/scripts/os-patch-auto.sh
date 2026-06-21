@@ -6953,8 +6953,11 @@ db_switch_core() {
                 add_html_row "Switch method" "INFO" "AutoUpgrade deploy (handles shutdown, startup, oratab, datapatch)."
                 add_html_row "Java binary" "INFO" "$java_bin"
 
-                local au_cfg
-                au_cfg=$(write_db_switch_autoupgrade_cfg "$DB_UNIQUE_NAME" "$current_home" "$NEW_DB_HOME" | tail -1)
+                local au_cfg au_logdir
+                local _au_cfg_out
+                _au_cfg_out=$(write_db_switch_autoupgrade_cfg "$DB_UNIQUE_NAME" "$current_home" "$NEW_DB_HOME")
+                au_logdir=$(echo "$_au_cfg_out" | tail -2 | head -1)
+                au_cfg=$(echo "$_au_cfg_out" | tail -1)
                 add_html_row "AutoUpgrade config" "INFO" "$au_cfg"
 
                 local au_log="${DB_LOG_DIR}/autoupgrade_switch_${DB_UNIQUE_NAME}_$(date +%F_%H%M%S).log"
@@ -7037,6 +7040,10 @@ db_switch_core() {
                 fi
 
                 add_attachment "$au_log"
+                local au_status_html="${au_logdir}/cfgtoollogs/upgrade/auto/status/status.html"
+                if [[ -f "$au_status_html" ]]; then
+                    add_attachment "$au_status_html"
+                fi
 
                 if [[ "$au_success" == true ]]; then
                     add_html_row "AutoUpgrade deploy" "PASS" \
@@ -7643,6 +7650,7 @@ EOF
     log "INFO: write_db_switch_autoupgrade_cfg: config written to $cfg_file"
     log "INFO:   SID=$sid, source_home=$src_home, target_home=$tgt_home_override, log_dir=$logdir"
 
+    echo "$logdir"
     echo "$cfg_file"
 }
 db_upgrade_precheck() {
