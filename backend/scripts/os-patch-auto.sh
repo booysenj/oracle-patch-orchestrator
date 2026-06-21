@@ -835,7 +835,7 @@ validate_staged_software_html() {
             add_html_row "GI Base ZIP" "PASS" "$GI_BASE_ZIP (${gi_size})"
         else
             add_html_row "GI Base ZIP" "FAIL" \
-                "GI base ZIP missing: $GI_BASE_ZIP — drop V982068-01.zip into $STAGING_DROP_DIR"
+                "GI base ZIP missing: ${GI_BASE_ZIP:-<not discovered>} — drop the GI base ZIP into $STAGING_DROP_DIR and run stage_software"
             has_failures=true
         fi
     fi
@@ -847,7 +847,7 @@ validate_staged_software_html() {
             add_html_row "DB Base ZIP" "PASS" "$DB_BASE_ZIP (${db_size})"
         else
             add_html_row "DB Base ZIP" "FAIL" \
-                "DB base ZIP missing: $DB_BASE_ZIP — drop V982063-01.zip into $STAGING_DROP_DIR"
+                "DB base ZIP missing: ${DB_BASE_ZIP:-<not discovered>} — drop the DB base ZIP into $STAGING_DROP_DIR and run stage_software"
             has_failures=true
         fi
     fi
@@ -873,7 +873,7 @@ validate_staged_software_html() {
         add_html_row "OPatch ZIP" "PASS" "$OPATCH_ZIP"
     else
         add_html_row "OPatch ZIP" "WARN" \
-            "OPatch ZIP missing: ${OPATCH_ZIP:-<not discovered>} — drop p6880880_190000_Linux-x86-64.zip into $STAGING_DROP_DIR"
+            "OPatch ZIP missing: ${OPATCH_ZIP:-<not discovered>} — drop the OPatch ZIP (p6880880_*.zip) into $STAGING_DROP_DIR and run stage_software"
     fi
 
     if [[ "$which" == "db" || "$which" == "all" ]]; then
@@ -6357,11 +6357,13 @@ db_precheck() {
             "Could not determine filesystem for $OLD_DB_HOME"
     fi
 
-    if [[ -n "$gi_fs" ]]; then
-        check_space_html "$gi_fs" 20
-    else
-        add_html_row "Filesystem space for OLD_GI_HOME" "WARN" \
-            "Could not determine filesystem for $OLD_GI_HOME"
+    if [[ -n "${OLD_GI_HOME:-}" ]]; then
+        if [[ -n "$gi_fs" ]]; then
+            check_space_html "$gi_fs" 20
+        else
+            add_html_row "Filesystem space for OLD_GI_HOME" "WARN" \
+                "Could not determine filesystem for $OLD_GI_HOME"
+        fi
     fi
 
     check_oracle_sudo_nopass_html

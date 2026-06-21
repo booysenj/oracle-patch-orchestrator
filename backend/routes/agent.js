@@ -103,6 +103,17 @@ router.get('/poll', (req, res) => {
     if (dbOldHome)      env.OLD_DB_HOME  = dbOldHome;
     if (_mailTo)        env.MAIL_TO      = _mailTo;
     if (_mailFrom)      env.MAIL_FROM    = _mailFrom;
+    // Staging path — drives STAGING_DROP_DIR and is prepended to PATCH_SEARCH_ROOTS_ENV
+    // so the bash script finds staged files in the VM's configured staging location.
+    var stagingPath = vm.stage_path || vm.preferred_staging_mount || '';
+    if (stagingPath) {
+        env.STAGE_PATH = stagingPath;
+        var _defaultRoots = '/grid/software:/app/software:/app/software/db_software/patches:/staging/software';
+        var _existingRoots = env.PATCH_SEARCH_ROOTS_ENV || _defaultRoots;
+        if (_existingRoots.indexOf(stagingPath) < 0) {
+            env.PATCH_SEARCH_ROOTS_ENV = stagingPath + ':' + _existingRoots;
+        }
+    }
     // Rollback homes — snapshotted at last gi_switch/db_switch via home_switched DISCOVERY_JSON.
     // Required by gi_rollback/db_rollback so the script targets the pre-switch home even after
     // discovery updates old_gi_home/old_db_home to the post-switch value.
