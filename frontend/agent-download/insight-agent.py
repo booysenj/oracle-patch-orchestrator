@@ -213,8 +213,9 @@ def discover():
                             result['oratab'].append({'sid': sid, 'home': home})
                         elif not sid.startswith('+'):
                             result['oratab'].append({'sid': sid, 'home': home})
-    except Exception:
-        pass
+    except Exception as _oratab_err:
+        print('[agent] oratab parse error: %s' % _oratab_err)
+    print('[agent] oratab entries: %s' % [(o['sid'], o['home']) for o in result['oratab']])
 
     # Running DB instances — scan /proc directly (avoids shell pipeline issues in
     # systemd-managed processes where 'ps | grep' can return empty unexpectedly).
