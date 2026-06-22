@@ -340,15 +340,35 @@ async function updateScheduleEntry(id) {
 
 async function clearOldSchedules() {
     var TERMINAL = ['CANCELLED', 'DISPATCHED', 'FAILED', 'COMPLETED'];
-    var toDelete = schedulesList.filter(function(s) { return TERMINAL.indexOf(s.status) >= 0; });
-    if (!toDelete.length) { showToast('Nothing to clear', 'info'); return; }
-    if (!confirm('Delete all ' + toDelete.length + ' completed/cancelled/failed schedules? This cannot be undone.')) return;
+    // Respect active filters — only clear terminal records visible in the current view
+    var statusVal = (document.getElementById('schedStatusFilter') || {}).value || '';
+    var opVal = (document.getElementById('schedOpFilter') || {}).value || '';
+    var vmVal = ((document.getElementById('schedVmFilter') || {}).value || '').toLowerCase().trim();
+    var hasFilter = statusVal || opVal || vmVal;
+
+    var toDelete = schedulesList.filter(function(s) {
+        if (TERMINAL.indexOf(s.status) < 0) return false;
+        if (statusVal && s.status !== statusVal) return false;
+        if (opVal && s.operation !== opVal) return false;
+        if (vmVal) {
+            var names = (s.vm_names || []).join(' ').toLowerCase();
+            if (names.indexOf(vmVal) < 0) return false;
+        }
+        return true;
+    });
+
+    if (!toDelete.length) { showToast('Nothing to clear' + (hasFilter ? ' matching current filters' : ''), 'info'); return; }
+    var scope = hasFilter
+        ? 'Delete ' + toDelete.length + ' filtered completed/cancelled/failed schedule(s)?'
+        : 'Delete ALL ' + toDelete.length + ' completed/cancelled/failed schedules?';
+    if (!confirm(scope + ' This cannot be undone.')) return;
+
     var failed = 0;
     for (var i = 0; i < toDelete.length; i++) {
         try { await api('/schedules/' + toDelete[i].id, { method: 'DELETE' }); }
         catch(_) { failed++; }
     }
-    showToast('Cleared ' + (toDelete.length - failed) + ' schedules' + (failed ? ' (' + failed + ' failed)' : ''), failed ? 'error' : 'success');
+    showToast('Cleared ' + (toDelete.length - failed) + ' schedule(s)' + (failed ? ' (' + failed + ' failed)' : ''), failed ? 'error' : 'success');
     loadScheduledJobs();
 }
 
