@@ -7519,7 +7519,11 @@ SQEOF
     fi
 
     if [[ "$DRYRUN" == false ]]; then
-        normalize_oratab_for_sid "$DB_UNIQUE_NAME" "$NEW_DB_HOME"
+        # Use the actual SID for oratab (not the unique name — oratab keys on SID)
+        local _sid_for_oratab="${sid_for_dp:-}"
+        [[ -z "$_sid_for_oratab" ]] && _sid_for_oratab=$(get_db_sid "$DB_UNIQUE_NAME" 2>/dev/null || true)
+        [[ -z "$_sid_for_oratab" ]] && _sid_for_oratab="$DB_UNIQUE_NAME"
+        normalize_oratab_for_sid "$_sid_for_oratab" "$NEW_DB_HOME"
     fi
 
     if [[ "$ran_datapatch" == true ]]; then

@@ -309,15 +309,17 @@ def discover():
     # RAC instance SIDs have a node-number suffix: source1 → oratab has 'source',
     # or underscore form: sretest_1 → oratab has 'sretest'. Try both strip patterns.
     def _oratab_home(sid):
-        home = next((o['home'] for o in result['oratab'] if o['sid'] == sid), None)
+        sid_lower = sid.lower()
+        # Case-insensitive exact match first (oratab SIDs can be upper or mixed case)
+        home = next((o['home'] for o in result['oratab'] if o['sid'].lower() == sid_lower), None)
         if not home:
-            # Strip trailing digits: source1 → source
-            base = sid.rstrip('0123456789')
-            home = next((o['home'] for o in result['oratab'] if o['sid'] == base), None)
+            # Strip trailing digits: source1 → source, cdbtarget1 → cdbtarget
+            base = sid_lower.rstrip('0123456789')
+            home = next((o['home'] for o in result['oratab'] if o['sid'].lower() == base), None)
         if not home:
             # Strip _N suffix: sretest_1 → sretest
-            base = re.sub(r'_[0-9]+$', '', sid)
-            home = next((o['home'] for o in result['oratab'] if o['sid'] == base), None)
+            base = re.sub(r'_[0-9]+$', '', sid_lower)
+            home = next((o['home'] for o in result['oratab'] if o['sid'].lower() == base), None)
         return home
 
     sql = (
