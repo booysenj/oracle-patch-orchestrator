@@ -2754,7 +2754,7 @@ async function openScheduleFromDashboard() {
   if (patchVer) document.getElementById('schedPatchVersion').value = patchVer;
   if (dbUniqueName) {
     var dbUniqInput = document.getElementById('schedDbUniqueName');
-    if (dbUniqInput) dbUniqInput.value = dbUniqueName.toUpperCase();
+    if (dbUniqInput) dbUniqInput.value = dbUniqueName;
   }
 }
 

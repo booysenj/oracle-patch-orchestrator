@@ -156,7 +156,7 @@ async function submitSchedule() {
     var dbUniqGroup = document.getElementById('schedDbUniqueNameGroup');
     var dbUniqueName = '';
     if (dbUniqGroup && dbUniqGroup.style.display !== 'none') {
-        dbUniqueName = (document.getElementById('schedDbUniqueName').value || '').trim().toUpperCase();
+        dbUniqueName = (document.getElementById('schedDbUniqueName').value || '').trim();
         if (!dbUniqueName) { errEl.textContent = 'DB Unique Name is required for ' + operation; return; }
     }
 
