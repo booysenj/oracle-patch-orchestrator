@@ -3452,7 +3452,33 @@ get_db_type() {
     local db="$1"
     local t=""
     if [[ -n "$SRVCTL_BIN" ]]; then
-        t=$("$SRVCTL_BIN" config database -d "$db" 2>/dev/null | awk -F: '/Type/{gsub(/^[ \t]+/, "", $2); print $2}' || true)
+        # srvctl needs ORACLE_HOME pointing at the GI home to resolve its libraries
+        t=$(ORACLE_HOME="${OLD_GI_HOME:-}" "$SRVCTL_BIN" config database -d "$db" 2>/dev/null \
+            | awk -F: '/^Type/{gsub(/^[ \t]+|[ \t]+$/, "", $2); print $2}' || true)
+    fi
+    # Fallback: if srvctl unavailable or returned empty, check cluster_database parameter
+    # via sqlplus on the SID that maps to this db name.
+    if [[ -z "$t" ]]; then
+        local _sid _home _cdb
+        _sid=$(get_db_sid "$db")
+        _home=$(get_db_home "$db")
+        if [[ -n "$_sid" && -n "$_home" && -x "$_home/bin/sqlplus" ]]; then
+            _cdb=$(sudo -u "${ORACLE_USER:-oracle}" bash -c "
+                export ORACLE_HOME=\"$_home\"
+                export ORACLE_SID=\"$_sid\"
+                export PATH=\"$_home/bin:\$PATH\"
+                export LD_LIBRARY_PATH=\"$_home/lib:\${LD_LIBRARY_PATH:-}\"
+                \"$_home/bin/sqlplus\" -s / as sysdba 2>/dev/null <<'EOF'
+set heading off feedback off pages 0 verify off echo off termout off
+select value from v\$parameter where name='cluster_database';
+exit
+EOF
+            " 2>/dev/null) || true
+            _cdb=$(printf '%s\n' "$_cdb" | grep -Ei '^true$|^false$' | head -1 | tr '[:lower:]' '[:upper:]')
+            if [[ "$_cdb" == "TRUE" ]]; then
+                t="RAC ONE NODE"
+            fi
+        fi
     fi
     echo "$t"
 }
@@ -6662,14 +6688,16 @@ The db_install phase will auto-detect and use /app/tmp if /tmp is noexec."
                 continue
             fi
 
-            # Type: default SINGLE INSTANCE
+            # Determine DB type and open mode in a single sqlplus call to avoid
+            # running the heavy connection twice. Query db_unique_name, cluster_database,
+            # and open_mode together.
             local DB_TYPE="SINGLE INSTANCE"
-            # [[ -n "$SRVCTL_BIN" ]] && DB_TYPE=$(get_db_type "$DB_SID")
-
-            # FIX: Open mode — run as ORACLE_USER with exported env + || true guard
             local OPEN_MODE="UNKNOWN"
+            local _disc_db_uniq=""
+            local _disc_cluster_db="FALSE"
             if [[ -x "$DB_HOME/bin/sqlplus" ]]; then
-                OPEN_MODE=$(
+                local _disc_sql_out
+                _disc_sql_out=$(
                     sudo -u "$ORACLE_USER" bash -c "
                         export ORACLE_HOME=\"$DB_HOME\"
                         export ORACLE_SID=\"$DB_SID\"
@@ -6677,13 +6705,33 @@ The db_install phase will auto-detect and use /app/tmp if /tmp is noexec."
                         export LD_LIBRARY_PATH=\"$DB_HOME/lib:\${LD_LIBRARY_PATH:-}\"
                         \"$DB_HOME/bin/sqlplus\" -s / as sysdba 2>&1 <<'EOF'
 set heading off feedback off pages 0 verify off echo off termout off
-select open_mode from v\$database;
+select 'OPEN_MODE='||open_mode from v\$database;
+select 'DB_UNIQUE_NAME='||db_unique_name from v\$database;
+select 'CLUSTER_DATABASE='||value from v\$parameter where name='cluster_database';
 exit
 EOF
                     "
                 ) || true
-                OPEN_MODE=$(printf '%s\n' "$OPEN_MODE" | tr -d '\r' | grep -v '^SQL\*Plus\|^Connected\|^ERROR:\|^ORA-\|^SP2-' | sed '/^[[:space:]]*$/d' | head -1)
+
+                OPEN_MODE=$(printf '%s\n' "$_disc_sql_out" | grep '^OPEN_MODE=' | head -1 | cut -d= -f2- | tr -d ' \r')
+                _disc_db_uniq=$(printf '%s\n' "$_disc_sql_out" | grep '^DB_UNIQUE_NAME=' | head -1 | cut -d= -f2- | tr -d ' \r')
+                _disc_cluster_db=$(printf '%s\n' "$_disc_sql_out" | grep '^CLUSTER_DATABASE=' | head -1 | cut -d= -f2- | tr -d ' \r' | tr '[:lower:]' '[:upper:]')
                 [[ -z "$OPEN_MODE" ]] && OPEN_MODE="UNKNOWN"
+            fi
+
+            # DB type detection: srvctl (most accurate) → cluster_database fallback
+            local _db_name_for_srvctl="${_disc_db_uniq:-$DB_SID}"
+            if [[ -n "$SRVCTL_BIN" && -n "$_db_name_for_srvctl" ]]; then
+                local _srvctl_type
+                _srvctl_type=$(ORACLE_HOME="${OLD_GI_HOME:-}" "$SRVCTL_BIN" config database \
+                    -d "$_db_name_for_srvctl" 2>/dev/null \
+                    | awk -F: '/^Type/{gsub(/^[ \t]+|[ \t]+$/, "", $2); print $2}' || true)
+                [[ -n "$_srvctl_type" ]] && DB_TYPE="$_srvctl_type"
+            elif [[ "$_disc_cluster_db" == "TRUE" ]]; then
+                # cluster_database=TRUE means GI manages this DB (RAC ONE NODE or RAC).
+                # Without srvctl we can't distinguish; default to RAC ONE NODE for
+                # single-node GI environments which is more accurate than SINGLE INSTANCE.
+                DB_TYPE="RAC ONE NODE"
             fi
 
             # Patch level
@@ -7955,7 +8003,7 @@ db_upgrade_precheck() {
                 local gi_mode
                 gi_mode=$(detect_gi_cluster_mode)
                 if [[ "$gi_mode" == "HAS" ]]; then
-                    t="SINGLE INSTANCE"
+                    t="ORACLE RESTART"
                 fi
             fi
             if [[ -z "$home" ]]; then
