@@ -7450,8 +7450,8 @@ SQEOF
 
     local switch_desc
     case "$db_type" in
-        rac*)       switch_desc="RAC switch to NEW_DB_HOME for $DB_UNIQUE_NAME" ;;
         raconenode)  switch_desc="RACOneNode switch to NEW_DB_HOME for $DB_UNIQUE_NAME" ;;
+        rac*)        switch_desc="RAC switch to NEW_DB_HOME for $DB_UNIQUE_NAME" ;;
         *)           switch_desc="Single-instance switch to NEW_DB_HOME for $DB_UNIQUE_NAME" ;;
     esac
 
