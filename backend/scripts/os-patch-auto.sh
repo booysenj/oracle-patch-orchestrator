@@ -1936,16 +1936,28 @@ send_db_open_notification() {
         _lsnr_home="$OLD_GI_HOME"
     fi
     if [[ -x "$_lsnr_home/bin/lsnrctl" ]]; then
-        local _lsnr_out _lsnr_rc=0
-        _lsnr_out=$(sudo -u "${GRID_USER:-$ORACLE_USER}" bash -c "
-            export ORACLE_HOME=\"$_lsnr_home\"
-            export PATH=\"$_lsnr_home/bin:\$PATH\"
-            \"$_lsnr_home/bin/lsnrctl\" status 2>&1
-        " 2>/dev/null) || _lsnr_rc=$?
+        local _lsnr_out _lsnr_rc=0 _lsnr_wait=0
+        # Services register a few seconds after the listener process starts.
+        # Retry up to 30s so the notification reflects actual service state.
+        while true; do
+            _lsnr_out=$(sudo -u "${GRID_USER:-$ORACLE_USER}" bash -c "
+                export ORACLE_HOME=\"$_lsnr_home\"
+                export PATH=\"$_lsnr_home/bin:\$PATH\"
+                \"$_lsnr_home/bin/lsnrctl\" status 2>&1
+            " 2>/dev/null) || _lsnr_rc=$?
+            if echo "$_lsnr_out" | grep -qi "status READY"; then
+                break  # At least one service registered
+            fi
+            if (( _lsnr_wait >= 30 )); then
+                break  # Give up waiting
+            fi
+            sleep 5
+            (( _lsnr_wait += 5 ))
+        done
         if echo "$_lsnr_out" | grep -qi "The command completed successfully"; then
             local _lsnr_svc
-            _lsnr_svc=$(echo "$_lsnr_out" | grep -i "Service\|Listening on" | head -3 | tr '\n' ' ')
-            _html_row "Listener" "INFO" "Listener UP (managed by ${_lsnr_home}). ${_lsnr_svc:+Services: ${_lsnr_svc}}"
+            _lsnr_svc=$(echo "$_lsnr_out" | grep -i "^Service" | grep -v "has 0" | head -5 | tr '\n' ' ')
+            _html_row "Listener" "INFO" "Listener UP from ${_lsnr_home}. Services: ${_lsnr_svc:-The listener supports no services}"
         else
             _html_row "Listener" "WARN" \
                 "Listener (${_lsnr_home}) did not confirm READY (RC=${_lsnr_rc}). Check: lsnrctl status"
