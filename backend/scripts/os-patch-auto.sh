@@ -4945,7 +4945,7 @@ check_asm_running_html() {
     local logf="${LOG_DIR}/srvctl_status_asm_$(date +%F_%H%M%S).log"
     local pmon_log="${LOG_DIR}/pmon_snapshot_$(date +%F_%H%M%S).log"
     ps -eo user,pid,cmd | grep '[p]mon_' > "$pmon_log" 2>&1 || true
-    add_attachment "$pmon_log"
+    add_html_attachment "$pmon_log" "PMON Snapshot"
     if [[ -z "$SRVCTL_BIN" ]]; then
         add_html_row "ASM status" "WARN" \
             "srvctl not available; cannot confirm ASM status from GI. PMON snapshot saved to $pmon_log"
@@ -4970,7 +4970,7 @@ check_asm_running_html() {
         sleep "$interval"
         elapsed=$(( elapsed + interval ))
     done
-    add_attachment "$logf"
+    add_html_attachment "$logf" "SRVCTL Status ASM"
     if [[ "$asm_running" == true ]]; then
         add_html_row "ASM status" "PASS" \
             "ASM is running as per 'srvctl status asm' (waited ~${elapsed}s). See $logf. PMON snapshot: $pmon_log"
@@ -5312,7 +5312,7 @@ check_asm_running_html() {
     local pmon_log="${LOG_DIR}/pmon_snapshot_$(date +%F_%H%M%S).log"
 
     ps -eo user,pid,cmd | grep '[p]mon_' > "$pmon_log" 2>&1 || true
-    add_attachment "$pmon_log"
+    add_html_attachment "$pmon_log" "PMON Snapshot"
 
     if [[ -z "$SRVCTL_BIN" ]]; then
         add_html_row "ASM status" "WARN" \
@@ -5340,7 +5340,7 @@ check_asm_running_html() {
         elapsed=$(( elapsed + interval ))
     done
 
-    add_attachment "$logf"
+    add_html_attachment "$logf" "SRVCTL Status ASM"
 
     if [[ "$asm_running" == true ]]; then
         add_html_row "ASM status" "PASS" \
@@ -7362,10 +7362,15 @@ SQEOF
                     kill "$au_pid" 2>/dev/null || true
                 fi
 
-                add_attachment "$au_log"
-                local au_status_html="${au_logdir}/cfgtoollogs/upgrade/auto/status/status.html"
+                add_html_attachment "$au_log" "AutoUpgrade Deploy Log"
+                local au_status_dir="${au_logdir}/cfgtoollogs/upgrade/auto/status"
+                local au_status_html="${au_status_dir}/status.html"
+                local au_status_log="${au_status_dir}/status.log"
                 if [[ -f "$au_status_html" ]]; then
                     add_attachment "$au_status_html"
+                fi
+                if [[ -f "$au_status_log" ]]; then
+                    add_html_attachment "$au_status_log" "AutoUpgrade Status Log"
                 fi
 
                 if [[ "$au_success" == true ]]; then
