@@ -214,6 +214,9 @@ def discover():
 
     # Running DB instances from pmon processes
     pmon_out = _run("ps -eo args 2>/dev/null | grep 'pmon_' | grep -v grep")
+    if not pmon_out:
+        # Fallback: try comm column (some OS/kernel configs don't expose renamed argv[0])
+        pmon_out = _run("ps -eo comm 2>/dev/null | grep 'pmon_' | grep -v grep")
     for line in pmon_out.splitlines():
         m = re.search(r'pmon_([A-Za-z0-9_]+)', line)
         if m:
@@ -221,6 +224,7 @@ def discover():
             if not sid.startswith('+') and sid not in ('MGMTDB',):
                 if sid not in result['running_dbs']:
                     result['running_dbs'].append(sid)
+    print('[agent] pmon scan: running_dbs=%s' % result['running_dbs'])
 
     # Grid home — try olr.loc first (most reliable; works for CRS/RAC and HAS alike),
     # then fall back to process-based detection, then +ASM oratab entry.
