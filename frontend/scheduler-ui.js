@@ -105,6 +105,11 @@ function toggleSchedPatchVersion() {
 
     var rollbackNote = document.getElementById('schedRollbackNote');
     if (rollbackNote) rollbackNote.classList.toggle('hidden', !isRollback);
+
+    // Show DB Unique Name field for any op that targets a specific database
+    var needsDbUniq = /db_switch|db_rollback|gi_switch|gi_rollback/i.test(op);
+    var dbUniqGroup = document.getElementById('schedDbUniqueNameGroup');
+    if (dbUniqGroup) dbUniqGroup.style.display = needsDbUniq ? '' : 'none';
 }
 
 async function submitSchedule() {
@@ -148,6 +153,13 @@ async function submitSchedule() {
         pvId = document.getElementById('schedPatchVersion').value;
     }
 
+    var dbUniqGroup = document.getElementById('schedDbUniqueNameGroup');
+    var dbUniqueName = '';
+    if (dbUniqGroup && dbUniqGroup.style.display !== 'none') {
+        dbUniqueName = (document.getElementById('schedDbUniqueName').value || '').trim().toUpperCase();
+        if (!dbUniqueName) { errEl.textContent = 'DB Unique Name is required for ' + operation; return; }
+    }
+
     var btn = document.getElementById('schedSubmitBtn');
     btn.disabled = true; btn.textContent = 'Scheduling...';
 
@@ -162,7 +174,8 @@ async function submitSchedule() {
                 scheduled_at: new Date(dt).toISOString(),
                 timezone: 'Africa/Johannesburg',
                 execution_mode: mode,
-                notes: notes
+                notes: notes,
+                db_unique_name: dbUniqueName
             })
         });
         showToast('Scheduled: ' + name + ' at ' + dt, 'success');

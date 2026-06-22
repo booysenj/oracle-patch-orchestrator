@@ -63,6 +63,7 @@ module.exports = function(getDB, authenticateToken) {
         try { db.exec("ALTER TABLE scheduled_jobs ADD COLUMN recurrence_cron TEXT DEFAULT ''"); } catch(e) {}
         try { db.exec("ALTER TABLE scheduled_jobs ADD COLUMN execution_mode TEXT DEFAULT 'parallel'"); } catch(e) {}
         try { db.exec("ALTER TABLE scheduled_jobs ADD COLUMN max_parallel INTEGER DEFAULT 0"); } catch(e) {}
+        try { db.exec("ALTER TABLE scheduled_jobs ADD COLUMN db_unique_name TEXT DEFAULT ''"); } catch(e) {}
     })();
 
     // ---- In-memory schedule registry ----
@@ -112,7 +113,8 @@ module.exports = function(getDB, authenticateToken) {
             operation: sched.operation,
             dryRun: false,
             createdBy: 'scheduler:' + (sched.name || sched.id),
-            patchVersionId: sched.patch_version_id || ''
+            patchVersionId: sched.patch_version_id || '',
+            dbUniqueName: sched.db_unique_name || ''
         });
         const jobId = result.jobId;
 
@@ -281,8 +283,8 @@ module.exports = function(getDB, authenticateToken) {
         try {
             db.prepare(`INSERT INTO scheduled_jobs
                 (id, name, vm_ids, operation, patch_version_id, scheduled_at, timezone,
-                 execution_mode, max_parallel, status, notes, created_by)
-                VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`).run(
+                 execution_mode, max_parallel, status, notes, created_by, db_unique_name)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(
                 id,
                 b.name || b.operation + ' - ' + new Date(b.scheduled_at).toLocaleDateString(),
                 JSON.stringify(b.vm_ids),
@@ -294,7 +296,8 @@ module.exports = function(getDB, authenticateToken) {
                 b.max_parallel || 0,
                 'PENDING',
                 b.notes || '',
-                req.user ? req.user.username : '');
+                req.user ? req.user.username : '',
+                b.db_unique_name || '');
 
             res.status(201).json({ id: id, message: 'Scheduled job created', scheduled_at: b.scheduled_at });
         } catch (e) { res.status(500).json({ error: e.message }); }

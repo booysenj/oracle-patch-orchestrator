@@ -2644,13 +2644,20 @@ async function deleteMaintWindow(id) {
 async function openScheduleFromDashboard() {
   var vmId = document.getElementById('modalVmInfo').getAttribute('data-vm-id');
   var op = document.getElementById('opSelect').value;
-  var patchVer = document.getElementById('patchVersionSelect') ? document.getElementById('patchVersionSelect').value : '';
+  var patchVerEl = document.getElementById('patchVersionSelect');
+  var patchVer = patchVerEl ? patchVerEl.value : '';
+  // Capture DB Unique Name from the Run Operation modal before closing it
+  var dbUniqEl = document.getElementById('dbUniqueName');
+  var dbUniqueName = dbUniqEl ? dbUniqEl.value.trim() : '';
   closeModal();
-  // Pass the preset VM id so openScheduleModal checks exactly that VM and nothing else.
-  // Convert to number if needed so the loose-== comparison in openScheduleModal matches.
   var presetIds = vmId ? [vmId] : [];
   await openScheduleModal(op || '', presetIds);
+  // Restore all context from the VM card into the schedule modal
   if (patchVer) document.getElementById('schedPatchVersion').value = patchVer;
+  if (dbUniqueName) {
+    var dbUniqInput = document.getElementById('schedDbUniqueName');
+    if (dbUniqInput) dbUniqInput.value = dbUniqueName.toUpperCase();
+  }
 }
 
 // Auto-load schedules when tab is clicked

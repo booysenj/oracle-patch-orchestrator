@@ -4047,6 +4047,24 @@ check_new_db_home_already_registered_html() {
     local escaped_home
     escaped_home=$(printf '%s\n' "$NEW_DB_HOME" | sed 's/[.[\*^$(){}?+|/\\]/\\&/g')
 
+    # Before reporting inventory status: check if any DB instance is actively running
+    # from NEW_DB_HOME. If so, this is a HARD BLOCK — db_install must not proceed.
+    local _inv_running_sids=()
+    local _inv_sid
+    while IFS= read -r _inv_sid; do
+        local _inv_home
+        _inv_home=$(get_home_from_pmon_sid "$_inv_sid" 2>/dev/null || true)
+        [[ "$_inv_home" == "$NEW_DB_HOME" ]] && _inv_running_sids+=("$_inv_sid")
+    done < <(ps -eo args 2>/dev/null | grep -oP '(?<=ora_pmon_)[A-Za-z0-9_]+' | grep -v '^\+' | grep -v 'MGMTDB' | sort -u)
+
+    if (( ${#_inv_running_sids[@]} > 0 )); then
+        add_html_row "DB NEW_DB_HOME inventory status" "FAIL" \
+            "HARD BLOCK: Database instance(s) <b>${_inv_running_sids[*]}</b> are currently RUNNING from <code>$NEW_DB_HOME</code>.<br/>\
+            This is your <b>current active DB home</b> — running db_install here would corrupt a live Oracle home.<br/>\
+            <b>Action</b>: Run <code>db_rollback</code> first to return the database to <code>$OLD_DB_HOME</code>, then retry db_install."
+        return 1
+    fi
+
     if grep -qi "$escaped_home" "$comps_xml" 2>/dev/null; then
         # This is the precheck equivalent of INS-32826
         add_html_row "DB NEW_DB_HOME inventory status" "WARN" \
