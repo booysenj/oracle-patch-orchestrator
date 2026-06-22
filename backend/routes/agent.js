@@ -247,7 +247,8 @@ router.post('/discover', (req, res) => {
     if ((!vm.old_db_home || vm.old_db_home === '') && oratab.length > 0) updates.old_db_home = oratab[0].home;
     // current_db_home = live oratab value — always updated so card reflects post-switch state
     if (oratab.length > 0) updates.current_db_home = oratab[0].home;
-    if (!vm.db_unique_name && dbUniqueName) updates.db_unique_name = dbUniqueName;
+    // Always refresh db_unique_name from discovery — keeps it current after switches/renames
+    if (dbUniqueName) updates.db_unique_name = dbUniqueName;
     if (!vm.cluster_name && clusterName) updates.cluster_name = clusterName;
     // cluster_type and CRS version from agent discovery (overwrite — can change after patching)
     if (clusterType) updates.cluster_type = clusterType;

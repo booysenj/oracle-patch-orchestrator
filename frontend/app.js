@@ -1548,20 +1548,28 @@ function loadOpsForCategory() {
     html += '</div>';
     if (sel.dataset.needsDb === '1') {
       var knownDbName = (selectedVm && selectedVm.db_unique_name) ? selectedVm.db_unique_name : '';
-      // Collect discovered running DBs from static_json
-      // Prefer unique names (db_unique_names sid->name map) over raw SIDs
+      // Collect discovered running DBs from static_json.
+      // Sources in priority order:
+      //   1. running_dbs SIDs mapped through db_unique_names (sid→unique_name)
+      //   2. db_unique_names dict values directly (if running_dbs is empty — old agent)
+      //   3. vm.db_unique_name stored column
       var discoveredDbs = [];
       try {
         var _sj = selectedVm && selectedVm.static_json ? JSON.parse(selectedVm.static_json) : {};
         var _uniqueNamesMap = (_sj.db_unique_names && typeof _sj.db_unique_names === 'object') ? _sj.db_unique_names : {};
         if (Array.isArray(_sj.running_dbs) && _sj.running_dbs.length) {
           _sj.running_dbs.filter(function(s) { return s && !/^\+ASM/.test(s); }).forEach(function(sid) {
-            // Use unique name if we have it; otherwise fall back to SID
             var uname = _uniqueNamesMap[sid] || sid;
             if (discoveredDbs.indexOf(uname) < 0) discoveredDbs.push(uname);
           });
+        } else {
+          // Old agent or first boot: no running_dbs yet.
+          // Use db_unique_names dict values directly if available.
+          Object.values(_uniqueNamesMap).filter(function(v) { return v && !/^\+ASM/.test(v); }).forEach(function(uname) {
+            if (discoveredDbs.indexOf(uname) < 0) discoveredDbs.push(uname);
+          });
         }
-        // Also include the stored db_unique_name if not already in list
+        // Always include the persisted db_unique_name if not already in list
         if (knownDbName && discoveredDbs.indexOf(knownDbName) < 0) {
           discoveredDbs.unshift(knownDbName);
         }
