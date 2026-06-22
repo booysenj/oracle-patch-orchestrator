@@ -2351,8 +2351,10 @@ normalize_oratab_for_sid() {
         fi
         local _sid _home _flag
         IFS=: read -r _sid _home _flag _ <<<"$line"
-        if [[ "$_sid" == "$sid" ]]; then
-            continue  # Remove all existing active entries for this SID
+        # Case-insensitive removal: pmon SID is lowercase, DB_UNIQUE_NAME may be
+        # uppercase (from v$database). AutoUpgrade may also write uppercase entries.
+        if [[ "${_sid,,}" == "${sid,,}" ]]; then
+            continue  # Remove all existing active entries for this SID (any case)
         fi
         echo "$line" >> "$tmp"
     done < "$ORATAB_FILE"
@@ -3524,11 +3526,16 @@ get_db_sid() {
               awk '/Instance/ {print $2; exit}' || true)
     fi
     if [[ -z "$sid" ]]; then
-        local db_no_underscore="${db//_/}"
+        # Case-insensitive match: Oracle SIDs on Linux are lowercase in pmon
+        # but DB_UNIQUE_NAME from v$database is uppercase. Compare via tolower().
+        local db_lower db_no_underscore
+        db_lower=$(echo "$db" | tr '[:upper:]' '[:lower:]')
+        db_no_underscore="${db_lower//_/}"
         sid=$(ps -eo args | awk -F'pmon_' '/pmon_/ {print $2}' | sed 's/ .*$//' | \
-              awk -v d="$db" -v d2="$db_no_underscore" '
-                    $0 == d  { print; exit }
-                    $0 == d2 { print; exit }
+              awk -v d="$db_lower" -v d2="$db_no_underscore" '
+                    { l=tolower($0) }
+                    l == d  { print $0; exit }
+                    l == d2 { print $0; exit }
               ' || true)
     fi
     echo "$sid"
@@ -7151,9 +7158,6 @@ db_switch_core() {
         local sid_for_switch
         sid_for_switch=$(get_db_sid "$DB_UNIQUE_NAME")
         if [[ -z "$sid_for_switch" ]]; then
-            # Try oratab as last resort before failing
-            sid_for_switch=$(get_home_from_oratab_for_sid "$DB_UNIQUE_NAME" 2>/dev/null | head -1 || true)
-            sid_for_switch="$DB_UNIQUE_NAME"
             add_html_row "SID resolution" "FAIL" \
                 "No PMON process found for '$DB_UNIQUE_NAME' — database does not appear to be running. Start the database before running db_switch."
             send_phase_html_report "DB Switch" "DB Switch Report - $HOST" "FAIL"
