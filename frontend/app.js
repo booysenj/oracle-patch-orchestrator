@@ -297,7 +297,19 @@ function renderVMs(list) {
     if (vm.db_unique_name || vm.database_role || vm.old_gi_home || vm.old_db_home) {
       var roleColor = vm.database_role === 'PRIMARY' ? '#4caf50' : vm.database_role ? '#e3b341' : '';
       discRow = '<div class="vm-discovery-row">' +
-        (vm.db_unique_name ? '<span class="disc-tag" title="DB Unique Name">' + esc(vm.db_unique_name) + '</span>' : '') +
+        (function() {
+          // Show all known DB unique names; fall back to the single stored column
+          var _dbNames = [];
+          try {
+            var _sj = vm.static_json ? JSON.parse(vm.static_json) : {};
+            var _map = _sj.db_unique_names || {};
+            _dbNames = Object.values(_map).filter(function(v) { return v; });
+          } catch(_) {}
+          if (!_dbNames.length && vm.db_unique_name) _dbNames = [vm.db_unique_name];
+          return _dbNames.map(function(n) {
+            return '<span class="disc-tag" title="DB Unique Name">' + esc(n) + '</span>';
+          }).join('');
+        }()) +
         (vm.database_role ? '<span class="disc-tag" title="Database Role" style="' + (roleColor ? 'background:#1a2a1a;color:' + roleColor : '') + '">' + esc(vm.database_role) + '</span>' : '') +
         (vm.switchover_status && vm.switchover_status !== 'NOT ALLOWED' ? '<span class="disc-tag" title="Switchover Status" style="background:#1a1a2a;color:#7c9ef8">' + esc(vm.switchover_status) + '</span>' : '') +
         (vm.cluster_name ? '<span class="disc-tag" title="Cluster">' + esc(vm.cluster_name) + '</span>' : '') +
