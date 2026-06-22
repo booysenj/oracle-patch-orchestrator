@@ -213,9 +213,8 @@ def discover():
                             result['oratab'].append({'sid': sid, 'home': home})
                         elif not sid.startswith('+'):
                             result['oratab'].append({'sid': sid, 'home': home})
-    except Exception as _oratab_err:
-        print('[agent] oratab parse error: %s' % _oratab_err)
-    print('[agent] oratab entries: %s' % [(o['sid'], o['home']) for o in result['oratab']])
+    except Exception:
+        pass
 
     # Running DB instances — scan /proc directly (avoids shell pipeline issues in
     # systemd-managed processes where 'ps | grep' can return empty unexpectedly).
@@ -248,7 +247,6 @@ def discover():
                 if not _sid.startswith('+') and _sid not in ('MGMTDB',):
                     if _sid not in result['running_dbs']:
                         result['running_dbs'].append(_sid)
-    print('[agent] pmon scan: running_dbs=%s' % result['running_dbs'])
 
     # Grid home — try olr.loc first (most reliable; works for CRS/RAC and HAS alike),
     # then fall back to process-based detection, then +ASM oratab entry.
@@ -334,8 +332,6 @@ def discover():
     _uid = os.getuid() if hasattr(os, 'getuid') else -1
     for _sid in result['running_dbs']:
         _home = _oratab_home(_sid)
-        print('[agent] sqlplus probe: sid=%s home=%s sqlplus_exists=%s' % (
-            _sid, _home, os.path.isfile(_home + '/bin/sqlplus') if _home else False))
         if not _home or not os.path.isfile(_home + '/bin/sqlplus'):
             continue
         try:
@@ -374,9 +370,8 @@ def discover():
                 result['database_role'] = _role
             if _ver and not result['db_version']:
                 result['db_version'] = _ver
-            print('[agent] sqlplus result: sid=%s unique=%s role=%s' % (_sid, _uname, _role))
-        except Exception as _sqle:
-            print('[agent] sqlplus failed: sid=%s error=%s' % (_sid, _sqle))
+        except Exception:
+            pass
 
     # Cluster name, SCAN name, and node list — from srvctl / olsnodes
     gi = result['grid_home']
