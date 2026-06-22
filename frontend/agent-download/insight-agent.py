@@ -99,7 +99,7 @@ def _run(cmd, timeout=10):
     """Run a shell command, return stdout string or '' on error.
     Uses run() so partial output is captured even when exit code != 0 (e.g. stale NFS mount makes df exit 1)."""
     try:
-        r = subprocess.run(cmd, shell=True, text=True,
+        r = subprocess.run(cmd, shell=True, universal_newlines=True,
                            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
                            timeout=timeout)
         return (r.stdout or '').strip()
@@ -344,13 +344,13 @@ def discover():
                         'ORACLE_SID=%s ORACLE_HOME=%s PATH=%s/bin:$PATH %s/bin/sqlplus -S / as sysdba' % (
                             _sid, _home, _home, _home)]
                 out = subprocess.check_output(
-                    _cmd, input=sql, text=True, timeout=15,
+                    _cmd, input=sql, universal_newlines=True, timeout=15,
                     stderr=subprocess.DEVNULL
                 )
             else:
                 out = subprocess.check_output(
                     [_home + '/bin/sqlplus', '-S', '/ as sysdba'],
-                    input=sql, text=True, env=_env, timeout=15,
+                    input=sql, universal_newlines=True, env=_env, timeout=15,
                     stderr=subprocess.DEVNULL
                 )
             _uname, _role, _ver = None, None, None
