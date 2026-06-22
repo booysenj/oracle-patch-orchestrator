@@ -151,6 +151,7 @@ def discover():
         'running_dbs': [],
         'db_unique_name': None,
         'db_unique_names': {},   # sid -> db_unique_name for all running DBs
+        'db_roles': {},          # unique_name -> database_role for all running DBs
         'database_role': None,
         'cluster_name': None,
         'cluster_type': None,
@@ -366,8 +367,11 @@ def discover():
                 result['db_unique_names'][_sid] = _uname
                 if not result['db_unique_name']:
                     result['db_unique_name'] = _uname
-            if _role and not result['database_role']:
-                result['database_role'] = _role
+            if _role:
+                if not result['database_role']:
+                    result['database_role'] = _role
+                if _uname:
+                    result['db_roles'][_uname] = _role
             if _ver and not result['db_version']:
                 result['db_version'] = _ver
         except Exception:

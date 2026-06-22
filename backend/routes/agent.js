@@ -213,6 +213,7 @@ router.post('/discover', (req, res) => {
     var gridHome = payload.grid_home || null;
     var dbUniqueName = payload.db_unique_name || null;
     var dbUniqueNames = payload.db_unique_names || {};  // sid -> unique_name map
+    var dbRoles = payload.db_roles || {};              // unique_name -> role map
     var databaseRole = payload.database_role || null;
     var clusterName = payload.cluster_name || null;
     var clusterType = payload.cluster_type || null;
@@ -274,6 +275,7 @@ router.post('/discover', (req, res) => {
         grid_home: gridHome,
         db_unique_name: dbUniqueName,
         db_unique_names: dbUniqueNames,
+        db_roles: dbRoles,
         cluster_name: clusterName,
         cluster_type: clusterType,
         oratab: oratab,
