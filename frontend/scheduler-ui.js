@@ -202,21 +202,39 @@ async function loadScheduledJobs() {
     }
 }
 
+function clearSchedFilters() {
+    var s = document.getElementById('schedStatusFilter');
+    var o = document.getElementById('schedOpFilter');
+    var v = document.getElementById('schedVmFilter');
+    if (s) s.value = '';
+    if (o) o.value = '';
+    if (v) v.value = '';
+    renderScheduledJobs();
+}
+
 function renderScheduledJobs() {
     var tbody = document.getElementById('schedJobsBody');
     var countEl = document.getElementById('schedCount');
-    var filterEl = document.getElementById('schedStatusFilter');
-    var filterVal = filterEl ? filterEl.value : '';
+    var statusVal = (document.getElementById('schedStatusFilter') || {}).value || '';
+    var opVal = (document.getElementById('schedOpFilter') || {}).value || '';
+    var vmVal = ((document.getElementById('schedVmFilter') || {}).value || '').toLowerCase().trim();
 
-    var visible = filterVal
-        ? schedulesList.filter(function(s) { return s.status === filterVal; })
-        : schedulesList;
+    var visible = schedulesList.filter(function(s) {
+        if (statusVal && s.status !== statusVal) return false;
+        if (opVal && s.operation !== opVal) return false;
+        if (vmVal) {
+            var names = (s.vm_names || []).join(' ').toLowerCase();
+            if (names.indexOf(vmVal) < 0) return false;
+        }
+        return true;
+    });
 
     if (countEl) countEl.textContent = visible.length + ' / ' + schedulesList.length;
 
     if (!visible.length) {
+        var hasFilter = statusVal || opVal || vmVal;
         tbody.innerHTML = '<tr><td colspan="7" class="loading"><div class="empty-state-inline">' +
-            '<p>' + (filterVal ? 'No schedules with status "' + filterVal + '".' : 'No scheduled jobs. Click "+ New Schedule" to create one.') + '</p></div></td></tr>';
+            '<p>' + (hasFilter ? 'No schedules match the current filters.' : 'No scheduled jobs. Click "+ New Schedule" to create one.') + '</p></div></td></tr>';
         return;
     }
 

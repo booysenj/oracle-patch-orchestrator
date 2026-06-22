@@ -247,7 +247,7 @@
   </div>
 
   <div id="subtab-one-time" class="patch-sub-content">
-    <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;align-items:center">
+    <div style="display:flex;gap:8px;margin-bottom:8px;flex-wrap:wrap;align-items:center">
       <button class="btn btn-primary" onclick="openScheduleModal()">+ New Schedule</button>
       <button class="btn btn-secondary" onclick="loadScheduledJobs()">Refresh</button>
       <select id="schedStatusFilter" onchange="renderScheduledJobs()"
@@ -257,9 +257,29 @@
         <option value="DISPATCHED">Dispatched</option>
         <option value="CANCELLED">Cancelled</option>
         <option value="FAILED">Failed</option>
+        <option value="COMPLETED">Completed</option>
       </select>
+      <select id="schedOpFilter" onchange="renderScheduledJobs()"
+          style="padding:6px 10px;border-radius:6px;border:1px solid var(--border);background:var(--surface);color:var(--text);font-size:13px">
+        <option value="">All operations</option>
+        <option value="gi_precheck">GI Precheck</option>
+        <option value="db_precheck">DB Precheck</option>
+        <option value="precheck">Precheck</option>
+        <option value="health_check">Health Check</option>
+        <option value="gi_install">GI Install</option>
+        <option value="db_install">DB Install</option>
+        <option value="gi_switch">GI Switch</option>
+        <option value="db_switch">DB Switch</option>
+        <option value="stage_software">Stage Software</option>
+        <option value="gi_rollback">GI Rollback</option>
+        <option value="db_rollback">DB Rollback</option>
+        <option value="full_patch">Full Patch</option>
+      </select>
+      <input id="schedVmFilter" type="text" placeholder="Filter by VM name..." oninput="renderScheduledJobs()"
+          style="padding:6px 10px;border-radius:6px;border:1px solid var(--border);background:var(--surface);color:var(--text);font-size:13px;width:180px">
+      <button class="btn btn-secondary" onclick="clearSchedFilters()" style="font-size:12px;padding:5px 10px">Clear Filters</button>
       <button class="btn btn-secondary" onclick="clearOldSchedules()" style="margin-left:auto"
-          title="Delete all CANCELLED, DISPATCHED and FAILED schedules">Clear Completed</button>
+          title="Delete all CANCELLED, DISPATCHED, COMPLETED and FAILED schedules">Clear Completed</button>
     </div>
     <div class="table-wrap"><table class="data-table">
       <thead><tr><th>Name</th><th>Operation</th><th>VMs</th><th>Scheduled</th><th>Exec Mode</th><th>Status</th><th>Actions</th></tr></thead>
