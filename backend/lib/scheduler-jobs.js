@@ -61,7 +61,8 @@ function fireScheduleAsJob(schedule, wsBroadcast) {
                 vmId,
                 operation: schedule.operation,
                 dryRun: false,
-                createdBy: 'scheduler:' + schedule.name
+                createdBy: 'scheduler:' + schedule.name,
+                patchVersionId: schedule.patch_version_id || ''
             });
             jobIds.push(result.jobId);
             console.log('[SCHEDULER] Schedule "' + schedule.name + '" -> Job ' + result.jobId + ' queued for VM ' + vmId);

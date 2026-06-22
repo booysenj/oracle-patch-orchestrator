@@ -111,7 +111,8 @@ module.exports = function(getDB, authenticateToken) {
             vmId,
             operation: sched.operation,
             dryRun: false,
-            createdBy: 'scheduler:' + (sched.name || sched.id)
+            createdBy: 'scheduler:' + (sched.name || sched.id),
+            patchVersionId: sched.patch_version_id || ''
         });
         const jobId = result.jobId;
 

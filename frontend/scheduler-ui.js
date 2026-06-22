@@ -192,15 +192,22 @@ async function loadScheduledJobs() {
 function renderScheduledJobs() {
     var tbody = document.getElementById('schedJobsBody');
     var countEl = document.getElementById('schedCount');
-    if (countEl) countEl.textContent = schedulesList.length + ' schedule' + (schedulesList.length !== 1 ? 's' : '');
+    var filterEl = document.getElementById('schedStatusFilter');
+    var filterVal = filterEl ? filterEl.value : '';
 
-    if (!schedulesList.length) {
+    var visible = filterVal
+        ? schedulesList.filter(function(s) { return s.status === filterVal; })
+        : schedulesList;
+
+    if (countEl) countEl.textContent = visible.length + ' / ' + schedulesList.length;
+
+    if (!visible.length) {
         tbody.innerHTML = '<tr><td colspan="7" class="loading"><div class="empty-state-inline">' +
-            '<p>No scheduled jobs. Click "Schedule Job" to create one.</p></div></td></tr>';
+            '<p>' + (filterVal ? 'No schedules with status "' + filterVal + '".' : 'No scheduled jobs. Click "+ New Schedule" to create one.') + '</p></div></td></tr>';
         return;
     }
 
-    tbody.innerHTML = schedulesList.map(function(s) {
+    tbody.innerHTML = visible.map(function(s) {
         var statusClass = 'status-' + s.status.toLowerCase();
         var statusBadge = '<span class="status-badge ' + statusClass + '">' + esc(s.status) + '</span>';
 
@@ -210,7 +217,10 @@ function renderScheduledJobs() {
         var schedDate = formatDate(s.scheduled_at);
         var actions = '';
         if (s.status === 'PENDING') {
-            actions = '<button class="btn btn-xs btn-danger" onclick="cancelSchedule(\'' + s.id + '\')">Cancel</button>';
+            actions = '<button class="btn btn-xs btn-secondary" onclick="editScheduleEntry(\'' + s.id + '\')">Edit</button>' +
+                      '<button class="btn btn-xs btn-danger" onclick="cancelSchedule(\'' + s.id + '\')">Delete</button>';
+        } else {
+            actions = '<button class="btn btn-xs btn-danger" onclick="deleteScheduleEntry(\'' + s.id + '\')">Delete</button>';
         }
 
         return '<tr>' +
@@ -225,14 +235,90 @@ function renderScheduledJobs() {
 }
 
 async function cancelSchedule(id) {
-    if (!confirm('Cancel this scheduled job?')) return;
+    if (!confirm('Delete this schedule?')) return;
     try {
         await api('/schedules/' + id, { method: 'DELETE' });
-        showToast('Schedule cancelled', 'success');
+        showToast('Schedule deleted', 'success');
         loadScheduledJobs();
     } catch(e) {
         showToast('Failed: ' + e.message, 'error');
     }
+}
+
+async function deleteScheduleEntry(id) {
+    if (!confirm('Delete this schedule entry?')) return;
+    try {
+        await api('/schedules/' + id, { method: 'DELETE' });
+        showToast('Deleted', 'success');
+        loadScheduledJobs();
+    } catch(e) {
+        showToast('Failed: ' + e.message, 'error');
+    }
+}
+
+function editScheduleEntry(id) {
+    var s = schedulesList.find(function(x) { return x.id === id; });
+    if (!s) return;
+    var vmIds = Array.isArray(s.vm_ids) ? s.vm_ids : JSON.parse(s.vm_ids || '[]');
+    openScheduleModal(s.operation, vmIds);
+    // Restore other fields after modal opens
+    setTimeout(function() {
+        document.getElementById('schedName').value = s.name || '';
+        document.getElementById('schedNotes').value = s.notes || '';
+        if (s.scheduled_at) {
+            var d = new Date(s.scheduled_at);
+            document.getElementById('schedDatetime').value = new Date(d - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+        }
+        document.getElementById('schedExecMode').value = s.execution_mode || 'serial';
+        // Replace "Create Schedule" btn with "Update" — delete old and create new
+        var btn = document.getElementById('schedSubmitBtn');
+        btn.textContent = 'Update Schedule';
+        btn.onclick = function() { updateScheduleEntry(id); };
+    }, 300);
+}
+
+async function updateScheduleEntry(id) {
+    var errEl = document.getElementById('schedError');
+    errEl.textContent = '';
+    var vmChecks = document.querySelectorAll('#schedVmList input[type="checkbox"]:checked');
+    var vmIds = Array.from(vmChecks).map(function(c) { return c.value; });
+    if (!vmIds.length) { errEl.textContent = 'Select at least one VM'; return; }
+    var operation = document.getElementById('schedOperation').value;
+    var dt = document.getElementById('schedDatetime').value;
+    if (!dt) { errEl.textContent = 'Set a date/time'; return; }
+    var payload = {
+        name: document.getElementById('schedName').value.trim(),
+        operation: operation,
+        vm_ids: vmIds,
+        scheduled_at: new Date(dt).toISOString(),
+        execution_mode: document.getElementById('schedExecMode').value || 'serial',
+        notes: document.getElementById('schedNotes').value.trim(),
+        patch_version_id: document.getElementById('schedPatchVersion').value || ''
+    };
+    try {
+        await api('/schedules/' + id, { method: 'PUT', body: JSON.stringify(payload) });
+        showToast('Schedule updated', 'success');
+        closeScheduleModal();
+        // Restore submit button to default
+        var btn = document.getElementById('schedSubmitBtn');
+        btn.textContent = 'Schedule Job';
+        btn.onclick = submitSchedule;
+        loadScheduledJobs();
+    } catch(e) { errEl.textContent = e.message; }
+}
+
+async function clearOldSchedules() {
+    var TERMINAL = ['CANCELLED', 'DISPATCHED', 'FAILED', 'COMPLETED'];
+    var toDelete = schedulesList.filter(function(s) { return TERMINAL.indexOf(s.status) >= 0; });
+    if (!toDelete.length) { showToast('Nothing to clear', 'info'); return; }
+    if (!confirm('Delete all ' + toDelete.length + ' completed/cancelled/failed schedules? This cannot be undone.')) return;
+    var failed = 0;
+    for (var i = 0; i < toDelete.length; i++) {
+        try { await api('/schedules/' + toDelete[i].id, { method: 'DELETE' }); }
+        catch(_) { failed++; }
+    }
+    showToast('Cleared ' + (toDelete.length - failed) + ' schedules' + (failed ? ' (' + failed + ' failed)' : ''), failed ? 'error' : 'success');
+    loadScheduledJobs();
 }
 
 // ---- MAINTENANCE WINDOWS ----
