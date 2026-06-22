@@ -912,8 +912,26 @@ validate_staged_software_html() {
     fi
     if [[ "$which" == "db" || "$which" == "all" ]]; then
         if [[ -d "$NEW_DB_HOME" ]]; then
-            add_html_row "NEW_DB_HOME" "WARN" \
-                "$NEW_DB_HOME already exists — db_install will overwrite/re-use it"
+            # Check if any database instance is actively running from NEW_DB_HOME.
+            # If so, installing into it would corrupt a live Oracle home — hard FAIL.
+            local _running_from_new=()
+            local _pmon_sid
+            while IFS= read -r _pmon_sid; do
+                local _phome
+                _phome=$(get_home_from_pmon_sid "$_pmon_sid" 2>/dev/null || true)
+                [[ "$_phome" == "$NEW_DB_HOME" ]] && _running_from_new+=("$_pmon_sid")
+            done < <(ps -eo args 2>/dev/null | grep -oP '(?<=ora_pmon_)[A-Za-z0-9_]+' | grep -v '^\+' | grep -v 'MGMTDB' | sort -u)
+            if (( ${#_running_from_new[@]} > 0 )); then
+                add_html_row "NEW_DB_HOME" "FAIL" \
+                    "HARD BLOCK: Database instance(s) ${_running_from_new[*]} are currently RUNNING from $NEW_DB_HOME. \
+Installing into a live Oracle home will corrupt it. \
+Run db_rollback first to move the database back to $OLD_DB_HOME, then re-run db_install."
+                has_failures=true
+            else
+                add_html_row "NEW_DB_HOME" "WARN" \
+                    "$NEW_DB_HOME already exists on disk but no running instance detected. \
+db_install will unzip the base media into it — existing files will be overwritten."
+            fi
         else
             add_html_row "NEW_DB_HOME" "PASS" \
                 "$NEW_DB_HOME does not exist yet (will be created by db_install)"
@@ -6825,6 +6843,25 @@ db_install() {
             add_html_row "DB Base ZIP discovery" "INFO" \
                 "Configured path missing ($DB_BASE_ZIP). Found at: $_found_zip"
             DB_BASE_ZIP="$_found_zip"
+        fi
+    fi
+
+    # HARD BLOCK: refuse to install into a home that has live databases running from it.
+    if [[ -d "$NEW_DB_HOME" ]]; then
+        local _live_sids=()
+        local _chk_sid
+        while IFS= read -r _chk_sid; do
+            local _chk_home
+            _chk_home=$(get_home_from_pmon_sid "$_chk_sid" 2>/dev/null || true)
+            [[ "$_chk_home" == "$NEW_DB_HOME" ]] && _live_sids+=("$_chk_sid")
+        done < <(ps -eo args 2>/dev/null | grep -oP '(?<=ora_pmon_)[A-Za-z0-9_]+' | grep -v '^\+' | grep -v 'MGMTDB' | sort -u)
+        if (( ${#_live_sids[@]} > 0 )); then
+            add_html_row "DB Install Safety Check" "FAIL" \
+                "HARD BLOCK: instance(s) ${_live_sids[*]} are running from $NEW_DB_HOME. \
+Unzipping the base media into a live home will corrupt it. \
+Run db_rollback first to return the database to $OLD_DB_HOME, then retry db_install."
+            send_html_report "DB Install BLOCKED - $HOST" "DB Install Report (BLOCKED)"
+            die "HARD BLOCK: db_install refused — instance(s) ${_live_sids[*]} are running from NEW_DB_HOME=$NEW_DB_HOME"
         fi
     fi
 
