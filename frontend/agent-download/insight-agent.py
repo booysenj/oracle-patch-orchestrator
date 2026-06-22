@@ -212,18 +212,37 @@ def discover():
     except Exception:
         pass
 
-    # Running DB instances from pmon processes
-    pmon_out = _run("ps -eo args 2>/dev/null | grep 'pmon_' | grep -v grep")
-    if not pmon_out:
-        # Fallback: try comm column (some OS/kernel configs don't expose renamed argv[0])
-        pmon_out = _run("ps -eo comm 2>/dev/null | grep 'pmon_' | grep -v grep")
-    for line in pmon_out.splitlines():
-        m = re.search(r'pmon_([A-Za-z0-9_]+)', line)
-        if m:
-            sid = m.group(1)
-            if not sid.startswith('+') and sid not in ('MGMTDB',):
-                if sid not in result['running_dbs']:
-                    result['running_dbs'].append(sid)
+    # Running DB instances — scan /proc directly (avoids shell pipeline issues in
+    # systemd-managed processes where 'ps | grep' can return empty unexpectedly).
+    try:
+        for _pid in os.listdir('/proc'):
+            if not _pid.isdigit():
+                continue
+            try:
+                with open('/proc/%s/cmdline' % _pid, 'rb') as _f:
+                    _raw = _f.read()
+                # Oracle background processes set argv[0] to e.g. "ora_pmon_ORCL\0"
+                # null bytes separate args; take the first token
+                _comm = _raw.split(b'\x00')[0].decode('utf-8', errors='replace').strip()
+                _m = re.search(r'(?:ora|asm)_pmon_([A-Za-z0-9_]+)', _comm)
+                if _m:
+                    _sid = _m.group(1)
+                    if not _sid.startswith('+') and _sid not in ('MGMTDB',):
+                        if _sid not in result['running_dbs']:
+                            result['running_dbs'].append(_sid)
+            except Exception:
+                pass
+    except Exception:
+        # /proc scan failed — fall back to ps pipeline
+        _pmon_out = _run("ps -eo args 2>/dev/null | grep 'ora_pmon_' | grep -v grep") or \
+                    _run("ps -eo comm 2>/dev/null | grep 'ora_pmon_' | grep -v grep")
+        for _line in _pmon_out.splitlines():
+            _m = re.search(r'pmon_([A-Za-z0-9_]+)', _line)
+            if _m:
+                _sid = _m.group(1)
+                if not _sid.startswith('+') and _sid not in ('MGMTDB',):
+                    if _sid not in result['running_dbs']:
+                        result['running_dbs'].append(_sid)
     print('[agent] pmon scan: running_dbs=%s' % result['running_dbs'])
 
     # Grid home — try olr.loc first (most reliable; works for CRS/RAC and HAS alike),
