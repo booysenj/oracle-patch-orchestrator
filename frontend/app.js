@@ -1564,10 +1564,18 @@ function loadOpsForCategory() {
           });
         } else {
           // Old agent or first boot: no running_dbs yet.
-          // Use db_unique_names dict values directly if available.
+          // Source 2a: db_unique_names dict values (new agent, populated after redeploy)
           Object.values(_uniqueNamesMap).filter(function(v) { return v && !/^\+ASM/.test(v); }).forEach(function(uname) {
             if (discoveredDbs.indexOf(uname) < 0) discoveredDbs.push(uname);
           });
+          // Source 2b: oratab SIDs — last resort when agent hasn't sent unique names yet.
+          // These are SIDs (e.g. sretest_1), not guaranteed to equal db_unique_name,
+          // but give the user a starting point to edit.
+          if (!discoveredDbs.length && Array.isArray(_sj.oratab)) {
+            _sj.oratab.filter(function(e) { return e && e.sid && !/^\+ASM/.test(e.sid); }).forEach(function(e) {
+              if (discoveredDbs.indexOf(e.sid) < 0) discoveredDbs.push(e.sid);
+            });
+          }
         }
         // Always include the persisted db_unique_name if not already in list
         if (knownDbName && discoveredDbs.indexOf(knownDbName) < 0) {
@@ -1578,6 +1586,15 @@ function loadOpsForCategory() {
       html += '<div class="db-name-group" style="margin-top:8px;">' +
         '<label for="dbUniqueName" style="font-weight:600;display:block;margin-bottom:4px;">DB Unique Name <span style="color:#e74c3c;">*</span></label>';
 
+      // Detect whether we're falling back to oratab SIDs (unique names not yet available)
+      var _hasTrueUniqueNames = (function() {
+        try {
+          var _s = selectedVm && selectedVm.static_json ? JSON.parse(selectedVm.static_json) : {};
+          var _m = _s.db_unique_names || {};
+          return Object.keys(_m).length > 0 || (_s.running_dbs && _s.running_dbs.length > 0);
+        } catch(_) { return false; }
+      }());
+
       if (discoveredDbs.length > 1) {
         // Multiple databases discovered — show a dropdown
         html += '<select id="dbUniqueName" style="width:100%;padding:8px;border:1px solid #555;border-radius:4px;background:#1e1e1e;color:#e0e0e0;font-family:monospace;">';
@@ -1586,11 +1603,19 @@ function loadOpsForCategory() {
           html += '<option value="' + esc(d) + '"' + (d === knownDbName ? ' selected' : '') + '>' + esc(d) + '</option>';
         });
         html += '</select>';
-        html += '<small style="color:var(--text-muted)">Discovered from running instances — select the target DB</small>';
+        if (_hasTrueUniqueNames) {
+          html += '<small style="color:var(--text-muted)">Discovered from running instances — select the target DB</small>';
+        } else {
+          html += '<small style="color:#e67e22">⚠ Showing oratab SIDs — DB_UNIQUE_NAME may differ (e.g. sretest_1 → SRETEST). Deploy new agent or edit manually.</small>';
+        }
       } else {
         html += '<input type="text" id="dbUniqueName" placeholder="e.g. ORCL_PRD" value="' + esc(discoveredDbs[0] || knownDbName) + '" style="width:100%;padding:8px;border:1px solid #555;border-radius:4px;background:#1e1e1e;color:#e0e0e0;font-family:monospace;" />';
         if (discoveredDbs[0] || knownDbName) {
-          html += '<small style="color:var(--text-muted)">Auto-filled from discovery — edit if needed</small>';
+          if (_hasTrueUniqueNames) {
+            html += '<small style="color:var(--text-muted)">Auto-filled from discovery — edit if needed</small>';
+          } else {
+            html += '<small style="color:#e67e22">⚠ From oratab SID — verify this matches DB_UNIQUE_NAME (deploy new agent for accurate names)</small>';
+          }
         }
       }
       html += '</div>';
