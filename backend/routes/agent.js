@@ -585,6 +585,8 @@ router.get('/transfer/:id', (req, res) => {
         }
         src = path.join(src, chosen);
         stat = fs.statSync(src);
+        // Record the resolved filename so the UI can display it and the agent saves it correctly
+        try { db.prepare("UPDATE patch_transfers SET file_name=? WHERE id=?").run(path.basename(src), t.id); } catch(_) {}
     }
     res.setHeader('Content-Length', stat.size);
     res.setHeader('Content-Type', 'application/octet-stream');
@@ -602,10 +604,14 @@ router.get('/transfer/:id', (req, res) => {
 // POST /api/agent/transfer/:id/complete — agent reports transfer done or failed
 router.post('/transfer/:id/complete', (req, res) => {
     const db = getDB();
-    const { success, error, bytesReceived } = req.body || {};
+    const { success, error, bytesReceived, actualFilename } = req.body || {};
     if (success) {
-        db.prepare("UPDATE patch_transfers SET status='STAGED', bytes_transferred=?, checksum_verified=1, completed_at=datetime('now') WHERE id=?")
-            .run(bytesReceived || 0, req.params.id);
+        var stmt = "UPDATE patch_transfers SET status='STAGED', bytes_transferred=?, checksum_verified=1, completed_at=datetime('now')" +
+            (actualFilename ? ", file_name=?" : "") + " WHERE id=?";
+        var args = actualFilename
+            ? [bytesReceived || 0, actualFilename, req.params.id]
+            : [bytesReceived || 0, req.params.id];
+        db.prepare(stmt).run(...args);
     } else {
         db.prepare("UPDATE patch_transfers SET status='FAILED', error_message=?, completed_at=datetime('now') WHERE id=?")
             .run(error || 'Agent reported failure', req.params.id);

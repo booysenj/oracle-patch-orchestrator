@@ -2122,7 +2122,7 @@ function renderTransfers() {
                 '<span class="xfer-pct">100%</span>';
         }
         var checksumBadge = t.checksum_verified ? ' <span class="checksum-ok" title="Checksum verified">\u2611</span>' : '';
-        var srcFile = t.source_path ? t.source_path.split('/').pop() : '';
+        var srcFile = t.file_name || (t.source_path ? t.source_path.split('/').pop() : '');
         var fileTypeLabel = (t.file_type || '').toLowerCase();
         var fileTypeBadge = '';
         if (fileTypeLabel === 'opatch')       fileTypeBadge = '<span class="patch-type-badge ptype-opatch">OPatch</span>';

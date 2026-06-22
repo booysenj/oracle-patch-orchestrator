@@ -522,10 +522,6 @@ def execute_transfer(t):
                 'Staging path %s is not writable by the agent user. '
                 'Fix on the VM: chown oracle:oinstall %s' % (dest_path, dest_path)
             )
-        dest_file = os.path.join(dest_path, filename)
-
-        print('[agent] Transfer %s: downloading %s -> %s' % (tid, filename, dest_file))
-
         # Use urllib directly for streaming — works regardless of whether the
         # 'requests' library is installed (avoids r.raw which only exists there).
         import urllib.request as _urllib
@@ -533,9 +529,21 @@ def execute_transfer(t):
         req = _urllib.Request(dl_url, headers={'Authorization': 'Bearer ' + AGENT_TOKEN})
         bytes_received = 0
         last_pct = 0
+        actual_filename = filename
         with _urllib.urlopen(req, timeout=3600) as resp:
             if resp.getcode() != 200:
                 raise Exception('HTTP %d from orchestrator' % resp.getcode())
+            # Use X-Filename header if server resolved a specific file (e.g. from a directory source)
+            server_filename = resp.headers.get('X-Filename') or ''
+            if server_filename:
+                actual_filename = server_filename
+            if total_bytes == 0:
+                try:
+                    total_bytes = int(resp.headers.get('X-Total-Bytes') or resp.headers.get('Content-Length') or 0)
+                except Exception:
+                    pass
+            dest_file = os.path.join(dest_path, actual_filename)
+            print('[agent] Transfer %s: downloading %s -> %s' % (tid, actual_filename, dest_file))
             with open(dest_file, 'wb') as f:
                 while True:
                     chunk = resp.read(1048576)
@@ -558,7 +566,7 @@ def execute_transfer(t):
 
         requests.post(
             API_URL + '/api/agent/transfer/' + tid + '/complete',
-            json={'success': True, 'bytesReceived': bytes_received},
+            json={'success': True, 'bytesReceived': bytes_received, 'actualFilename': actual_filename},
             headers=HEADERS, timeout=10
         )
         print('[agent] Transfer %s complete: %s (%d bytes)' % (tid, dest_file, bytes_received))
