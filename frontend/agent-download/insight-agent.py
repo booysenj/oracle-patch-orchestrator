@@ -204,10 +204,14 @@ def discover():
                         home = parts[1].strip()
                         if not sid or not home:
                             continue
-                        if sid.startswith('+') or sid in ('MGMTDB', '*'):
-                            if sid.startswith('+ASM') and home and not asm_home_from_oratab:
+                        if sid in ('MGMTDB', '*'):
+                            continue
+                        if sid.startswith('+ASM') and home:
+                            if not asm_home_from_oratab:
                                 asm_home_from_oratab = home
-                        else:
+                            # Include +ASM entries in oratab so the UI shows the GI instance
+                            result['oratab'].append({'sid': sid, 'home': home})
+                        elif not sid.startswith('+'):
                             result['oratab'].append({'sid': sid, 'home': home})
     except Exception:
         pass
