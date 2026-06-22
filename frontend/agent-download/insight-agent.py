@@ -327,6 +327,8 @@ def discover():
     _uid = os.getuid() if hasattr(os, 'getuid') else -1
     for _sid in result['running_dbs']:
         _home = _oratab_home(_sid)
+        print('[agent] sqlplus probe: sid=%s home=%s sqlplus_exists=%s' % (
+            _sid, _home, os.path.isfile(_home + '/bin/sqlplus') if _home else False))
         if not _home or not os.path.isfile(_home + '/bin/sqlplus'):
             continue
         try:
@@ -365,8 +367,9 @@ def discover():
                 result['database_role'] = _role
             if _ver and not result['db_version']:
                 result['db_version'] = _ver
-        except Exception:
-            pass
+            print('[agent] sqlplus result: sid=%s unique=%s role=%s' % (_sid, _uname, _role))
+        except Exception as _sqle:
+            print('[agent] sqlplus failed: sid=%s error=%s' % (_sid, _sqle))
 
     # Cluster name, SCAN name, and node list — from srvctl / olsnodes
     gi = result['grid_home']
