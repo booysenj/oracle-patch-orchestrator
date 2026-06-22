@@ -7442,7 +7442,7 @@ SQEOF
         local ran_datapatch=false
 
         # Ensure oratab reflects NEW_DB_HOME before starting listener
-        normalize_oratab_for_sid "$DB_UNIQUE_NAME" "$NEW_DB_HOME"
+        normalize_oratab_for_sid "${sid_for_switch:-$DB_UNIQUE_NAME}" "$NEW_DB_HOME"
 
         if [[ "$au_switch_used" == true ]]; then
             if wait_for_db_ready_state "$DB_UNIQUE_NAME" "$NEW_DB_HOME"; then
@@ -7696,7 +7696,7 @@ SQEOF
         fi
 
         # --- Update /etc/oratab ---
-        normalize_oratab_for_sid "$DB_UNIQUE_NAME" "$OLD_DB_HOME"
+        normalize_oratab_for_sid "$sid_for_rb" "$OLD_DB_HOME"
 
         # --- Startup from OLD_DB_HOME (untouched, no file copies needed) ---
         log "Starting $DB_UNIQUE_NAME (SID=${sid_for_rb}) from old home $OLD_DB_HOME..."
@@ -7814,7 +7814,7 @@ SQEOF
     fi
 
     if [[ "$DRYRUN" == false ]]; then
-        normalize_oratab_for_sid "$DB_UNIQUE_NAME" "$OLD_DB_HOME"
+        normalize_oratab_for_sid "${sid_for_rb:-$DB_UNIQUE_NAME}" "$OLD_DB_HOME"
     fi
 
     if [[ -f "${LOG_DIR}/db_old_patchlevel.html" ]]; then
