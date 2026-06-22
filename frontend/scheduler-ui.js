@@ -14,21 +14,32 @@ async function loadVmsForScheduler() {
     return allVmsList;
 }
 
+// Destructive operations that require explicit confirmation before scheduling
+var DESTRUCTIVE_SCHEDULE_OPS = new Set([
+    'gi_install','db_install','gi_switch','db_switch',
+    'gi_rollback','db_rollback','full_patch',
+    'gi_upgrade_upgrade','db_upgrade_upgrade','db_upgrade_rollback'
+]);
+
 // ---- SCHEDULE MODAL ----
 async function openScheduleModal(presetOp, presetVmIds) {
     await loadVmsForScheduler();
     var modal = document.getElementById('scheduleModal');
     if (!modal) return;
 
-    // Populate VM checkboxes
+    // Always reset the form completely for a new schedule.
+    // If presetVmIds is provided (edit or dashboard shortcut), honour it.
+    // Otherwise start with NO VMs checked so the user explicitly picks targets.
     var vmList = document.getElementById('schedVmList');
     vmList.innerHTML = allVmsList.map(function(vm) {
-        var checked = (presetVmIds && presetVmIds.indexOf(vm.id) >= 0) ? ' checked' : '';
-        return '<label class="sched-vm-item"><input type="checkbox" value="' + vm.id + '"' + checked +
+        // Use loose == comparison: vm.id may be integer, presetVmIds may contain strings
+        var pre = presetVmIds && presetVmIds.some(function(id) { return id == vm.id; });
+        return '<label class="sched-vm-item"><input type="checkbox" value="' + vm.id + '"' +
+            (pre ? ' checked' : '') +
             ' data-hostname="' + esc(vm.hostname) + '"> ' + esc(vm.hostname) + '</label>';
     }).join('');
 
-    // Populate operation dropdown
+    // Populate operation dropdown (only once)
     var opSel = document.getElementById('schedOperation');
     if (opSel && opSel.options.length <= 1) {
         var ops = ['gi_precheck','db_precheck','gi_install','db_install',
@@ -40,19 +51,22 @@ async function openScheduleModal(presetOp, presetVmIds) {
             opSel.appendChild(o);
         });
     }
-    if (presetOp) opSel.value = presetOp;
+    // Always reset operation and name/notes for a fresh open
+    opSel.value = presetOp || '';
+    if (!presetOp) {
+        document.getElementById('schedName').value = '';
+        document.getElementById('schedNotes').value = '';
+    }
 
     // Populate patch version dropdown
     await loadPatchVersionsForScheduler();
 
-    // Set default datetime to tomorrow 02:00
+    // Always reset datetime so stale value from a previous open doesn't persist
+    var tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    tomorrow.setHours(2, 0, 0, 0);
     var dtInput = document.getElementById('schedDatetime');
-    if (dtInput && !dtInput.value) {
-        var tomorrow = new Date();
-        tomorrow.setDate(tomorrow.getDate() + 1);
-        tomorrow.setHours(2, 0, 0, 0);
-        dtInput.value = tomorrow.toISOString().slice(0, 16);
-    }
+    if (dtInput) dtInput.value = tomorrow.toISOString().slice(0, 16);
 
     // Show/hide patch version based on operation
     toggleSchedPatchVersion();
@@ -103,6 +117,22 @@ async function submitSchedule() {
 
     var operation = document.getElementById('schedOperation').value;
     if (!operation) { errEl.textContent = 'Select an operation'; return; }
+
+    // Confirmation gate for destructive operations: show exactly which VMs will be affected
+    // so the user cannot accidentally run rollback/switch/install on the wrong set of VMs.
+    if (DESTRUCTIVE_SCHEDULE_OPS.has(operation)) {
+        var targetHostnames = Array.from(vmChecks).map(function(c) {
+            return c.getAttribute('data-hostname') || c.value;
+        });
+        var confirmMsg = 'CONFIRM DESTRUCTIVE OPERATION\n\n' +
+            'Operation : ' + operation.toUpperCase().replace(/_/g, ' ') + '\n' +
+            'Target VM' + (targetHostnames.length > 1 ? 's' : '') + ' : ' + targetHostnames.join(', ') + '\n\n' +
+            (targetHostnames.length > 1
+                ? '⚠ This will run on ' + targetHostnames.length + ' VMs. Are you absolutely sure?\n\n'
+                : '') +
+            'This operation may cause downtime or modify Oracle homes.\nProceed?';
+        if (!window.confirm(confirmMsg)) return;
+    }
 
     var dt = document.getElementById('schedDatetime').value;
     if (!dt) { errEl.textContent = 'Select date and time'; return; }

@@ -2641,21 +2641,16 @@ async function deleteMaintWindow(id) {
 }
 
 // ========== SCHEDULE FROM DASHBOARD ==========
-function openScheduleFromDashboard() {
+async function openScheduleFromDashboard() {
   var vmId = document.getElementById('modalVmInfo').getAttribute('data-vm-id');
   var op = document.getElementById('opSelect').value;
   var patchVer = document.getElementById('patchVersionSelect') ? document.getElementById('patchVersionSelect').value : '';
   closeModal();
-  openScheduleModal();
-  if (op) document.getElementById('schedOperation').value = op;
-  toggleSchedPatchVersion();
+  // Pass the preset VM id so openScheduleModal checks exactly that VM and nothing else.
+  // Convert to number if needed so the loose-== comparison in openScheduleModal matches.
+  var presetIds = vmId ? [vmId] : [];
+  await openScheduleModal(op || '', presetIds);
   if (patchVer) document.getElementById('schedPatchVersion').value = patchVer;
-  if (vmId) {
-    setTimeout(function() {
-      var cb = document.querySelector('#schedVmList input[value="' + vmId + '"]');
-      if (cb) cb.checked = true;
-    }, 200);
-  }
 }
 
 // Auto-load schedules when tab is clicked
