@@ -1482,8 +1482,57 @@ async function deployAgent(vmId, hostname, savedSshUser) {
       statusEl.innerHTML = '<span style="color:#22c55e;font-weight:600">✔ Deployment successful</span>';
       setTimeout(loadVMs, 2000);
     } catch(e) {
-      logOut.textContent = e.message || 'Unknown error';
+      var errMsg = e.message || 'Unknown error';
+      logOut.textContent = errMsg;
+      var isPermDenied = /permission denied|publickey/i.test(errMsg);
       statusEl.innerHTML = '<span style="color:var(--color-danger);font-weight:600">✘ Deployment failed</span>';
+
+      if (isPermDenied) {
+        // SSH key not yet trusted — offer inline retry with password
+        var retryDiv = document.createElement('div');
+        retryDiv.style.cssText = 'padding:12px 16px;border-top:1px solid var(--color-border-primary);background:var(--color-bg-primary)';
+        retryDiv.innerHTML =
+          '<p style="margin:0 0 8px;font-size:12px;color:#e67e22;font-weight:600">⚠ SSH key not yet authorized on this VM</p>' +
+          '<p style="margin:0 0 10px;font-size:12px;color:var(--color-text-secondary)">Enter the <code>' + esc(user) + '</code> password once — it will run <code>ssh-copy-id</code> to install the key, then the password is discarded and never stored.</p>' +
+          '<div style="display:flex;gap:8px;align-items:center">' +
+            '<input id="da-retry-pass" type="password" placeholder="SSH password" style="flex:1;padding:6px 8px;background:var(--bg);border:1px solid var(--border);border-radius:4px;color:var(--text);font-size:12px"/>' +
+            '<button id="da-retry-btn" class="btn btn-sm btn-primary">Retry with password</button>' +
+          '</div>' +
+          '<p style="margin:10px 0 0;font-size:11px;color:var(--color-text-secondary)">Or add this key manually to <code>~' + esc(user) + '/.ssh/authorized_keys</code> on the VM, then click Deploy again with a blank password:<br>' +
+            '<button onclick="(async()=>{var r=await api(\'/admin/ssh-public-key\');var b=document.getElementById(\'da-pubkey-box\');b.style.display=b.style.display===\'none\'?\'block\':\'none\';b.textContent=r.publicKey||\'(none)\'})()" style="margin-top:4px;font-size:11px;padding:2px 8px" class="btn btn-sm btn-secondary">Show public key</button>' +
+            '<pre id="da-pubkey-box" style="display:none;margin:6px 0 0;padding:6px;background:var(--bg);border:1px solid var(--border);border-radius:4px;font-size:10px;word-break:break-all;white-space:pre-wrap"></pre>' +
+          '</p>';
+        deployModal.querySelector('div').appendChild(retryDiv);
+        var retryPass = deployModal.querySelector('#da-retry-pass');
+        var retryBtn  = deployModal.querySelector('#da-retry-btn');
+        retryPass.focus();
+        var doRetry = async () => {
+          var retryPassword = retryPass.value;
+          if (!retryPassword) { retryPass.style.borderColor = '#e74c3c'; return; }
+          retryBtn.disabled = true;
+          retryBtn.textContent = 'Retrying…';
+          logOut.textContent = 'Installing SSH key and retrying…\n';
+          statusEl.innerHTML = 'Running…';
+          retryDiv.style.display = 'none';
+          try {
+            var result2 = await api('/admin/vms/' + vmId + '/deploy-agent', {
+              method: 'POST',
+              body: JSON.stringify({ sshUser: user, sshPassword: retryPassword, useSudo })
+            });
+            logOut.textContent = result2.output || '(no output)';
+            statusEl.innerHTML = '<span style="color:#22c55e;font-weight:600">✔ Deployment successful</span>';
+            setTimeout(loadVMs, 2000);
+          } catch(e2) {
+            logOut.textContent = e2.message || 'Unknown error';
+            statusEl.innerHTML = '<span style="color:var(--color-danger);font-weight:600">✘ Deployment failed</span>';
+            retryDiv.style.display = '';
+            retryBtn.disabled = false;
+            retryBtn.textContent = 'Retry with password';
+          }
+        };
+        retryBtn.onclick = doRetry;
+        retryPass.onkeydown = e2 => { if (e2.key === 'Enter') doRetry(); };
+      }
     }
   });
 }

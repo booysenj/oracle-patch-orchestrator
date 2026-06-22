@@ -308,13 +308,24 @@ router.post('/vms/:id/deploy-agent', requireAdmin, (req, res) => {
     }
 
     function installKeyThenCopy(cb) {
-        // Password goes to a temp file (mode 600) — never appears in process list
-        withPassFile(sshPassword, (tmpPass, cleanupPass) => {
-            const copyIdCmd = `sshpass -f ${tmpPass} ssh-copy-id -i ${pubFile} -o StrictHostKeyChecking=no -p ${port} '${target}'`;
-            exec(copyIdCmd, { timeout: 20000 }, (err) => {
-                cleanupPass();
-                if (err) { cleanupKey(); return res.status(500).json({ error: 'SSH key install failed — check username/password' }); }
-                doCopy(cb);
+        // Check sshpass is available before attempting password-based key install
+        exec('which sshpass || command -v sshpass', (wpErr) => {
+            if (wpErr) {
+                cleanupKey();
+                return res.status(500).json({ error: 'sshpass not installed on the orchestrator server. Install it with: yum install sshpass  (or apt-get install sshpass), then retry.' });
+            }
+            // Password goes to a temp file (mode 600) — never appears in process list
+            withPassFile(sshPassword, (tmpPass, cleanupPass) => {
+                const copyIdCmd = `sshpass -f ${tmpPass} ssh-copy-id -i ${pubFile} -o StrictHostKeyChecking=no -o PasswordAuthentication=yes -p ${port} '${target}'`;
+                exec(copyIdCmd, { timeout: 20000 }, (err, stdout, stderr) => {
+                    cleanupPass();
+                    if (err) {
+                        cleanupKey();
+                        const detail = (stderr || '').trim() || err.message;
+                        return res.status(500).json({ error: 'SSH key install failed — check username/password. Detail: ' + detail });
+                    }
+                    doCopy(cb);
+                });
             });
         });
     }
