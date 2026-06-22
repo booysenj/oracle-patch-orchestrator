@@ -7151,12 +7151,36 @@ db_switch_core() {
         local sid_for_switch
         sid_for_switch=$(get_db_sid "$DB_UNIQUE_NAME")
         if [[ -z "$sid_for_switch" ]]; then
+            # Try oratab as last resort before failing
+            sid_for_switch=$(get_home_from_oratab_for_sid "$DB_UNIQUE_NAME" 2>/dev/null | head -1 || true)
             sid_for_switch="$DB_UNIQUE_NAME"
-            add_html_row "SID resolution" "WARN" \
-                "Could not find running PMON for $DB_UNIQUE_NAME; using '$sid_for_switch' as SID."
-        else
-            add_html_row "SID resolution" "INFO" "Resolved SID: $sid_for_switch"
+            add_html_row "SID resolution" "FAIL" \
+                "No PMON process found for '$DB_UNIQUE_NAME' — database does not appear to be running. Start the database before running db_switch."
+            send_phase_html_report "DB Switch" "DB Switch Report - $HOST" "FAIL"
+            return 1
         fi
+        add_html_row "SID resolution" "INFO" "Resolved SID: $sid_for_switch"
+
+        # Verify the DB is actually OPEN (not just that a pmon exists)
+        local _db_open_check
+        _db_open_check=$(sudo -u "$ORACLE_USER" bash -c "
+            export ORACLE_HOME=\"$(get_db_home "$DB_UNIQUE_NAME" 2>/dev/null || echo "$OLD_DB_HOME")\"
+            export ORACLE_SID=\"$sid_for_switch\"
+            export PATH=\"\$ORACLE_HOME/bin:\$PATH\"
+            export LD_LIBRARY_PATH=\"\$ORACLE_HOME/lib:\${LD_LIBRARY_PATH:-}\"
+            \"\$ORACLE_HOME/bin/sqlplus\" -s / as sysdba 2>&1 <<'SQEOF'
+set heading off feedback off
+select status from v\$instance;
+exit;
+SQEOF
+        " 2>/dev/null) || true
+        if echo "$_db_open_check" | grep -qi "ORA-01034\|not available\|ORA-27101"; then
+            add_html_row "DB open check" "FAIL" \
+                "Database '$DB_UNIQUE_NAME' is not available (ORA-01034). Start the database before running db_switch."
+            send_phase_html_report "DB Switch" "DB Switch Report - $HOST" "FAIL"
+            return 1
+        fi
+        add_html_row "DB open check" "PASS" "Database is running (pmon confirmed + sqlplus responsive)."
 
         local current_home
         current_home=$(get_db_home "$DB_UNIQUE_NAME")
@@ -7180,17 +7204,36 @@ db_switch_core() {
             return 0
         fi
 
-        # Validate files copied during db_install
+        # Validate pfile/spfile in new home — auto-copy from old home if missing
         local new_dbs="$NEW_DB_HOME/dbs"
-        if [[ -f "$new_dbs/spfile${sid_for_switch}.ora" ]] || \
-           [[ -f "$new_dbs/init${sid_for_switch}.ora" ]] || \
-           [[ -f "$new_dbs/spfile${DB_UNIQUE_NAME}.ora" ]] || \
-           [[ -f "$new_dbs/init${DB_UNIQUE_NAME}.ora" ]]; then
-            add_html_row "DBS files check" "PASS" \
-                "init/spfile found in $new_dbs."
+        local old_dbs="$current_home/dbs"
+        local _dbs_ok=false
+        for _f in "spfile${sid_for_switch}.ora" "init${sid_for_switch}.ora" \
+                   "spfile${DB_UNIQUE_NAME}.ora" "init${DB_UNIQUE_NAME}.ora"; do
+            [[ -f "$new_dbs/$_f" ]] && { _dbs_ok=true; break; }
+        done
+        if [[ "$_dbs_ok" == true ]]; then
+            add_html_row "DBS files check" "PASS" "init/spfile found in $new_dbs."
         else
-            add_html_row "DBS files check" "WARN" \
-                "No init/spfile found in $new_dbs for SID $sid_for_switch. DB startup may fail."
+            # Try to copy from current home
+            local _copied=()
+            for _f in "spfile${sid_for_switch}.ora" "init${sid_for_switch}.ora" \
+                       "spfile${DB_UNIQUE_NAME}.ora" "init${DB_UNIQUE_NAME}.ora" \
+                       "orapw${sid_for_switch}" "orapw${DB_UNIQUE_NAME}"; do
+                if [[ -f "$old_dbs/$_f" ]]; then
+                    sudo -u "$ORACLE_USER" cp -p "$old_dbs/$_f" "$new_dbs/$_f" 2>/dev/null && \
+                        _copied+=("$_f")
+                fi
+            done
+            if [[ ${#_copied[@]} -gt 0 ]]; then
+                add_html_row "DBS files check" "PASS" \
+                    "Copied from $old_dbs: ${_copied[*]}. New home dbs directory is ready."
+            else
+                add_html_row "DBS files check" "FAIL" \
+                    "No init/spfile found in $new_dbs or $old_dbs for SID '$sid_for_switch'. Run db_install first to copy database files to the new home."
+                send_phase_html_report "DB Switch" "DB Switch Report - $HOST" "FAIL"
+                return 1
+            fi
         fi
 
         local new_net="$NEW_DB_HOME/network/admin"
@@ -7363,7 +7406,7 @@ SQEOF
                     "Shutdown RC=$shutdown_rc. Output: $(echo "$shutdown_out" | head -5). Proceeding."
             fi
 
-            normalize_oratab_for_sid "$DB_UNIQUE_NAME" "$NEW_DB_HOME"
+            normalize_oratab_for_sid "$sid_for_switch" "$NEW_DB_HOME"
 
             log "Starting $DB_UNIQUE_NAME (SID=$sid_for_switch) from new home $NEW_DB_HOME..."
             local startup_out startup_rc=0
