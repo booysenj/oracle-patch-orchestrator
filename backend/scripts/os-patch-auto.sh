@@ -1929,22 +1929,26 @@ send_db_open_notification() {
         fi
     fi
 
-    # Listener status — checked here so the notification reflects the live state
-    # (manage_db_only_listener should have already been called to start the listener)
-    if [[ -x "$home/bin/lsnrctl" ]]; then
+    # Listener status — on GI systems the listener is owned by CRS; check via GI home.
+    # On DB_ONLY_MODE the listener lives in the DB home passed as $home.
+    local _lsnr_home="$home"
+    if [[ "${DB_ONLY_MODE:-false}" != true && -n "${OLD_GI_HOME:-}" && -x "$OLD_GI_HOME/bin/lsnrctl" ]]; then
+        _lsnr_home="$OLD_GI_HOME"
+    fi
+    if [[ -x "$_lsnr_home/bin/lsnrctl" ]]; then
         local _lsnr_out _lsnr_rc=0
-        _lsnr_out=$(sudo -u "$ORACLE_USER" bash -c "
-            export ORACLE_HOME=\"$home\"
-            export PATH=\"$home/bin:\$PATH\"
-            \"$home/bin/lsnrctl\" status 2>&1
+        _lsnr_out=$(sudo -u "${GRID_USER:-$ORACLE_USER}" bash -c "
+            export ORACLE_HOME=\"$_lsnr_home\"
+            export PATH=\"$_lsnr_home/bin:\$PATH\"
+            \"$_lsnr_home/bin/lsnrctl\" status 2>&1
         " 2>/dev/null) || _lsnr_rc=$?
         if echo "$_lsnr_out" | grep -qi "The command completed successfully"; then
             local _lsnr_svc
             _lsnr_svc=$(echo "$_lsnr_out" | grep -i "Service\|Listening on" | head -3 | tr '\n' ' ')
-            _html_row "Listener" "INFO" "Listener UP from ${home}. ${_lsnr_svc:+Services: ${_lsnr_svc}}"
+            _html_row "Listener" "INFO" "Listener UP (managed by ${_lsnr_home}). ${_lsnr_svc:+Services: ${_lsnr_svc}}"
         else
             _html_row "Listener" "WARN" \
-                "Listener from ${home} did not confirm READY (RC=${_lsnr_rc}). Users may need to start it manually: lsnrctl start"
+                "Listener (${_lsnr_home}) did not confirm READY (RC=${_lsnr_rc}). Check: lsnrctl status"
         fi
     fi
 
@@ -7383,8 +7387,8 @@ SQEOF
 
         if [[ "$au_switch_used" == true ]]; then
             if wait_for_db_ready_state "$DB_UNIQUE_NAME" "$NEW_DB_HOME"; then
-                # Start listener from new home so clients can connect before notification is sent
-                manage_db_only_listener "$current_home" "$NEW_DB_HOME"
+                # DB_ONLY_MODE only — on GI systems the listener is managed by CRS; do not touch it
+                [[ "${DB_ONLY_MODE:-false}" == true ]] && manage_db_only_listener "$current_home" "$NEW_DB_HOME"
                 send_db_open_notification "DB Switch" "$DB_UNIQUE_NAME" "$NEW_DB_HOME" "$DB_LAST_ROLE" "$DB_LAST_MODE"
                 add_html_row "DB open mode check" "PASS" "Database reached target state (AutoUpgrade handled datapatch)."
                 ran_datapatch=true
@@ -7394,8 +7398,8 @@ SQEOF
             fi
         else
             if wait_for_db_ready_state "$DB_UNIQUE_NAME" "$NEW_DB_HOME"; then
-                # Start listener from new home so clients can connect before notification is sent
-                manage_db_only_listener "$current_home" "$NEW_DB_HOME"
+                # DB_ONLY_MODE only — on GI systems the listener is managed by CRS; do not touch it
+                [[ "${DB_ONLY_MODE:-false}" == true ]] && manage_db_only_listener "$current_home" "$NEW_DB_HOME"
                 send_db_open_notification "DB Switch" "$DB_UNIQUE_NAME" "$NEW_DB_HOME" "$DB_LAST_ROLE" "$DB_LAST_MODE"
                 add_html_row "DB open mode check" "PASS" "Database reached target state — running datapatch."
 
@@ -7659,9 +7663,8 @@ SQEOF
         local ran_datapatch=false
 
         if wait_for_db_ready_state "$DB_UNIQUE_NAME" "$OLD_DB_HOME"; then
-            # Start listener from rollback home before sending the open notification
-            # so the notification reflects the live listener state
-            manage_db_only_listener "$current_home" "$OLD_DB_HOME"
+            # DB_ONLY_MODE only — on GI systems the listener is managed by CRS; do not touch it
+            [[ "${DB_ONLY_MODE:-false}" == true ]] && manage_db_only_listener "$current_home" "$OLD_DB_HOME"
             send_db_open_notification "DB Rollback" "$DB_UNIQUE_NAME" "$OLD_DB_HOME" "$DB_LAST_ROLE" "$DB_LAST_MODE"
             if [[ "$DB_LAST_ROLE" == "PRIMARY" ]]; then
                 add_html_row "DB open mode check (rollback)" "PASS" \
