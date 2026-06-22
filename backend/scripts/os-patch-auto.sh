@@ -903,8 +903,32 @@ validate_staged_software_html() {
             add_html_row "NEW_GI_HOME" "INFO" \
                 "DB-only mode — GI home not required"
         elif [[ -d "$NEW_GI_HOME" ]]; then
-            add_html_row "NEW_GI_HOME" "WARN" \
-                "$NEW_GI_HOME already exists — gi_install will overwrite/re-use it"
+            # Check whether CRS/HAS is actively running from NEW_GI_HOME.
+            # If crsctl from that home reports CRS/HAS online, installing into it would
+            # corrupt a live GI stack (ASM, listeners, voting disks, OCR) — hard FAIL.
+            local _gi_crs_live=false
+            if [[ -x "$NEW_GI_HOME/bin/crsctl" ]]; then
+                if "$NEW_GI_HOME/bin/crsctl" check crs >/dev/null 2>&1 || \
+                   "$NEW_GI_HOME/bin/crsctl" check has >/dev/null 2>&1; then
+                    _gi_crs_live=true
+                fi
+            fi
+            # Also block if NEW_GI_HOME == OLD_GI_HOME (admin misconfigured target home)
+            if [[ "$_gi_crs_live" == true || "$NEW_GI_HOME" == "$OLD_GI_HOME" ]]; then
+                local _gi_block_reason
+                if [[ "$NEW_GI_HOME" == "$OLD_GI_HOME" ]]; then
+                    _gi_block_reason="NEW_GI_HOME is the same as OLD_GI_HOME ($OLD_GI_HOME) — the target install home must differ from the currently active GI home."
+                else
+                    _gi_block_reason="CRS/HAS is currently RUNNING from $NEW_GI_HOME (crsctl check crs/has returned success). Installing into a live GI home will corrupt ASM, voting disks, and OCR."
+                fi
+                add_html_row "NEW_GI_HOME" "FAIL" \
+                    "HARD BLOCK: $_gi_block_reason Run gi_rollback first to return CRS to $OLD_GI_HOME, then retry gi_install."
+                has_failures=true
+            else
+                add_html_row "NEW_GI_HOME" "WARN" \
+                    "$NEW_GI_HOME already exists on disk but CRS/HAS is not running from it. \
+gi_install will unzip the base media into it — existing files will be overwritten."
+            fi
         else
             add_html_row "NEW_GI_HOME" "PASS" \
                 "$NEW_GI_HOME does not exist yet (will be created by gi_install)"
@@ -4651,6 +4675,28 @@ gi_install() {
     LOG_FILE="${GI_LOG_DIR}/gi_install_$(date +%F_%H%M%S).log"
     log "GI INSTALL"
     write_gi_rsp_if_embedded
+
+    # HARD BLOCK: refuse to install into a GI home that is currently hosting CRS/HAS/ASM.
+    # This is belt-and-suspenders — gi_precheck should catch it first, but someone could
+    # skip precheck entirely.
+    if [[ -d "$NEW_GI_HOME" ]]; then
+        local _gi_live=false
+        if [[ -x "$NEW_GI_HOME/bin/crsctl" ]]; then
+            if "$NEW_GI_HOME/bin/crsctl" check crs >/dev/null 2>&1 || \
+               "$NEW_GI_HOME/bin/crsctl" check has >/dev/null 2>&1; then
+                _gi_live=true
+            fi
+        fi
+        [[ "$NEW_GI_HOME" == "$OLD_GI_HOME" ]] && _gi_live=true
+        if [[ "$_gi_live" == true ]]; then
+            local _why="CRS/HAS is active from $NEW_GI_HOME"
+            [[ "$NEW_GI_HOME" == "$OLD_GI_HOME" ]] && _why="NEW_GI_HOME equals OLD_GI_HOME ($OLD_GI_HOME)"
+            add_html_row "GI Install Safety Check" "FAIL" \
+                "HARD BLOCK: $_why. Unzipping base media into a live GI home will corrupt ASM, voting disks, and OCR. Run gi_rollback first to return CRS to $OLD_GI_HOME, then retry gi_install."
+            send_html_report "GI Install BLOCKED - $HOST" "GI Install Report (BLOCKED)"
+            die "HARD BLOCK: gi_install refused — $_why"
+        fi
+    fi
 
     if [[ ! -f "$GI_BASE_ZIP" ]]; then
         add_html_row "GI Base ZIP" "FAIL" "GI base ZIP missing: $GI_BASE_ZIP"
