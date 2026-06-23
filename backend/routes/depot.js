@@ -97,7 +97,8 @@ async function runExtraction(patch, depotPath, patch_id) {
         if (patch.gi_base_zip && fs.existsSync(patch.gi_base_zip)) {
             const giKey = zipKey(patch.gi_base_zip);
             sharedGiPath = path.join(SHARED_BASE, 'gi', giKey);
-            depotUpdate(patch_id, { gi_status: 'extracting', shared_gi_path: sharedGiPath });
+            const giAlready = fs.existsSync(path.join(sharedGiPath, 'gridSetup.sh'));
+            if (!giAlready) depotUpdate(patch_id, { gi_status: 'extracting', shared_gi_path: sharedGiPath });
             giStatus = await extractZipShared(patch.gi_base_zip, sharedGiPath, 'gridSetup.sh');
             depotUpdate(patch_id, { gi_status: giStatus, shared_gi_path: sharedGiPath });
         } else {
@@ -113,7 +114,8 @@ async function runExtraction(patch, depotPath, patch_id) {
         if (patch.db_base_zip && fs.existsSync(patch.db_base_zip)) {
             const dbKey = zipKey(patch.db_base_zip);
             sharedDbPath = path.join(SHARED_BASE, 'db', dbKey);
-            depotUpdate(patch_id, { db_status: 'extracting', shared_db_path: sharedDbPath });
+            const dbAlready = fs.existsSync(path.join(sharedDbPath, 'runInstaller'));
+            if (!dbAlready) depotUpdate(patch_id, { db_status: 'extracting', shared_db_path: sharedDbPath });
             dbStatus = await extractZipShared(patch.db_base_zip, sharedDbPath, 'runInstaller');
             depotUpdate(patch_id, { db_status: dbStatus, shared_db_path: sharedDbPath });
         } else {
@@ -184,10 +186,22 @@ router.post('/extract', (req, res) => {
 
     const depotPath = path.join(DEPOT_BASE, patch.version || patch_id);
     if (existing) {
-        db.prepare("UPDATE depot SET status='extracting',gi_status='pending',db_status='pending',ru_status='pending',opatch_status='pending',error=NULL,depot_path=?,updated_at=datetime('now') WHERE patch_id=?")
-          .run(depotPath, patch_id);
+        // Re-extract: only reset RU + OPatch (version-specific).
+        // GI + DB base are shared across versions — keep their status unless the shared dir is gone.
+        const giGone = existing.shared_gi_path && !fs.existsSync(path.join(existing.shared_gi_path, 'gridSetup.sh'));
+        const dbGone = existing.shared_db_path && !fs.existsSync(path.join(existing.shared_db_path, 'runInstaller'));
+        db.prepare(`UPDATE depot SET
+            status='extracting',
+            ${giGone ? "gi_status='pending'," : ''}
+            ${dbGone ? "db_status='pending'," : ''}
+            ru_status='pending',
+            opatch_status='pending',
+            error=NULL,
+            depot_path=?,
+            updated_at=datetime('now')
+            WHERE patch_id=?`).run(depotPath, patch_id);
         setImmediate(() => runExtraction(patch, depotPath, patch_id));
-        return res.json({ id: existing.id, status: 'extracting', depot_path: depotPath });
+        return res.json({ id: existing.id, status: 'extracting', depot_path: depotPath, note: 'GI/DB base reused from shared depot' });
     }
 
     const id = uuidv4();
