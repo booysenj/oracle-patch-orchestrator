@@ -1486,12 +1486,31 @@ stage_software() {
     # ── Step 2: Identify, distribute, and extract ─────────────────────────────
     log "INFO: ------------------------------------------"
     log "INFO: Step 2/3 — Distribute and extract software"
-    add_html_row "Step 2/3 — Distribute &amp; extract" "INFO" \
-        "Moving ZIPs from drop directory to target locations and extracting patches${DRYRUN:+ <b>(DRY-RUN — simulated only)</b>}"
-    distribute_staged_files
-    log "INFO: Step 2/3 complete — distribution done"
-    add_html_row "Step 2/3 — Distribution" "PASS" \
-        "File distribution and extraction complete${DRYRUN:+ <b>(dry-run — no actual changes made)</b>}"
+
+    # Depot mode: if the agent already extracted content directly into the staging
+    # directories (tar stream from pre-extracted orchestrator depot), skip the
+    # zip distribute/extract step. Detected by presence of runInstaller in gi/db dirs.
+    local _depot_gi=false _depot_db=false
+    local _gi_stage_dir; _gi_stage_dir=$(dirname "${GI_BASE_ZIP:-/placeholder}")
+    local _db_stage_dir; _db_stage_dir=$(dirname "${DB_BASE_ZIP:-/placeholder}")
+    [[ "${DB_ONLY_MODE:-false}" != true && -f "${_gi_stage_dir}/runInstaller" ]] && _depot_gi=true
+    [[ -f "${_db_stage_dir}/runInstaller" ]] && _depot_db=true
+
+    if [[ "$_depot_gi" == true || "$_depot_db" == true ]]; then
+        local _depot_note=""
+        [[ "$_depot_gi" == true ]] && _depot_note+="GI base "
+        [[ "$_depot_db" == true ]] && _depot_note+="DB base "
+        add_html_row "Step 2/3 — Depot mode" "PASS" \
+            "Pre-extracted content detected (${_depot_note}from orchestrator depot) — skipping zip distribution and extraction."
+        log "INFO: Depot mode — pre-extracted content found (${_depot_note}), skipping distribute_staged_files"
+    else
+        add_html_row "Step 2/3 — Distribute &amp; extract" "INFO" \
+            "Moving ZIPs from drop directory to target locations and extracting patches${DRYRUN:+ <b>(DRY-RUN — simulated only)</b>}"
+        distribute_staged_files
+        log "INFO: Step 2/3 complete — distribution done"
+        add_html_row "Step 2/3 — Distribution" "PASS" \
+            "File distribution and extraction complete${DRYRUN:+ <b>(dry-run — no actual changes made)</b>}"
+    fi
 
     # ── Step 3: Validate ──────────────────────────────────────────────────────
     log "INFO: ------------------------------------------"

@@ -12,6 +12,7 @@ const agentRoutes = require('./routes/agent');
 const patchRoutes = require('./routes/patches');
 const reportsRoutes = require('./routes/reports');
 const schedulerRoutes = require('./routes/scheduler');
+const depotRoutes = require('./routes/depot');
 const { authenticateToken, loginRoute, requireAdmin } = require('./lib/auth');
 const { initDB } = require('./lib/db');
 const { initAuditTable } = require('./lib/audit');
@@ -41,6 +42,7 @@ app.use('/api/admin', authenticateToken, adminRoutes);
 app.use('/api/agent', agentRoutes);
 app.use('/api/patches', patchRoutes(authenticateToken));
 app.use('/api/reports', reportsRoutes(authenticateToken));
+app.use('/api/depot', authenticateToken, depotRoutes);
 
 const wss = new WebSocketServer({ server, path: '/ws/logs' });
 attachWSS(wss);

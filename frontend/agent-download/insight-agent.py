@@ -578,43 +578,67 @@ def execute_transfer(t):
         with _urllib.urlopen(req, timeout=3600) as resp:
             if resp.getcode() != 200:
                 raise Exception('HTTP %d from orchestrator' % resp.getcode())
-            # Use X-Filename header if server resolved a specific file (e.g. from a directory source)
-            server_filename = resp.headers.get('X-Filename') or ''
-            if server_filename:
-                actual_filename = server_filename
-            if total_bytes == 0:
-                try:
-                    total_bytes = int(resp.headers.get('X-Total-Bytes') or resp.headers.get('Content-Length') or 0)
-                except Exception:
-                    pass
-            dest_file = os.path.join(dest_path, actual_filename)
-            print('[agent] Transfer %s: downloading %s -> %s' % (tid, actual_filename, dest_file))
-            with open(dest_file, 'wb') as f:
+
+            transfer_type = resp.headers.get('X-Transfer-Type') or ''
+            depot_type    = resp.headers.get('X-Depot-Type') or ''
+
+            if transfer_type == 'tar':
+                # Depot mode: server sends a tar stream of pre-extracted directory.
+                # Extract directly into dest_path — no zip file written to disk.
+                print('[agent] Transfer %s: depot tar stream (%s) → extracting to %s' % (tid, depot_type, dest_path))
+                import subprocess as _sp
+                tar_proc = _sp.Popen(['tar', '-xf', '-', '-C', dest_path],
+                                      stdin=_sp.PIPE, stderr=_sp.PIPE)
                 while True:
                     chunk = resp.read(1048576)
                     if not chunk:
                         break
-                    f.write(chunk)
+                    tar_proc.stdin.write(chunk)
                     bytes_received += len(chunk)
-                    if total_bytes > 0:
-                        pct = int(bytes_received * 100 / total_bytes)
-                        if pct >= last_pct + 5:
-                            last_pct = pct
-                            try:
-                                requests.post(
-                                    API_URL + '/api/agent/transfer/' + tid + '/progress',
-                                    json={'bytesReceived': bytes_received, 'totalBytes': total_bytes},
-                                    headers=HEADERS, timeout=5
-                                )
-                            except Exception:
-                                pass
+                tar_proc.stdin.close()
+                _, tar_err = tar_proc.communicate(timeout=300)
+                if tar_proc.returncode != 0:
+                    raise Exception('tar extract failed: ' + (tar_err.decode(errors='replace') if tar_err else ''))
+                actual_filename = '[depot:' + depot_type + ']'
+                print('[agent] Transfer %s: depot extract complete (%d bytes streamed)' % (tid, bytes_received))
+            else:
+                # Normal mode: download zip to dest_path
+                server_filename = resp.headers.get('X-Filename') or ''
+                if server_filename:
+                    actual_filename = server_filename
+                if total_bytes == 0:
+                    try:
+                        total_bytes = int(resp.headers.get('X-Total-Bytes') or resp.headers.get('Content-Length') or 0)
+                    except Exception:
+                        pass
+                dest_file = os.path.join(dest_path, actual_filename)
+                print('[agent] Transfer %s: downloading %s -> %s' % (tid, actual_filename, dest_file))
+                with open(dest_file, 'wb') as f:
+                    while True:
+                        chunk = resp.read(1048576)
+                        if not chunk:
+                            break
+                        f.write(chunk)
+                        bytes_received += len(chunk)
+                        if total_bytes > 0:
+                            pct = int(bytes_received * 100 / total_bytes)
+                            if pct >= last_pct + 5:
+                                last_pct = pct
+                                try:
+                                    requests.post(
+                                        API_URL + '/api/agent/transfer/' + tid + '/progress',
+                                        json={'bytesReceived': bytes_received, 'totalBytes': total_bytes},
+                                        headers=HEADERS, timeout=5
+                                    )
+                                except Exception:
+                                    pass
 
         requests.post(
             API_URL + '/api/agent/transfer/' + tid + '/complete',
             json={'success': True, 'bytesReceived': bytes_received, 'actualFilename': actual_filename},
             headers=HEADERS, timeout=10
         )
-        print('[agent] Transfer %s complete: %s (%d bytes)' % (tid, dest_file, bytes_received))
+        print('[agent] Transfer %s complete (%d bytes)' % (tid, bytes_received))
 
     except Exception as e:
         err_str = str(e)

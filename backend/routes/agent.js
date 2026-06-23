@@ -579,12 +579,42 @@ router.post('/:jobId/complete', (req, res) => {
 });
 
 // GET /api/agent/transfer/:id — agent pulls file content
+// If a ready depot exists for this patch+type, streams a tar of the pre-extracted directory.
+// Otherwise falls back to serving the raw zip.
 router.get('/transfer/:id', (req, res) => {
     const db = getDB();
     const fs = require('fs');
     const path = require('path');
+    const { spawn } = require('child_process');
     const t = db.prepare('SELECT * FROM patch_transfers WHERE id = ?').get(req.params.id);
     if (!t) return res.status(404).json({ error: 'Transfer not found' });
+
+    // Check if depot has a ready extracted copy for this file_type
+    var depotTypeMap = { gi_base: 'gi', db_base: 'db', ru_patch: 'ru', opatch: 'opatch' };
+    var depotType = depotTypeMap[t.file_type || 'ru_patch'];
+    if (depotType && t.patch_id) {
+        try {
+            var depotRow = db.prepare("SELECT * FROM depot WHERE patch_id=? AND status IN ('ready','partial')").get(t.patch_id);
+            if (depotRow && depotRow.depot_path) {
+                var depotStatusField = depotType + '_status';
+                if (depotRow[depotStatusField] === 'ready') {
+                    var depotSubDir = path.join(depotRow.depot_path, depotType);
+                    if (fs.existsSync(depotSubDir) && fs.statSync(depotSubDir).isDirectory()) {
+                        // Stream tar of pre-extracted directory
+                        res.setHeader('Content-Type', 'application/x-tar');
+                        res.setHeader('X-Transfer-Type', 'tar');
+                        res.setHeader('X-Depot-Type', depotType);
+                        db.prepare("UPDATE patch_transfers SET file_name=? WHERE id=?").run('[depot:' + depotType + ']', t.id);
+                        var tar = spawn('tar', ['-C', depotSubDir, '-cf', '-', '.']);
+                        tar.stdout.pipe(res);
+                        tar.on('error', function(e) { if (!res.headersSent) res.status(500).json({ error: String(e) }); });
+                        req.on('close', function() { try { tar.kill(); } catch(_) {} });
+                        return;
+                    }
+                }
+            }
+        } catch(_) {}
+    }
     var src = t.source_path;
     if (!src || !fs.existsSync(src)) return res.status(404).json({ error: 'Source file not found: ' + src });
     var stat = fs.statSync(src);

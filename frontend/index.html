@@ -698,6 +698,7 @@
     <div class="patch-sub-tabs">
         <button class="patch-sub-tab active" data-subtab="catalog" onclick="switchPatchSubTab('catalog')">Patch Catalog</button>
         <button class="patch-sub-tab" data-subtab="transfers" onclick="switchPatchSubTab('transfers')">Software Staging</button>
+        <button class="patch-sub-tab" data-subtab="depot" onclick="switchPatchSubTab('depot');loadDepot()">Software Depot</button>
         <button class="patch-sub-tab" data-subtab="reports" onclick="switchPatchSubTab('reports')">Precheck Reports</button>
     </div>
 
@@ -740,6 +741,20 @@
             <thead><tr><th>Patch</th><th>Target Host</th><th>File</th><th>Status</th><th>Progress</th><th>Stage Path</th><th>Method</th><th>Date</th><th>Actions</th></tr></thead>
             <tbody id="transfersBody"></tbody>
         </table></div>
+    </div>
+
+    <div id="patchDepotPanel" class="hidden">
+        <div class="filter-bar">
+            <span style="font-size:13px;color:var(--text-dim)">Extract patch zips once on the orchestrator server. Agents download pre-extracted content (tar stream) instead of raw zips — faster staging, no unzip on VM.</span>
+            <button class="btn btn-sm btn-secondary" onclick="loadDepot()">Refresh</button>
+        </div>
+        <div class="table-wrap"><table class="data-table">
+            <thead><tr><th>Version</th><th>Description</th><th>GI Base</th><th>DB Base</th><th>RU</th><th>OPatch</th><th>Status</th><th>Actions</th></tr></thead>
+            <tbody id="depotBody"></tbody>
+        </table></div>
+        <div id="depotEmpty" class="hidden" style="text-align:center;padding:40px;color:var(--text-dim)">
+            No depot entries yet. Go to <b>Patch Catalog</b>, open a patch, and click <b>Extract to Depot</b>.
+        </div>
     </div>
 
     <div id="patchReportsPanel" class="hidden">

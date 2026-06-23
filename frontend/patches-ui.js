@@ -43,6 +43,7 @@ function renderPatchCatalog() {
                 '<button class="btn btn-sm btn-secondary" onclick="togglePatchDownloaded(\'' + p.id + '\')">' +
                     (p.is_downloaded ? 'Mark Remote' : 'Mark Local') + '</button>' +
                 '<button class="btn btn-sm btn-secondary" onclick="openEditPatchModal(\'' + p.id + '\')">Edit</button>' +
+                '<button class="btn btn-sm btn-secondary" id="depotBtn-' + p.id + '" onclick="extractToDepot(\'' + p.id + '\',\'' + esc(p.version) + '\')" title="Extract zips to orchestrator depot for fast VM staging">⬇ Depot</button>' +
                 '<button class="btn btn-sm btn-danger" onclick="deletePatch(\'' + p.id + '\',\'' + esc(p.version) + '\')">Del</button>' +
             '</div>' +
         '</div>';
@@ -53,14 +54,15 @@ function switchPatchSubTab(tab) {
     document.querySelectorAll('.patch-sub-tab').forEach(function(b) {
         b.classList.toggle('active', b.dataset.subtab === tab);
     });
-    var panels = ['patchCatalogPanel', 'patchTransfersPanel', 'patchReportsPanel'];
-    var tabs = ['catalog', 'transfers', 'reports'];
+    var panels = ['patchCatalogPanel', 'patchTransfersPanel', 'patchDepotPanel', 'patchReportsPanel'];
+    var tabs   = ['catalog', 'transfers', 'depot', 'reports'];
     for (var i = 0; i < panels.length; i++) {
         var el = document.getElementById(panels[i]);
         if (el) el.classList.toggle('hidden', tabs[i] !== tab);
     }
     if (tab === 'catalog') loadPatches();
     if (tab === 'transfers') loadTransfers();
+    if (tab === 'depot') loadDepot();
     if (tab === 'reports') loadReports();
 }
 
@@ -302,3 +304,106 @@ api = async function(path, opts) {
     }
     return _baseApiPatches(path, opts);
 };
+
+// ── Software Depot ──────────────────────────────────────────────────────────
+
+var _depotPollTimers = {};
+
+function depotComponentBadge(st) {
+    if (!st || st === 'pending')    return '<span style="color:var(--text-dim)">—</span>';
+    if (st === 'extracting')        return '<span style="color:var(--warning)">⟳ Extracting</span>';
+    if (st === 'ready')             return '<span style="color:var(--success)">✔ Ready</span>';
+    if (st === 'skipped')           return '<span style="color:var(--text-dim)">— N/A</span>';
+    if (st === 'failed')            return '<span style="color:var(--danger)">✘ Failed</span>';
+    return '<span>' + st + '</span>';
+}
+
+function depotOverallBadge(st) {
+    var map = {
+        pending:    '<span class="status-badge status-pending">Pending</span>',
+        extracting: '<span class="status-badge status-running">⟳ Extracting…</span>',
+        ready:      '<span class="status-badge status-success">✔ Ready</span>',
+        partial:    '<span class="status-badge status-warn">⚠ Partial</span>',
+        failed:     '<span class="status-badge status-failed">✘ Failed</span>'
+    };
+    return map[st] || '<span class="status-badge">' + (st||'—') + '</span>';
+}
+
+async function loadDepot() {
+    var tbody = document.getElementById('depotBody');
+    var empty = document.getElementById('depotEmpty');
+    if (!tbody) return;
+    try {
+        var rows = await api('/depot');
+        if (!rows || !rows.length) {
+            tbody.innerHTML = '';
+            if (empty) empty.classList.remove('hidden');
+            return;
+        }
+        if (empty) empty.classList.add('hidden');
+        tbody.innerHTML = rows.map(function(d) {
+            return '<tr>' +
+                '<td><strong>' + esc(d.patch_version || d.version || '—') + '</strong></td>' +
+                '<td style="color:var(--text-dim);font-size:12px">' + esc(d.description || '—') + '</td>' +
+                '<td>' + depotComponentBadge(d.gi_status) + '</td>' +
+                '<td>' + depotComponentBadge(d.db_status) + '</td>' +
+                '<td>' + depotComponentBadge(d.ru_status) + '</td>' +
+                '<td>' + depotComponentBadge(d.opatch_status) + '</td>' +
+                '<td>' + depotOverallBadge(d.status) + '</td>' +
+                '<td>' +
+                    '<button class="btn btn-sm btn-secondary" onclick="extractToDepotById(\'' + d.patch_id + '\',\'' + esc(d.patch_version||d.version) + '\')" title="Re-extract">↺ Re-extract</button> ' +
+                    '<button class="btn btn-sm btn-danger" onclick="deleteDepot(\'' + d.id + '\',\'' + esc(d.patch_version||d.version) + '\')">Del</button>' +
+                '</td>' +
+            '</tr>';
+        }).join('');
+        // Auto-refresh rows that are still extracting
+        rows.forEach(function(d) {
+            if (d.status === 'extracting') pollDepotStatus(d.patch_id);
+        });
+    } catch(e) {
+        if (tbody) tbody.innerHTML = '<tr><td colspan="8" style="color:var(--danger)">Error loading depot: ' + esc(String(e)) + '</td></tr>';
+    }
+}
+
+function pollDepotStatus(patch_id) {
+    if (_depotPollTimers[patch_id]) return; // already polling
+    _depotPollTimers[patch_id] = setInterval(async function() {
+        try {
+            var d = await api('/depot/' + patch_id + '/status');
+            if (d.status !== 'extracting') {
+                clearInterval(_depotPollTimers[patch_id]);
+                delete _depotPollTimers[patch_id];
+                loadDepot();
+                showToast('Depot extraction ' + (d.status === 'ready' ? 'complete ✔' : d.status) + ' — v' + (d.version||''), d.status === 'ready' ? 'success' : 'warning');
+            }
+        } catch(_) {}
+    }, 4000);
+}
+
+async function extractToDepot(patch_id, version) {
+    await extractToDepotById(patch_id, version);
+}
+
+async function extractToDepotById(patch_id, version) {
+    if (!confirm('Extract v' + version + ' to orchestrator depot?\n\nThis unzips GI base, DB base, RU and OPatch on the server. Large files — may take 10–20 minutes.')) return;
+    try {
+        var r = await api('/depot/extract', { method:'POST', body: JSON.stringify({ patch_id }) });
+        showToast('Extraction started for v' + version, 'info');
+        switchPatchSubTab('depot');
+        loadDepot();
+        pollDepotStatus(patch_id);
+    } catch(e) {
+        showToast('Extract failed: ' + (e.message||e), 'error');
+    }
+}
+
+async function deleteDepot(id, version) {
+    if (!confirm('Delete depot for v' + version + '?\n\nThis removes the extracted files from the orchestrator disk.')) return;
+    try {
+        await api('/depot/' + id, { method: 'DELETE' });
+        showToast('Depot v' + version + ' deleted', 'success');
+        loadDepot();
+    } catch(e) {
+        showToast('Delete failed: ' + (e.message||e), 'error');
+    }
+}
