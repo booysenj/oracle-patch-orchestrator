@@ -101,6 +101,7 @@ router.post('/', (req, res) => {
         const result = createJob({
             vmId, operation, dryRun: !!dryRun, verbose: !!verbose, applyOjvm: !!applyOjvm,
             dbUniqueName: dbUniqueName || '',
+            patchVersionId: req.body.patchVersionId || '',
             createdBy: req.user.username
         });
 

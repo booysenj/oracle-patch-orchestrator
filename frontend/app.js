@@ -464,6 +464,9 @@ function closeModal() {
 
 var PRECHECK_OPS = ['gi_precheck','db_precheck','gi_upgrade_precheck','db_upgrade_precheck','cluster_precheck','stage_software'];
 var OJVM_OPS = ['gi_install','db_install','gi_upgrade_install','db_upgrade_install'];
+// Operations where selecting a patch version auto-derives NEW_DB_HOME / NEW_GI_HOME
+var PATCH_VERSION_OPS = ['gi_precheck','db_precheck','stage_software','gi_install','db_install',
+    'gi_upgrade_precheck','db_upgrade_precheck','gi_upgrade_install','db_upgrade_install'];
 
 document.getElementById('opSelect').addEventListener('change', function() {
   var op = document.getElementById('opSelect').value;
@@ -482,7 +485,76 @@ document.getElementById('opSelect').addEventListener('change', function() {
       document.getElementById('ojvmCheck').checked = false;
     }
   }
+  // Show patch version picker for ops that need a target RU version
+  var pvGroup = document.getElementById('patchVersionGroup');
+  if (pvGroup) {
+    if (PATCH_VERSION_OPS.indexOf(op) >= 0) {
+      pvGroup.classList.remove('hidden');
+      _populateRunModalPatchVersions();
+    } else {
+      pvGroup.classList.add('hidden');
+      document.getElementById('patchVersionInfo').textContent = '';
+    }
+  }
 });
+
+// Populate patch version dropdown in Run modal and wire change → derived home preview
+async function _populateRunModalPatchVersions() {
+  var sel = document.getElementById('patchVersionSelect');
+  if (!sel) return;
+  var cur = sel.value;
+  sel.innerHTML = '<option value="">-- Select RU Version --</option>';
+  try {
+    var patches = await api('/patches');
+    patches.forEach(function(p) {
+      var opt = document.createElement('option');
+      opt.value = p.id;
+      opt.textContent = 'v' + p.version + (p.description ? '  — ' + p.description : '');
+      opt.dataset.version = p.version;
+      sel.appendChild(opt);
+    });
+    if (cur) sel.value = cur;
+  } catch(e) {}
+  _onRunModalPatchVersionChange();
+}
+
+document.getElementById('patchVersionSelect').addEventListener('change', _onRunModalPatchVersionChange);
+
+async function _onRunModalPatchVersionChange() {
+  var sel = document.getElementById('patchVersionSelect');
+  var infoEl = document.getElementById('patchVersionInfo');
+  if (!sel || !infoEl) return;
+  var opt = sel.options[sel.selectedIndex];
+  var ver = opt ? (opt.dataset.version || '') : '';
+  var pvId = sel.value;
+  if (!ver) { infoEl.innerHTML = ''; return; }
+
+  var giBase = orchSettings.gi_home_base || '/grid/oracle/product';
+  var dbBase = orchSettings.db_home_base || '/app/oracle/product';
+  var derivedGi = giBase + '/' + ver;
+  var derivedDb = dbBase + '/' + ver;
+
+  infoEl.innerHTML =
+    '<div style="padding:8px 10px;background:var(--surface2);border:1px solid var(--accent);border-radius:6px;margin-top:6px">' +
+    '<div style="font-size:11px;font-weight:600;color:var(--accent);margin-bottom:4px">Target Oracle Homes for v' + esc(ver) + '</div>' +
+    '<div style="font-family:monospace;font-size:12px;line-height:1.8">' +
+      '<span style="color:var(--text-muted)">NEW_GI_HOME  </span>' + esc(derivedGi) + '<br>' +
+      '<span style="color:var(--text-muted)">NEW_DB_HOME  </span>' + esc(derivedDb) +
+    '</div>' +
+    '<div style="font-size:11px;color:var(--text-muted);margin-top:4px">Base paths from Admin → Settings. Per-VM overrides respected if set.</div>' +
+    '</div>';
+
+  // Refresh resolved config panel to reflect this patch version selection
+  if (selectedVm) {
+    var rcEl = document.getElementById('resolvedConfigPanel');
+    if (rcEl) {
+      try {
+        var rc = await api('/vms/' + selectedVm.id + '/resolved-config?patchVersionId=' + encodeURIComponent(pvId));
+        renderResolvedConfig(rcEl, rc);
+      } catch(e) {}
+    }
+  }
+}
 
 // -- Preflight --
 document.getElementById('preflightBtn').addEventListener('click', async function() {
@@ -591,6 +663,7 @@ document.getElementById('executeBtn').addEventListener('click', async function()
       }
     }
     var ojvmEl = document.getElementById('ojvmCheck');
+    var pvSel = document.getElementById('patchVersionSelect');
     var body = {
       vmId: selectedVm.id,
       operation: op,
@@ -598,6 +671,7 @@ document.getElementById('executeBtn').addEventListener('click', async function()
       verbose: document.getElementById('verboseCheck').checked,
       applyOjvm: ojvmEl ? ojvmEl.checked : false,
       dbUniqueName: dbUniqueName,
+      patchVersionId: pvSel ? pvSel.value : '',
       confirmationToken: 'CONFIRMED'
     };
     var result = await api('/jobs', {

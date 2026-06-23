@@ -85,9 +85,13 @@ router.get('/:id/resolved-config', (req, res) => {
     const vm = db.prepare('SELECT * FROM vms WHERE id = ?').get(req.params.id);
     if (!vm) return res.status(404).json({ error: 'VM not found' });
 
+    // patchVersionId query param lets the Run modal preview homes for a specific RU selection
+    // without permanently changing what's stored on the VM.
+    const reqPvId = req.query.patchVersionId || '';
     let pv = null;
-    if (vm.target_patch_version_id) {
-        pv = db.prepare('SELECT * FROM patch_versions WHERE id = ?').get(vm.target_patch_version_id);
+    const pvLookupId = reqPvId || vm.target_patch_version_id || '';
+    if (pvLookupId) {
+        pv = db.prepare('SELECT * FROM patch_versions WHERE id = ?').get(pvLookupId);
     }
 
     let giHomeBase = '', dbHomeBase = '';
