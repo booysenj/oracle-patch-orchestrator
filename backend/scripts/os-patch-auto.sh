@@ -7370,7 +7370,7 @@ SQEOF
                     add_attachment "$au_status_html"
                 fi
                 if [[ -f "$au_status_log" ]]; then
-                    add_html_attachment "$au_status_log" "AutoUpgrade Status Log"
+                    add_attachment "$au_status_log"
                 fi
 
                 if [[ "$au_success" == true ]]; then
