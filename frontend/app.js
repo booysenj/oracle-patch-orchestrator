@@ -352,7 +352,11 @@ function renderVMs(list) {
         })() +
         stagingHint +
         '<span class="vm-detail-label">Patch</span><span class="vm-detail-value"><span class="patch-badge">' + (vm.patch_target || '19.26') + '</span></span>' +
-        '<span class="vm-detail-label">Last Job</span><span class="vm-detail-value">' + (vm.last_status ? statusBadge(vm.last_status) : '\u2014') + '</span>' +
+        '<span class="vm-detail-label">Last Job</span><span class="vm-detail-value">' +
+          (vm.last_status
+            ? statusBadge(vm.last_status) + ' <span style="font-size:11px;color:var(--text-dim)">' + esc(vm.last_operation || '') + '</span>'
+            : '\u2014') +
+        '</span>' +
       '</div>' +
       '<div class="vm-card-actions">' +
         '<button class="btn btn-sm btn-secondary" onclick="openDiscoveryPanel(\'' + vm.id + '\')" title="View discovery inventory">' +

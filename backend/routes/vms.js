@@ -4,7 +4,20 @@ const { getDB } = require('../lib/db');
 const router = express.Router();
 
 router.get('/', (_req, res) => {
-    res.json(getDB().prepare('SELECT * FROM vms ORDER BY environment, hostname').all());
+    const rows = getDB().prepare(`
+        SELECT v.*,
+               j.status      AS last_status,
+               j.operation   AS last_operation,
+               j.finished_at AS last_finished_at
+        FROM vms v
+        LEFT JOIN jobs j ON j.id = (
+            SELECT id FROM jobs
+            WHERE vm_id = v.id
+            ORDER BY created_at DESC LIMIT 1
+        )
+        ORDER BY v.environment, v.hostname
+    `).all();
+    res.json(rows);
 });
 
 router.get('/:id', (req, res) => {
