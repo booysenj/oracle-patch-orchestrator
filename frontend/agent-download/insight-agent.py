@@ -306,18 +306,42 @@ def discover():
             result['grid_home'] = asm_home_from_oratab
 
     # DB unique name, role, and version — query all running instances via sqlplus.
+    # Build srvctl home map: unique_name (lowercase) → oracle_home, for all databases
+    # registered in CRS. This is the authoritative source for which home a DB uses —
+    # oratab entries can be stale or written by Oracle's own agent with wrong home.
+    _srvctl_homes = {}
+    _gi = result.get('grid_home', '')
+    if _gi and os.path.isfile(_gi + '/bin/srvctl'):
+        _srvctl = _gi + '/bin/srvctl'
+        _db_list_out = _run('%s config database 2>/dev/null' % _srvctl) or ''
+        for _dbname in _db_list_out.splitlines():
+            _dbname = _dbname.strip()
+            if not _dbname:
+                continue
+            _cfg = _run('%s config database -d %s 2>/dev/null' % (_srvctl, _dbname)) or ''
+            for _cline in _cfg.splitlines():
+                _m = re.match(r'\s*Oracle home:\s*(\S+)', _cline, re.IGNORECASE)
+                if _m:
+                    _srvctl_homes[_dbname.lower()] = _m.group(1)
+                    break
+
     # RAC instance SIDs have a node-number suffix: source1 → oratab has 'source',
     # or underscore form: sretest_1 → oratab has 'sretest'. Try both strip patterns.
+    # Prefer srvctl config (authoritative CRS registration) over oratab (can be stale).
     def _oratab_home(sid):
         sid_lower = sid.lower()
-        # Case-insensitive exact match first (oratab SIDs can be upper or mixed case)
+        # Derive candidate unique/base names to look up in srvctl_homes
+        base_strip_digits = sid_lower.rstrip('0123456789')
+        base_strip_n = re.sub(r'_[0-9]+$', '', sid_lower)
+        for candidate in [sid_lower, base_strip_n, base_strip_digits]:
+            if candidate in _srvctl_homes:
+                return _srvctl_homes[candidate]
+        # Fall back to oratab
         home = next((o['home'] for o in result['oratab'] if o['sid'].lower() == sid_lower), None)
         if not home:
-            # Strip trailing digits: source1 → source, cdbtarget1 → cdbtarget
             base = sid_lower.rstrip('0123456789')
             home = next((o['home'] for o in result['oratab'] if o['sid'].lower() == base), None)
         if not home:
-            # Strip _N suffix: sretest_1 → sretest
             base = re.sub(r'_[0-9]+$', '', sid_lower)
             home = next((o['home'] for o in result['oratab'] if o['sid'].lower() == base), None)
         return home
