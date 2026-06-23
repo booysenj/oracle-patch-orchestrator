@@ -104,7 +104,7 @@ function checkDueSchedules(wsBroadcast) {
 
 // Auto-fail jobs that have been running or queued longer than the timeout.
 // Queued timeout: 30 min (agent not reachable / never picked up)
-// Running timeout: 120 min (script hung or agent died mid-job)
+// Running timeout: 180 min — db_install / gi_install with AutoUpgrade can take 1-2 hours
 function timeoutStaleJobs() {
     const db = getDB();
 
@@ -112,7 +112,7 @@ function timeoutStaleJobs() {
         UPDATE jobs SET status = 'failed', exit_code = -1,
             finished_at = datetime('now')
         WHERE status = 'running'
-          AND started_at < datetime('now', '-30 minutes')
+          AND started_at < datetime('now', '-180 minutes')
     `).run();
 
     const stuckQueued = db.prepare(`
