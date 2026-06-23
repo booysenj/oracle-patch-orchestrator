@@ -1605,6 +1605,7 @@ add_report_step() {
 
 reset_report() {
     REPORT_BODY=""
+    PHASE_STATUS="PASS"
 }
 
 die() {
@@ -1681,6 +1682,11 @@ add_html_row() {
         FAIL) color="#f8d7da" ;;
         WARN) color="#fff3cd" ;;
         INFO) color="#d1ecf1" ;;
+    esac
+    # Escalate phase status: FAIL > WARN > PASS/INFO
+    case "$status" in
+        FAIL) PHASE_STATUS="FAIL" ;;
+        WARN) [[ "$PHASE_STATUS" != "FAIL" ]] && PHASE_STATUS="WARN" ;;
     esac
     HTML_ROWS+="
     <tr style=\"background-color:${color};\">
@@ -5468,7 +5474,7 @@ phase_switch_home() {
         msg="CRS/HAS home successfully switched to NEW_GI_HOME (${NEW_GI_HOME})."
     fi
     add_html_row "GI Switch Result" "PASS" "$msg"
-    send_phase_html_report "GI Switch" "GI Switch Report - $HOST" "PASS"
+    send_phase_html_report "GI Switch" "GI Switch Report - $HOST" "$PHASE_STATUS"
 
     # Snapshot homes at switch time so orchestrator can fade old rollback targets.
     if [[ "$DRYRUN" == false && -n "${NEW_GI_HOME:-}" && -n "${OLD_GI_HOME:-}" ]]; then
@@ -5567,7 +5573,7 @@ phase_rollback() {
     fi
     add_html_row "GI Rollback Result" "PASS" "$msg"
 
-    send_phase_html_report "GI Rollback" "GI Rollback Report - $HOST" "PASS"
+    send_phase_html_report "GI Rollback" "GI Rollback Report - $HOST" "$PHASE_STATUS"
 }
 # ------------------------------------------------------------
 # NEW: GI UPGRADE (19c -> 23/26ai)
@@ -7544,11 +7550,11 @@ SQEOF
         if [[ "$ran_datapatch" == true ]]; then
             add_html_row "DB Switch Result" "PASS" \
                 "Switched to $NEW_DB_HOME via $switch_method. [DB_ONLY_MODE]"
-            send_phase_html_report "DB Switch" "DB Switch Report - $HOST" "PASS"
+            send_phase_html_report "DB Switch" "DB Switch Report - $HOST" "$PHASE_STATUS"
         else
             add_html_row "DB Switch Result" "WARN" \
                 "Switched to $NEW_DB_HOME via $switch_method but datapatch did NOT run. [DB_ONLY_MODE]"
-            send_phase_html_report "DB Switch" "DB Switch Report - $HOST" "WARN"
+            send_phase_html_report "DB Switch" "DB Switch Report - $HOST" "$PHASE_STATUS"
         fi
         return 0
     fi
@@ -7650,7 +7656,7 @@ SQEOF
     if [[ "$ran_datapatch" == true ]]; then
         add_html_row "DB Switch Result" "PASS" \
             "Switched to NEW_DB_HOME (${NEW_DB_HOME}) and datapatch executed."
-        send_phase_html_report "DB Switch" "DB Switch Report - $HOST" "PASS"
+        send_phase_html_report "DB Switch" "DB Switch Report - $HOST" "$PHASE_STATUS"
     else
         add_html_row "DB Switch Result" "WARN" \
             "Switched but datapatch did NOT run."
@@ -7818,7 +7824,7 @@ SQEOF
             add_html_row "DB Rollback Result" "WARN" "$msg Datapatch did NOT run."
         fi
 
-        send_phase_html_report "DB Rollback" "DB Rollback Report - $HOST" "PASS"
+        send_phase_html_report "DB Rollback" "DB Rollback Report - $HOST" "$PHASE_STATUS"
         return 0
     fi
 
@@ -7876,7 +7882,7 @@ SQEOF
     fi
 
     if [[ "$DRYRUN" == false ]]; then
-        normalize_oratab_for_sid "${sid_for_rb:-$DB_UNIQUE_NAME}" "$OLD_DB_HOME"
+        normalize_oratab_for_sid "${sid_for_dp:-$DB_UNIQUE_NAME}" "$OLD_DB_HOME"
     fi
 
     if [[ -f "${LOG_DIR}/db_old_patchlevel.html" ]]; then
@@ -7888,7 +7894,7 @@ SQEOF
     local msg="Database $DB_UNIQUE_NAME rolled back to OLD_DB_HOME (${OLD_DB_HOME})."
     if [[ "$ran_datapatch" == true ]]; then
         add_html_row "DB Rollback Result" "PASS" "$msg Datapatch executed."
-        send_phase_html_report "DB Rollback" "DB Rollback Report - $HOST" "PASS"
+        send_phase_html_report "DB Rollback" "DB Rollback Report - $HOST" "$PHASE_STATUS"
     else
         add_html_row "DB Rollback Result" "WARN" "$msg Datapatch did NOT run. Verify DB is open and run datapatch manually: ORACLE_HOME=$OLD_DB_HOME ORACLE_SID=\$(srvctl status database -d $DB_UNIQUE_NAME | awk '/Instance/{print \$2}') $OLD_DB_HOME/OPatch/datapatch -verbose"
         send_phase_html_report "DB Rollback" "DB Rollback Report - $HOST" "WARN"
