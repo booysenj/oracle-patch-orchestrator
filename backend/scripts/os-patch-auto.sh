@@ -7593,10 +7593,38 @@ SQEOF
         # Ensure oratab reflects NEW_DB_HOME before starting listener
         normalize_oratab_for_sid "${sid_for_switch:-$DB_UNIQUE_NAME}" "$NEW_DB_HOME"
 
+        # -------------------------------------------------------
+        # Listener management for DB_ONLY VMs with multiple DBs:
+        # Only restart the listener once — when the NEW_DB_HOME listener
+        # is not yet running. Concurrent db_switch jobs on the same VM
+        # (one per DB) would otherwise each restart the listener.
+        # Use a lock file so only the first job to reach this point restarts;
+        # subsequent jobs skip gracefully because the listener is already up.
+        # -------------------------------------------------------
+        _maybe_restart_db_only_listener() {
+            local _from_home="$1" _to_home="$2"
+            if [[ "${DB_ONLY_MODE:-false}" != true ]]; then return 0; fi
+            local _lock="/tmp/.listener_switch_${HOSTNAME}.lock"
+            local _marker="/tmp/.listener_switched_to_${_to_home//\//_}"
+            # If another db_switch job already moved the listener to NEW_DB_HOME, skip
+            if [[ -f "$_marker" ]]; then
+                add_html_row "Listener" "INFO" "Already restarted for NEW_DB_HOME by a concurrent switch job — skipping."
+                return 0
+            fi
+            (
+                flock -x 200
+                if [[ ! -f "$_marker" ]]; then
+                    manage_db_only_listener "$_from_home" "$_to_home"
+                    touch "$_marker"
+                else
+                    add_html_row "Listener" "INFO" "Listener already moved to NEW_DB_HOME — skipping."
+                fi
+            ) 200>"$_lock"
+        }
+
         if [[ "$au_switch_used" == true ]]; then
             if wait_for_db_ready_state "$DB_UNIQUE_NAME" "$NEW_DB_HOME"; then
-                # DB_ONLY_MODE only — on GI systems the listener is managed by CRS; do not touch it
-                [[ "${DB_ONLY_MODE:-false}" == true ]] && manage_db_only_listener "$current_home" "$NEW_DB_HOME"
+                _maybe_restart_db_only_listener "$current_home" "$NEW_DB_HOME"
                 send_db_open_notification "DB Switch" "$DB_UNIQUE_NAME" "$NEW_DB_HOME" "$DB_LAST_ROLE" "$DB_LAST_MODE"
                 add_html_row "DB open mode check" "PASS" "Database reached target state (AutoUpgrade handled datapatch)."
                 ran_datapatch=true
@@ -7606,8 +7634,7 @@ SQEOF
             fi
         else
             if wait_for_db_ready_state "$DB_UNIQUE_NAME" "$NEW_DB_HOME"; then
-                # DB_ONLY_MODE only — on GI systems the listener is managed by CRS; do not touch it
-                [[ "${DB_ONLY_MODE:-false}" == true ]] && manage_db_only_listener "$current_home" "$NEW_DB_HOME"
+                _maybe_restart_db_only_listener "$current_home" "$NEW_DB_HOME"
                 send_db_open_notification "DB Switch" "$DB_UNIQUE_NAME" "$NEW_DB_HOME" "$DB_LAST_ROLE" "$DB_LAST_MODE"
                 add_html_row "DB open mode check" "PASS" "Database reached target state — running datapatch."
 
@@ -8119,6 +8146,14 @@ write_db_switch_autoupgrade_cfg() {
 
     local cfg_file="${DB_LOG_DIR}/db_switch_autoupgrade_${db}.cfg"
 
+    # Derive target Oracle version from the home path (e.g. /app/oracle/product/19.26 → 19)
+    # AutoUpgrade deploy mode (patching within same major version) does not use target_version,
+    # but setting it avoids interactive prompts when source and target are both 19c.
+    local target_version="19"
+    if [[ "$tgt_home_override" =~ /([0-9]+)\.[0-9]+ ]]; then
+        target_version="${BASH_REMATCH[1]}"
+    fi
+
     cat > "$cfg_file" <<EOF
 global.autoupg_log_dir=${logdir}
 global.timezone_upg=no
@@ -8127,7 +8162,9 @@ global.restoration=no
 upg1.sid=${sid}
 upg1.source_home=${src_home}
 upg1.target_home=${tgt_home_override}
+upg1.target_version=${target_version}
 upg1.log_dir=${logdir}/upg1
+upg1.start_time=NOW
 EOF
     chown "${ORACLE_USER}:${OINSTALL}" "$cfg_file" 2>/dev/null || true
     chmod 600 "$cfg_file" 2>/dev/null || true
