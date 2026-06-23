@@ -583,23 +583,53 @@ module.exports = function (authenticateToken) {
             return results;
         }
 
-        var allFiles = walk(root, 0);
+        // Support two layouts:
+        //   Flat:  {root}/p19.30/{ru_zip, opatch}, {root}/oracle_install/{gi,db}/
+        //   Split: {root}/patches/p19.30/, {root}/oracle_install/{gi,db}/  (e.g. /backup)
+        //   Pure flat: all zips under {root}/p19.30/ with GI/DB base zips in same tree
+        //
+        // Determine effective sub-roots for patches and base software.
+        var patchesRoot = root;
+        var installRoot = root;
+        var patchesSub = pathMod.join(root, 'patches');
+        var installSub = pathMod.join(root, 'oracle_install');
+        if (fs.existsSync(patchesSub) && fs.statSync(patchesSub).isDirectory()) patchesRoot = patchesSub;
+        if (fs.existsSync(installSub) && fs.statSync(installSub).isDirectory()) installRoot = installSub;
+
+        // Walk the patches subtree (RU patches, OPatch, possibly GI/DB base in flat layout)
+        var patchFiles = walk(patchesRoot, 0);
+        // Also walk the install subtree when it's separate from patchesRoot
+        var installFiles = (installRoot !== patchesRoot) ? walk(installRoot, 0) : [];
+        var allFiles = patchFiles.concat(installFiles);
         var zips = allFiles.filter(function(f) { return /\.(zip|ZIP)$/i.test(f.name); });
 
         function classify(f) {
             var n = f.name;
             if (/^V982068/i.test(n)) return Object.assign({}, f, { type: 'GI_BASE', field: 'gi_base_zip' });
             if (/^V982063/i.test(n)) return Object.assign({}, f, { type: 'DB_BASE', field: 'db_base_zip' });
-            if (/^p688088.*\.zip$/i.test(n)) return Object.assign({}, f, { type: 'OPATCH', field: 'opatch_zip' });
+            if (/^p6880880.*\.zip$/i.test(n)) return Object.assign({}, f, { type: 'OPATCH', field: 'opatch_zip' });
             if (/^p\d+.*\.zip$/i.test(n)) return Object.assign({}, f, { type: 'RU', field: 'ru' });
             return Object.assign({}, f, { type: 'UNKNOWN', field: null });
         }
 
         var classified = zips.map(classify);
         var groups = {};
+        // Collect shared base zips found in oracle_install/ (no version in their path)
+        var sharedGiZip = '';
+        var sharedDbZip = '';
 
         for (var c = 0; c < classified.length; c++) {
             var fl = classified[c];
+            // Is this file from the oracle_install subtree? If so, treat as shared base.
+            var isInstallTree = (installRoot !== patchesRoot) &&
+                fl.path.startsWith(installRoot + pathMod.sep);
+            if (isInstallTree) {
+                if (fl.field === 'gi_base_zip' && !sharedGiZip) sharedGiZip = fl.path;
+                if (fl.field === 'db_base_zip' && !sharedDbZip) sharedDbZip = fl.path;
+                // OPatch from install tree still treated as shared below
+                continue;
+            }
+
             var version = '_root';
             var parts = fl.relDir.split(pathMod.sep);
             for (var p = 0; p < parts.length; p++) {
@@ -617,9 +647,23 @@ module.exports = function (authenticateToken) {
             if (fl.field === 'opatch_zip') groups[version].opatch_zip = fl.path;
         }
 
+        // Backfill shared GI/DB base zips into every version group that doesn't have one
         Object.keys(groups).forEach(function(version) {
             if (version === '_root') return;
-            var searchRoots = [pathMod.join(root, 'p' + version), pathMod.join(root, version)];
+            if (!groups[version].gi_base_zip && sharedGiZip) groups[version].gi_base_zip = sharedGiZip;
+            if (!groups[version].db_base_zip && sharedDbZip) groups[version].db_base_zip = sharedDbZip;
+        });
+
+        // Locate patch_search_root and ru_dir for each version group.
+        // Check both patchesRoot/p{ver} and patchesRoot/{ver}.
+        Object.keys(groups).forEach(function(version) {
+            if (version === '_root') return;
+            var searchRoots = [
+                pathMod.join(patchesRoot, 'p' + version),
+                pathMod.join(patchesRoot, version),
+                pathMod.join(root, 'p' + version),
+                pathMod.join(root, version)
+            ];
             for (var s = 0; s < searchRoots.length; s++) {
                 if (fs.existsSync(searchRoots[s])) {
                     groups[version].patch_search_root = searchRoots[s];
@@ -633,17 +677,20 @@ module.exports = function (authenticateToken) {
             }
         });
 
-        // Detect shared OJVM zip in an ojvm/ subdirectory at the scan root
+        // Detect shared OJVM zip — check {root}/ojvm, {patchesRoot}/ojvm
         var sharedOjvmZip = '';
-        var ojvmSubdir = pathMod.join(root, 'ojvm');
-        try {
-            if (fs.existsSync(ojvmSubdir)) {
-                var ojvmFiles = fs.readdirSync(ojvmSubdir)
-                    .filter(function(f) { return /^p\d+_190000.*\.zip$/i.test(f) && !/^p688088/i.test(f); })
-                    .sort();
-                if (ojvmFiles.length) sharedOjvmZip = pathMod.join(ojvmSubdir, ojvmFiles[0]);
-            }
-        } catch(e) {}
+        var ojvmCandidates = [pathMod.join(root, 'ojvm'), pathMod.join(patchesRoot, 'ojvm')];
+        for (var oi = 0; oi < ojvmCandidates.length; oi++) {
+            var ojvmSubdir = ojvmCandidates[oi];
+            try {
+                if (fs.existsSync(ojvmSubdir)) {
+                    var ojvmFiles = fs.readdirSync(ojvmSubdir)
+                        .filter(function(f) { return /^p\d+_190000.*\.zip$/i.test(f) && !/^p6880880/i.test(f); })
+                        .sort();
+                    if (ojvmFiles.length) { sharedOjvmZip = pathMod.join(ojvmSubdir, ojvmFiles[0]); break; }
+                }
+            } catch(e) {}
+        }
 
         var imported = 0;
         var upsertStmt = db.prepare(
@@ -654,9 +701,13 @@ module.exports = function (authenticateToken) {
         Object.keys(groups).forEach(function(version) {
             if (version === '_root') return;
             var g = groups[version];
+            // If the patch has RU content (patch_search_root), it's an RU even if it also
+            // has base zips backfilled from oracle_install/ (those are shared, not version-specific)
             var ptype = 'RU';
-            if (g.gi_base_zip) ptype = 'GI_BASE';
-            else if (g.db_base_zip) ptype = 'DB_BASE';
+            var hasOwnGi = g.gi_base_zip && g.gi_base_zip !== sharedGiZip;
+            var hasOwnDb = g.db_base_zip && g.db_base_zip !== sharedDbZip;
+            if (!g.patch_search_root && hasOwnGi) ptype = 'GI_BASE';
+            else if (!g.patch_search_root && hasOwnDb) ptype = 'DB_BASE';
             upsertStmt.run(version, version, ptype, 'Scanned from ' + root,
                 g.gi_base_zip, g.db_base_zip, g.opatch_zip, sharedOjvmZip,
                 g.patch_search_root, g.ru_dir, g.total_size);

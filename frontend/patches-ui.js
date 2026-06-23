@@ -69,9 +69,9 @@ function switchPatchSubTab(tab) {
 async function scanPatchRepo() {
     try {
         var settings = await api('/patches/settings/repo');
-        document.getElementById('scanRepoPath').value = settings.software_repo_root || '/backup/patches';
+        document.getElementById('scanRepoPath').value = settings.software_repo_root || '/backup';
     } catch(e) {
-        document.getElementById('scanRepoPath').value = '/backup/patches';
+        document.getElementById('scanRepoPath').value = '/backup';
     }
     var resultEl = document.getElementById('scanRepoResult');
     if (resultEl) resultEl.classList.add('hidden');
