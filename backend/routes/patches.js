@@ -605,9 +605,15 @@ module.exports = function (authenticateToken) {
 
         function classify(f) {
             var n = f.name;
+            var sz = f.size || 0;
             if (/^V982068/i.test(n)) return Object.assign({}, f, { type: 'GI_BASE', field: 'gi_base_zip' });
             if (/^V982063/i.test(n)) return Object.assign({}, f, { type: 'DB_BASE', field: 'db_base_zip' });
-            if (/^p6880880.*\.zip$/i.test(n)) return Object.assign({}, f, { type: 'OPATCH', field: 'opatch_zip' });
+            // OPatch: patch number 6880880 (may appear as p6880880 or p688088 with one digit missing in some releases)
+            if (/^p688088\d?_.*\.zip$/i.test(n)) return Object.assign({}, f, { type: 'OPATCH', field: 'opatch_zip' });
+            // OJVM: p*_190000_* but small (< 500 MB) — RU patches are always 1 GB+
+            if (/^p\d+_190000_.*\.zip$/i.test(n) && sz > 0 && sz < 500 * 1024 * 1024) {
+                return Object.assign({}, f, { type: 'OJVM', field: 'ojvm_zip' });
+            }
             if (/^p\d+.*\.zip$/i.test(n)) return Object.assign({}, f, { type: 'RU', field: 'ru' });
             return Object.assign({}, f, { type: 'UNKNOWN', field: null });
         }
@@ -638,13 +644,14 @@ module.exports = function (authenticateToken) {
             }
             if (!groups[version]) {
                 groups[version] = { version: version, files: [], total_size: 0,
-                    gi_base_zip: '', db_base_zip: '', opatch_zip: '', patch_search_root: '', ru_dir: '' };
+                    gi_base_zip: '', db_base_zip: '', opatch_zip: '', ojvm_zip: '', patch_search_root: '', ru_dir: '' };
             }
             groups[version].files.push({ name: fl.name, type: fl.type, path: fl.path, size: fl.size });
             groups[version].total_size += fl.size;
             if (fl.field === 'gi_base_zip') groups[version].gi_base_zip = fl.path;
             if (fl.field === 'db_base_zip') groups[version].db_base_zip = fl.path;
             if (fl.field === 'opatch_zip') groups[version].opatch_zip = fl.path;
+            if (fl.field === 'ojvm_zip') groups[version].ojvm_zip = fl.path;
         }
 
         // Backfill shared GI/DB base zips into every version group that doesn't have one
@@ -708,8 +715,10 @@ module.exports = function (authenticateToken) {
             var hasOwnDb = g.db_base_zip && g.db_base_zip !== sharedDbZip;
             if (!g.patch_search_root && hasOwnGi) ptype = 'GI_BASE';
             else if (!g.patch_search_root && hasOwnDb) ptype = 'DB_BASE';
+            // Prefer per-version OJVM found inline; fall back to shared ojvm/ subdirectory
+            var ojvmForVersion = g.ojvm_zip || sharedOjvmZip;
             upsertStmt.run(version, version, ptype, 'Scanned from ' + root,
-                g.gi_base_zip, g.db_base_zip, g.opatch_zip, sharedOjvmZip,
+                g.gi_base_zip, g.db_base_zip, g.opatch_zip, ojvmForVersion,
                 g.patch_search_root, g.ru_dir, g.total_size);
             imported++;
         });
