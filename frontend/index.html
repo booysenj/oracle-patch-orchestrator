@@ -316,7 +316,7 @@
         <div class="form-group" style="grid-column:1/-1"><label>Notes</label><input type="text" id="schedNotes" placeholder="Optional notes"></div>
         <div class="form-group" id="schedDbUniqueNameGroup" style="grid-column:1/-1;display:none">
           <label>DB Unique Name <span style="color:var(--danger)">*</span></label>
-          <input type="text" id="schedDbUniqueName" placeholder="e.g. cdbtarget or SRETEST">
+          <input type="text" id="schedDbUniqueName" placeholder="Auto-filled from selected VM" oninput="this._userEdited=true">
           <div style="font-size:11px;color:var(--text-dim);margin-top:4px">Required for switch/rollback — use the SID/unique name exactly as it appears in the VM card</div>
         </div>
         <div class="form-group" style="grid-column:1/-1"><label>Target VMs</label><div id="schedVmList" style="max-height:150px;overflow-y:auto;border:1px solid var(--border);border-radius:6px;padding:8px"></div></div>

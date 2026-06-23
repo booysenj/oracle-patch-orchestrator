@@ -125,8 +125,16 @@ module.exports = function (authenticateToken) {
         const params = [];
 
         if (req.query.type) {
-            sql += ' AND patch_type = ?';
-            params.push(req.query.type);
+            if (req.query.type === 'GI_BASE') {
+                sql += " AND (patch_type='GI_BASE' OR (gi_base_zip IS NOT NULL AND gi_base_zip!=''))";
+            } else if (req.query.type === 'DB_BASE') {
+                sql += " AND (patch_type='DB_BASE' OR (db_base_zip IS NOT NULL AND db_base_zip!=''))";
+            } else if (req.query.type === 'OPATCH') {
+                sql += " AND (patch_type='OPATCH' OR (opatch_zip IS NOT NULL AND opatch_zip!=''))";
+            } else {
+                sql += ' AND patch_type = ?';
+                params.push(req.query.type);
+            }
         }
         if (req.query.version) {
             sql += ' AND version = ?';

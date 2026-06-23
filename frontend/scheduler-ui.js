@@ -32,11 +32,24 @@ async function openScheduleModal(presetOp, presetVmIds) {
     // Otherwise start with NO VMs checked so the user explicitly picks targets.
     var vmList = document.getElementById('schedVmList');
     vmList.innerHTML = allVmsList.map(function(vm) {
-        // Use loose == comparison: vm.id may be integer, presetVmIds may contain strings
         var pre = presetVmIds && presetVmIds.some(function(id) { return id == vm.id; });
+        var dbNames = [];
+        try {
+            var sj = typeof vm.static_json === 'string' ? JSON.parse(vm.static_json) : (vm.static_json || {});
+            if (sj.db_unique_names) {
+                dbNames = Object.values(sj.db_unique_names);
+            } else if (sj.running_dbs && sj.running_dbs.length) {
+                dbNames = sj.running_dbs;
+            }
+        } catch(_) {}
+        if (!dbNames.length && vm.db_unique_name) dbNames = [vm.db_unique_name];
         return '<label class="sched-vm-item"><input type="checkbox" value="' + vm.id + '"' +
             (pre ? ' checked' : '') +
-            ' data-hostname="' + esc(vm.hostname) + '"> ' + esc(vm.hostname) + '</label>';
+            ' data-hostname="' + esc(vm.hostname) + '"' +
+            ' data-dbnames="' + esc(JSON.stringify(dbNames)) + '"' +
+            ' onchange="schedAutoFillDbName()"> ' + esc(vm.hostname) +
+            (dbNames.length ? ' <span style="font-size:11px;color:var(--text-dim)">(' + dbNames.map(esc).join(', ') + ')</span>' : '') +
+            '</label>';
     }).join('');
 
     // Populate operation dropdown (only once)
@@ -61,12 +74,11 @@ async function openScheduleModal(presetOp, presetVmIds) {
     // Populate patch version dropdown
     await loadPatchVersionsForScheduler();
 
-    // Always reset datetime so stale value from a previous open doesn't persist
-    var tomorrow = new Date();
-    tomorrow.setDate(tomorrow.getDate() + 1);
-    tomorrow.setHours(2, 0, 0, 0);
+    // Default datetime to now + 1 hour (rounded to next quarter hour) so calendar opens on today
+    var dtDefault = new Date();
+    dtDefault.setMinutes(Math.ceil((dtDefault.getMinutes() + 61) / 15) * 15, 0, 0);
     var dtInput = document.getElementById('schedDatetime');
-    if (dtInput) dtInput.value = tomorrow.toISOString().slice(0, 16);
+    if (dtInput) dtInput.value = new Date(dtDefault - dtDefault.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
 
     // Show/hide patch version based on operation
     toggleSchedPatchVersion();
@@ -109,8 +121,46 @@ function toggleSchedPatchVersion() {
     // Show DB Unique Name field for any op that targets a specific database
     var needsDbUniq = /db_switch|db_rollback|gi_switch|gi_rollback/i.test(op);
     var dbUniqGroup = document.getElementById('schedDbUniqueNameGroup');
-    if (dbUniqGroup) dbUniqGroup.style.display = needsDbUniq ? '' : 'none';
+    if (dbUniqGroup) {
+        dbUniqGroup.style.display = needsDbUniq ? '' : 'none';
+        if (needsDbUniq) schedAutoFillDbName();
+    }
 }
+
+function schedAutoFillDbName() {
+    var dbUniqGroup = document.getElementById('schedDbUniqueNameGroup');
+    if (!dbUniqGroup || dbUniqGroup.style.display === 'none') return;
+
+    var checked = Array.from(document.querySelectorAll('#schedVmList input[type="checkbox"]:checked'));
+    var inp = document.getElementById('schedDbUniqueName');
+    var hint = dbUniqGroup.querySelector('.sched-db-hint');
+    if (!hint) {
+        hint = document.createElement('div');
+        hint.className = 'sched-db-hint';
+        hint.style.cssText = 'font-size:11px;color:var(--warning);margin-top:4px';
+        dbUniqGroup.appendChild(hint);
+    }
+
+    if (checked.length === 0) {
+        if (inp) inp.value = '';
+        hint.textContent = '';
+        return;
+    }
+
+    if (checked.length === 1) {
+        // Single VM: auto-fill from VM's known DB names
+        var names = [];
+        try { names = JSON.parse(checked[0].getAttribute('data-dbnames') || '[]'); } catch(_) {}
+        if (inp && names.length && !inp._userEdited) {
+            inp.value = names[0];
+        }
+        hint.textContent = names.length > 1 ? 'This VM has multiple DBs: ' + names.join(', ') + ' — verify the correct name' : '';
+    } else {
+        // Multi-VM: warn that one name applies to all
+        hint.textContent = '⚠ One DB Unique Name is used for all selected VMs. Ensure it matches across all targets, or run separate schedules per VM.';
+    }
+}
+
 
 async function submitSchedule() {
     var errEl = document.getElementById('schedError');
