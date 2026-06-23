@@ -436,9 +436,11 @@ router.post('/:jobId/logs', (req, res) => {
             var line = items[i].line || '';
 
             // Intercept [HTML_REPORT] lines — store as a patch report, skip from log view
-            if (line.startsWith('[HTML_REPORT] ')) {
+            // Use indexOf (not startsWith) because log() prepends a timestamp prefix
+            var _hrIdx = line.indexOf('[HTML_REPORT] ');
+            if (_hrIdx >= 0) {
                 try {
-                    var payload = line.slice('[HTML_REPORT] '.length);
+                    var payload = line.slice(_hrIdx + '[HTML_REPORT] '.length);
                     var pipeIdx = payload.indexOf('|');
                     var subject = pipeIdx >= 0 ? payload.slice(0, pipeIdx) : 'Report';
                     var b64 = pipeIdx >= 0 ? payload.slice(pipeIdx + 1) : payload;
@@ -454,9 +456,10 @@ router.post('/:jobId/logs', (req, res) => {
             }
 
             // Intercept [DISCOVERY_JSON] lines — store in discoveries table AND update vm inventory
-            if (line.startsWith('[DISCOVERY_JSON] ')) {
+            var _djIdx = line.indexOf('[DISCOVERY_JSON] ');
+            if (_djIdx >= 0) {
                 try {
-                    var jsonStr = line.slice('[DISCOVERY_JSON] '.length);
+                    var jsonStr = line.slice(_djIdx + '[DISCOVERY_JSON] '.length);
                     var parsed = JSON.parse(jsonStr);
                     var discJob = db.prepare('SELECT j.*, v.* FROM jobs j LEFT JOIN vms v ON j.vm_id = v.id WHERE j.id = ?').get(jobId);
                     discoveryStmt.run(uuidv4(), jobId, discJob ? discJob.hostname : null, parsed.type || 'unknown', jsonStr);

@@ -1888,6 +1888,33 @@ send_html_report() {
     fi
 }
 
+# Emit a file directly into the UI Reports tab as an [HTML_REPORT] log line.
+# .html files are sent as-is; .log/.txt files are wrapped in a dark-themed <pre> block.
+emit_file_as_html_report() {
+    local file="$1"
+    local subject="$2"
+    [[ -f "$file" ]] || return 0
+    local content
+    if [[ "$file" == *.html ]]; then
+        content=$(cat "$file")
+    else
+        local title
+        title=$(basename "$file")
+        local escaped
+        escaped=$(cat "$file" | sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g')
+        content="<!DOCTYPE html><html><head><meta charset=\"UTF-8\"><title>${title}</title>
+<style>body{font-family:Arial,sans-serif;font-size:12px;background:#0d1117;color:#e0e0e0;padding:16px;margin:0}
+h3{color:#94a3b8;font-size:13px;margin:0 0 12px}
+pre{white-space:pre-wrap;word-break:break-all;font-family:monospace;font-size:11px;
+background:#1e293b;padding:12px;border-radius:4px;border:1px solid #334155}</style></head>
+<body><h3>${subject} &mdash; ${HOST} &mdash; $(date '+%F %T')</h3><pre>${escaped}</pre></body></html>"
+    fi
+    local _b64
+    _b64=$(printf '%s' "$content" | base64 -w0 2>/dev/null || printf '%s' "$content" | base64 2>/dev/null || true)
+    _b64=$(printf '%s' "$_b64" | tr -d '\n\r')
+    [[ -n "$_b64" ]] && log "[HTML_REPORT] ${subject}|${_b64}"
+}
+
 send_phase_html_report() {
     local phase_name="$1"
     local subject="$2"
@@ -7372,6 +7399,11 @@ SQEOF
                 if [[ -f "$au_status_log" ]]; then
                     add_attachment "$au_status_log"
                 fi
+
+                # Emit AU logs into the UI Reports tab for inline viewing
+                emit_file_as_html_report "$au_log" "AutoUpgrade Switch Log - ${DB_UNIQUE_NAME} - ${HOST}"
+                emit_file_as_html_report "$au_status_html" "AutoUpgrade Status - ${DB_UNIQUE_NAME} - ${HOST}"
+                emit_file_as_html_report "$au_status_log" "AutoUpgrade Status Log - ${DB_UNIQUE_NAME} - ${HOST}"
 
                 if [[ "$au_success" == true ]]; then
                     add_html_row "AutoUpgrade deploy" "PASS" \
