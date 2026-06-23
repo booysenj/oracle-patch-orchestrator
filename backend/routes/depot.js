@@ -7,6 +7,8 @@ const { v4: uuidv4 } = require('uuid');
 const { getDB } = require('../lib/db');
 
 const DEPOT_BASE = path.join(__dirname, '..', '..', 'depot');
+// Shared base software lives here — extracted once, reused by all RU versions
+const SHARED_BASE = path.join(DEPOT_BASE, '_shared');
 
 function ensureDepotTable() {
     try {
@@ -20,10 +22,14 @@ function ensureDepotTable() {
             ru_status   TEXT DEFAULT 'pending',
             opatch_status TEXT DEFAULT 'pending',
             depot_path  TEXT,
+            shared_gi_path TEXT,
+            shared_db_path TEXT,
             error       TEXT,
             created_at  TEXT DEFAULT (datetime('now')),
             updated_at  TEXT DEFAULT (datetime('now'))
         )`);
+        try { getDB().exec(`ALTER TABLE depot ADD COLUMN shared_gi_path TEXT`); } catch(_) {}
+        try { getDB().exec(`ALTER TABLE depot ADD COLUMN shared_db_path TEXT`); } catch(_) {}
     } catch(_) {}
 }
 
@@ -33,6 +39,31 @@ function depotUpdate(patch_id, fields) {
         const sets = Object.keys(fields).map(k => k + '=?').concat("updated_at=datetime('now')").join(',');
         db.prepare(`UPDATE depot SET ${sets} WHERE patch_id=?`).run(...Object.values(fields), patch_id);
     } catch(_) {}
+}
+
+// Returns a stable directory name derived from the zip filename (without extension)
+// e.g. /backup/oracle_install/db/V982063-01.zip → "V982063-01"
+function zipKey(zipPath) {
+    return path.basename(zipPath, '.zip');
+}
+
+// Extract a zip to destDir, but ONLY if the sentinel file doesn't exist yet.
+// sentinelFile is a file that proves the extraction is complete (e.g. runInstaller, gridSetup.sh).
+// Returns: 'ready' | 'skipped' | 'extracting' | 'failed'
+function extractZipShared(zipPath, destDir, sentinelFile) {
+    return new Promise((resolve) => {
+        if (!zipPath || !fs.existsSync(zipPath)) return resolve('skipped');
+
+        // Already extracted — reuse
+        if (fs.existsSync(path.join(destDir, sentinelFile))) {
+            return resolve('ready');
+        }
+
+        fs.mkdirSync(destDir, { recursive: true });
+        const proc = spawn('unzip', ['-o', '-q', zipPath, '-d', destDir]);
+        proc.on('close', code => resolve(code === 0 ? 'ready' : 'failed'));
+        proc.on('error', () => resolve('failed'));
+    });
 }
 
 function extractZip(zipPath, destDir, patch_id, statusField) {
@@ -55,29 +86,63 @@ function extractZip(zipPath, destDir, patch_id, statusField) {
 async function runExtraction(patch, depotPath, patch_id) {
     try {
         fs.mkdirSync(depotPath, { recursive: true });
+        fs.mkdirSync(SHARED_BASE, { recursive: true });
 
-        await extractZip(patch.gi_base_zip || null, path.join(depotPath, 'gi'), patch_id, 'gi_status');
-        await extractZip(patch.db_base_zip || null, path.join(depotPath, 'db'), patch_id, 'db_status');
+        // -------------------------------------------------------
+        // GI BASE: extract once into _shared/gi/<zip-name>/
+        // Sentinel: gridSetup.sh (present in any GI base zip)
+        // -------------------------------------------------------
+        let giStatus = 'skipped';
+        let sharedGiPath = null;
+        if (patch.gi_base_zip && fs.existsSync(patch.gi_base_zip)) {
+            const giKey = zipKey(patch.gi_base_zip);
+            sharedGiPath = path.join(SHARED_BASE, 'gi', giKey);
+            depotUpdate(patch_id, { gi_status: 'extracting', shared_gi_path: sharedGiPath });
+            giStatus = await extractZipShared(patch.gi_base_zip, sharedGiPath, 'gridSetup.sh');
+            depotUpdate(patch_id, { gi_status: giStatus, shared_gi_path: sharedGiPath });
+        } else {
+            depotUpdate(patch_id, { gi_status: 'skipped' });
+        }
 
-        // RU: find largest non-opatch zip in patch_search_root
+        // -------------------------------------------------------
+        // DB BASE: extract once into _shared/db/<zip-name>/
+        // Sentinel: runInstaller (present in any DB base zip)
+        // -------------------------------------------------------
+        let dbStatus = 'skipped';
+        let sharedDbPath = null;
+        if (patch.db_base_zip && fs.existsSync(patch.db_base_zip)) {
+            const dbKey = zipKey(patch.db_base_zip);
+            sharedDbPath = path.join(SHARED_BASE, 'db', dbKey);
+            depotUpdate(patch_id, { db_status: 'extracting', shared_db_path: sharedDbPath });
+            dbStatus = await extractZipShared(patch.db_base_zip, sharedDbPath, 'runInstaller');
+            depotUpdate(patch_id, { db_status: dbStatus, shared_db_path: sharedDbPath });
+        } else {
+            depotUpdate(patch_id, { db_status: 'skipped' });
+        }
+
+        // -------------------------------------------------------
+        // RU: version-specific — always extract fresh per version
+        // -------------------------------------------------------
         let ruZip = null;
         const ruRoot = patch.patch_search_root || '';
         if (ruRoot && fs.existsSync(ruRoot)) {
             const stat = fs.statSync(ruRoot);
             const scanDir = stat.isDirectory() ? ruRoot : path.dirname(ruRoot);
             const zips = fs.readdirSync(scanDir)
-                .filter(f => f.endsWith('.zip') && !f.startsWith('p6880880'))
+                .filter(f => f.endsWith('.zip') && !/^p688088/i.test(f) && !/^p\d+_190000_/i.test(f))
                 .map(f => ({ f, size: fs.statSync(path.join(scanDir, f)).size }))
                 .sort((a, b) => b.size - a.size);
             if (zips.length) ruZip = path.join(scanDir, zips[0].f);
         }
         await extractZip(ruZip, path.join(depotPath, 'ru'), patch_id, 'ru_status');
 
-        // OPatch: use configured path or find in same dir as RU
+        // -------------------------------------------------------
+        // OPatch: version-specific (each RU ships its own OPatch)
+        // -------------------------------------------------------
         let opatchZip = patch.opatch_zip || null;
         if (!opatchZip && ruRoot && fs.existsSync(ruRoot)) {
             const scanDir = fs.statSync(ruRoot).isDirectory() ? ruRoot : path.dirname(ruRoot);
-            const op = fs.readdirSync(scanDir).find(f => f.startsWith('p6880880') && f.endsWith('.zip'));
+            const op = fs.readdirSync(scanDir).find(f => /^p688088/i.test(f) && f.endsWith('.zip'));
             if (op) opatchZip = path.join(scanDir, op);
         }
         await extractZip(opatchZip, path.join(depotPath, 'opatch'), patch_id, 'opatch_status');
@@ -141,6 +206,8 @@ router.get('/:patchId/status', (req, res) => {
 });
 
 // DELETE /api/depot/:patchId
+// Note: only deletes the per-version content (RU + OPatch). Shared GI/DB base is NOT deleted
+// since other patch versions reference the same extraction.
 router.delete('/:patchId', (req, res) => {
     ensureDepotTable();
     const db = getDB();
@@ -150,11 +217,12 @@ router.delete('/:patchId', (req, res) => {
         try { fs.rmSync(row.depot_path, { recursive: true, force: true }); } catch(e) {}
     }
     db.prepare('DELETE FROM depot WHERE id=?').run(row.id);
-    res.json({ ok: true });
+    res.json({ ok: true, note: 'Shared GI/DB base preserved in _shared/ — use Re-extract on all versions to clear' });
 });
 
 // GET /api/depot/:patchId/tar/:type  — stream tar of depot subdirectory to agent
 // type: gi | db | ru | opatch
+// For gi and db, serves from the shared extraction if available
 router.get('/:patchId/tar/:type', (req, res) => {
     ensureDepotTable();
     const row = getDB().prepare('SELECT * FROM depot WHERE patch_id=? OR id=?').get(req.params.patchId, req.params.patchId);
@@ -162,17 +230,26 @@ router.get('/:patchId/tar/:type', (req, res) => {
     if (row.status !== 'ready' && row.status !== 'partial') {
         return res.status(409).json({ error: 'Depot not ready: ' + row.status });
     }
-    const subDir = path.join(row.depot_path, req.params.type);
-    if (!fs.existsSync(subDir)) return res.status(404).json({ error: 'Depot component not found: ' + req.params.type });
+
+    const type = req.params.type;
+    let subDir;
+    if (type === 'gi' && row.shared_gi_path && fs.existsSync(row.shared_gi_path)) {
+        subDir = row.shared_gi_path;
+    } else if (type === 'db' && row.shared_db_path && fs.existsSync(row.shared_db_path)) {
+        subDir = row.shared_db_path;
+    } else {
+        subDir = path.join(row.depot_path, type);
+    }
+
+    if (!fs.existsSync(subDir)) return res.status(404).json({ error: 'Depot component not found: ' + type });
 
     const stat = fs.statSync(subDir);
     if (!stat.isDirectory()) return res.status(400).json({ error: 'Not a directory' });
 
     res.setHeader('Content-Type', 'application/x-tar');
     res.setHeader('X-Transfer-Type', 'tar');
-    res.setHeader('X-Depot-Type', req.params.type);
+    res.setHeader('X-Depot-Type', type);
 
-    // Stream tar -C subDir -cf - .
     const tar = spawn('tar', ['-C', subDir, '-cf', '-', '.']);
     tar.stdout.pipe(res);
     tar.on('error', (e) => { if (!res.headersSent) res.status(500).json({ error: String(e) }); });
