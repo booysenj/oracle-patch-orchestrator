@@ -131,6 +131,8 @@ module.exports = function (authenticateToken) {
                 sql += " AND (patch_type='DB_BASE' OR (db_base_zip IS NOT NULL AND db_base_zip!=''))";
             } else if (req.query.type === 'OPATCH') {
                 sql += " AND (patch_type='OPATCH' OR (opatch_zip IS NOT NULL AND opatch_zip!=''))";
+            } else if (req.query.type === 'OJVM') {
+                sql += " AND (patch_type='OJVM' OR (ojvm_zip IS NOT NULL AND ojvm_zip!=''))";
             } else {
                 sql += ' AND patch_type = ?';
                 params.push(req.query.type);

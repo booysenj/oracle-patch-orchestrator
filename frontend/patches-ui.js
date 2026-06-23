@@ -22,6 +22,7 @@ function renderPatchCatalog() {
         var paths = [];
         if (p.gi_base_zip) paths.push('GI: ' + p.gi_base_zip.split('/').pop());
         if (p.db_base_zip) paths.push('DB: ' + p.db_base_zip.split('/').pop());
+        if (p.ojvm_zip) paths.push('OJVM: ' + p.ojvm_zip.split('/').pop());
         if (p.opatch_zip) paths.push('OP: ' + p.opatch_zip.split('/').pop());
         if (p.patch_search_root) paths.push('Root: ' + p.patch_search_root);
         var pathsHtml = paths.length
