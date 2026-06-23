@@ -185,15 +185,17 @@ function renderReports() {
 
 async function viewReport(id) {
     try {
-        var report = await api('/patches/reports/' + id);
-        document.getElementById('reportViewerTitle').textContent =
-            (report.report_type || 'Report') + ' - ' + (report.hostname || 'Unknown') + ' - ' + (report.operation || '');
+        // Fetch the raw HTML report content
+        var token = localStorage.getItem('token') || '';
+        var resp = await fetch('/api/patches/reports/' + id + '/html?token=' + encodeURIComponent(token));
+        if (!resp.ok) throw new Error('Report not found (HTTP ' + resp.status + ')');
+        var html = await resp.text();
         var contentEl = document.getElementById('reportViewerContent');
-        if (report.content && (report.content.indexOf('<') >= 0)) {
-            contentEl.innerHTML = report.content;
-        } else {
-            contentEl.innerHTML = '<pre style="white-space:pre-wrap;color:var(--text)">' + esc(report.content || 'No content') + '</pre>';
-        }
+        contentEl.innerHTML = html || '<em style="color:var(--text-dim)">Report has no content</em>';
+        // Try to extract title from the HTML subject or fall back
+        var titleEl = document.getElementById('reportViewerTitle');
+        var match = html.match(/<title>([^<]*)<\/title>/i);
+        if (match) titleEl.textContent = match[1];
         document.getElementById('reportViewerModal').classList.remove('hidden');
     } catch (e) {
         showToast('Failed to load report: ' + e.message, 'error');
@@ -218,17 +220,12 @@ function printReport() {
 
 async function printReportById(id) {
     try {
-        var report = await api('/patches/reports/' + id);
+        var token = localStorage.getItem('token') || '';
+        var resp = await fetch('/api/patches/reports/' + id + '/html?token=' + encodeURIComponent(token));
+        if (!resp.ok) throw new Error('Report not found');
+        var html = await resp.text();
         var win = window.open('', '_blank');
-        win.document.write('<html><head><title>' + esc(report.report_type || 'Report') + '</title>');
-        win.document.write('<style>body{font-family:monospace;padding:20px}table{border-collapse:collapse;width:100%}td,th{border:1px solid #ccc;padding:6px 10px;text-align:left}.PASS{color:green;font-weight:bold}.FAIL{color:red;font-weight:bold}</style>');
-        win.document.write('</head><body>');
-        if (report.content && report.content.indexOf('<') >= 0) {
-            win.document.write(report.content);
-        } else {
-            win.document.write('<pre>' + esc(report.content || 'No content') + '</pre>');
-        }
-        win.document.write('</body></html>');
+        win.document.write(html);
         win.document.close();
         win.print();
     } catch (e) {
