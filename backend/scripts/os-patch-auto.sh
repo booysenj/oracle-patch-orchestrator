@@ -7405,6 +7405,28 @@ SQEOF
                 emit_file_as_html_report "$au_status_html" "AutoUpgrade Status - ${DB_UNIQUE_NAME} - ${HOST}"
                 emit_file_as_html_report "$au_status_log" "AutoUpgrade Status Log - ${DB_UNIQUE_NAME} - ${HOST}"
 
+                # Parse status.log for [Detail] and Summary: file paths and emit each as a report
+                if [[ -f "$au_status_log" ]]; then
+                    while IFS= read -r _sl; do
+                        local _fpath=""
+                        # Match "[Detail]        /path/to/file" lines
+                        if [[ "$_sl" =~ \[Detail\][[:space:]]+(/[^[:space:]]+) ]]; then
+                            _fpath="${BASH_REMATCH[1]}"
+                        # Match "Summary:/path/to/file" line
+                        elif [[ "$_sl" =~ ^Summary:(/[^[:space:]]+) ]]; then
+                            _fpath="${BASH_REMATCH[1]}"
+                        fi
+                        if [[ -n "$_fpath" && -f "$_fpath" ]]; then
+                            local _fname
+                            _fname=$(basename "$_fpath")
+                            # Derive a human-readable stage name from the parent directory
+                            local _stage
+                            _stage=$(basename "$(dirname "$_fpath")" | tr '[:lower:]' '[:upper:]')
+                            emit_file_as_html_report "$_fpath" "AU ${_stage} - ${_fname} - ${DB_UNIQUE_NAME} - ${HOST}"
+                        fi
+                    done < "$au_status_log"
+                fi
+
                 if [[ "$au_success" == true ]]; then
                     add_html_row "AutoUpgrade deploy" "PASS" \
                         "AutoUpgrade completed (shutdown, startup, oratab, datapatch all handled)."
