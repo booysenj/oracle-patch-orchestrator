@@ -446,6 +446,27 @@ def discover():
             if has_proc:
                 result['cluster_type'] = 'STANDALONE'
 
+    # Per-DB homes: unique_name → oracle_home (for VM card display and rollback safety)
+    # Prefer srvctl_homes (authoritative CRS), fall back to oratab for non-CRS VMs.
+    result['db_homes'] = {}
+    if _srvctl_homes:
+        # srvctl gives us unique_name → home; match to running DBs via db_unique_names
+        for _sid, _uname in result.get('db_unique_names', {}).items():
+            _h = _oratab_home(_sid)
+            if _uname and _h:
+                result['db_homes'][_uname] = _h
+        # Also include any srvctl-registered DBs not in running_dbs
+        for _uname, _h in _srvctl_homes.items():
+            if _uname not in result['db_homes']:
+                result['db_homes'][_uname] = _h
+    else:
+        # DB-only: use oratab SID → home, keyed by SID (unique_name not available without sqlplus)
+        for _sid in result.get('running_dbs', []):
+            _h = _oratab_home(_sid)
+            if _h:
+                _uname = result.get('db_unique_names', {}).get(_sid, _sid)
+                result['db_homes'][_uname] = _h
+
     # OS identity — discover oracle/grid user and oinstall group from file ownership
     db_homes = list({e['home'] for e in result['oratab'] if e.get('home')})
     ou, gu, oi = _detect_oracle_os_identity(result['grid_home'], db_homes)

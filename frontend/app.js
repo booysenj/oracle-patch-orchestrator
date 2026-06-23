@@ -335,7 +335,21 @@ function renderVMs(list) {
         '<span class="vm-detail-label">IP</span><span class="vm-detail-value">' + esc(vm.ip) + '</span>' +
         '<span class="vm-detail-label">Role</span><span class="vm-detail-value">' + (vm.node_role || '\u2014') + '</span>' +
         '<span class="vm-detail-label">GI Home</span><span class="vm-detail-value" style="font-size:10px;word-break:break-all">' + (vm.old_gi_home || '\u2014') + '</span>' +
-        '<span class="vm-detail-label">DB Home</span><span class="vm-detail-value" style="font-size:10px;word-break:break-all">' + (vm.current_db_home || vm.old_db_home || '\u2014') + '</span>' +
+        (function() {
+          var sj = {};
+          try { sj = JSON.parse(vm.static_json || '{}'); } catch(e) {}
+          var dbh = sj.db_homes || {};
+          var entries = Object.entries(dbh);
+          if (entries.length > 1) {
+            // Multiple DBs with potentially different homes \u2014 show each separately
+            return entries.map(function(kv) {
+              return '<span class="vm-detail-label" title="DB Home: ' + esc(kv[0]) + '">' + esc(kv[0]) + ' Home</span>' +
+                     '<span class="vm-detail-value" style="font-size:10px;word-break:break-all">' + esc(kv[1]) + '</span>';
+            }).join('');
+          }
+          // Single DB or no discovery data yet
+          return '<span class="vm-detail-label">DB Home</span><span class="vm-detail-value" style="font-size:10px;word-break:break-all">' + esc(entries.length === 1 ? entries[0][1] : (vm.current_db_home || vm.old_db_home || '\u2014')) + '</span>';
+        })() +
         stagingHint +
         '<span class="vm-detail-label">Patch</span><span class="vm-detail-value"><span class="patch-badge">' + (vm.patch_target || '19.26') + '</span></span>' +
         '<span class="vm-detail-label">Last Job</span><span class="vm-detail-value">' + (vm.last_status ? statusBadge(vm.last_status) : '\u2014') + '</span>' +

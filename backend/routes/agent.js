@@ -214,6 +214,7 @@ router.post('/discover', (req, res) => {
     var dbUniqueName = payload.db_unique_name || null;
     var dbUniqueNames = payload.db_unique_names || {};  // sid -> unique_name map
     var dbRoles = payload.db_roles || {};              // unique_name -> role map
+    var dbHomes = payload.db_homes || {};              // unique_name -> oracle_home map
     var databaseRole = payload.database_role || null;
     var clusterName = payload.cluster_name || null;
     var clusterType = payload.cluster_type || null;
@@ -276,6 +277,7 @@ router.post('/discover', (req, res) => {
         db_unique_name: dbUniqueName,
         db_unique_names: dbUniqueNames,
         db_roles: dbRoles,
+        db_homes: dbHomes,
         cluster_name: clusterName,
         cluster_type: clusterType,
         oratab: oratab,
