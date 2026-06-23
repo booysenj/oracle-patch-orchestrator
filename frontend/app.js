@@ -726,6 +726,7 @@ function connectLogWS(jobId) {
       else if (msg.type === 'done') {
         updateJobStatus(msg.status);
         if (msg.status === 'success') { showToast('Job completed successfully', 'success'); if (ws) ws.close(); }
+        else if (msg.status === 'warn') { showToast('Job completed with warnings', 'warning'); if (ws) ws.close(); }
         else if (msg.status === 'failed') { showToast('Job failed', 'error'); if (ws) ws.close(); }
       }
     } catch (e) { appendLogLine({ stream:'stdout', line:evt.data, ts:'' }); }
@@ -740,7 +741,7 @@ function updateJobStatus(status) {
   var el = document.getElementById('logJobStatus');
   if (!el) return;
   el.className = 'status-badge status-' + status;
-  var labels = { success:'\u2714 Success', failed:'\u2718 Failed', running:'\u25CF Running' };
+  var labels = { success:'\u2714 Success', warn:'\u26A0 Warnings', failed:'\u2718 Failed', running:'\u25CF Running' };
   el.textContent = labels[status] || status;
 }
 
@@ -776,6 +777,7 @@ async function confirmClearHistory() {
 
   var statuses = [];
   if (document.getElementById('clearStatusSuccess').checked) statuses.push('success');
+  if (document.getElementById('clearStatusWarn').checked) statuses.push('warn');
   if (document.getElementById('clearStatusFailed').checked) statuses.push('failed');
   if (document.getElementById('clearStatusCancelled').checked) statuses.push('cancelled');
   if (document.getElementById('clearStatusRunning').checked) statuses.push('running', 'queued');
@@ -879,8 +881,9 @@ function updateAutoRefreshBadge() {
 
 // -- Helpers --
 function statusBadge(status) {
-  var icons = { success:'\u2714', failed:'\u2718', running:'\u25CF', pending:'\u25CB' };
-  return '<span class="status-badge status-' + status + '">' + (icons[status]||'\u25CB') + ' ' + status + '</span>';
+  var icons = { success:'\u2714', warn:'\u26A0', failed:'\u2718', running:'\u25CF', pending:'\u25CB' };
+  var labels = { success:'Success', warn:'Warnings', failed:'Failed', running:'Running', pending:'Pending' };
+  return '<span class="status-badge status-' + status + '">' + (icons[status]||'\u25CB') + ' ' + (labels[status]||status) + '</span>';
 }
 
 function formatDate(d) {

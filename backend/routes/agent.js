@@ -556,6 +556,19 @@ router.post('/:jobId/complete', (req, res) => {
 
     const db = getDB();
     var status = exitCode === 0 ? 'success' : 'failed';
+
+    // Scan [CHECK] log lines for WARN/FAIL rows to determine actual oracle-level result.
+    // A clean exit (0) with FAIL rows → 'failed'; with WARN rows → 'warn'.
+    if (exitCode === 0) {
+        var logs = db.prepare(
+            "SELECT line FROM job_logs WHERE job_id = ? AND line LIKE '%[CHECK]%'"
+        ).all(jobId);
+        var hasFail = logs.some(function(r) { return r.line.indexOf('|FAIL|') >= 0; });
+        var hasWarn = logs.some(function(r) { return r.line.indexOf('|WARN|') >= 0; });
+        if (hasFail) status = 'failed';
+        else if (hasWarn) status = 'warn';
+    }
+
     db.prepare(
         'UPDATE jobs SET status = ?, exit_code = ?, finished_at = datetime(?) WHERE id = ?'
     ).run(status, exitCode, 'now', jobId);

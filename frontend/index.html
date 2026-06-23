@@ -160,6 +160,7 @@
           <select id="jobStatusFilter">
             <option value="">All Statuses</option>
             <option value="success">Success</option>
+            <option value="warn">Warnings</option>
             <option value="failed">Failed</option>
             <option value="running">Running</option>
             <option value="cancelled">Cancelled</option>
@@ -498,6 +499,7 @@
             <label>Statuses to clear</label>
             <div style="display:flex;gap:16px;margin-top:6px">
               <label style="display:flex;align-items:center;gap:6px;font-weight:normal"><input type="checkbox" id="clearStatusSuccess" checked /> Success</label>
+              <label style="display:flex;align-items:center;gap:6px;font-weight:normal"><input type="checkbox" id="clearStatusWarn" checked /> Warnings</label>
               <label style="display:flex;align-items:center;gap:6px;font-weight:normal"><input type="checkbox" id="clearStatusFailed" checked /> Failed</label>
               <label style="display:flex;align-items:center;gap:6px;font-weight:normal"><input type="checkbox" id="clearStatusCancelled" /> Cancelled</label>
               <label style="display:flex;align-items:center;gap:6px;font-weight:normal;color:var(--color-warning)"><input type="checkbox" id="clearStatusRunning" /> Force-stop Running / Queued</label>

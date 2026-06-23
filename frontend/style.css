@@ -394,6 +394,7 @@ main { padding: 28px; max-width: 1440px; margin: 0 auto; }
   font-size: 12px; padding: 4px 12px; border-radius: 20px; font-weight: 500;
 }
 .status-success { background: var(--success-bg); color: var(--success); }
+.status-warn { background: var(--warning-bg); color: var(--warning); }
 .status-failed { background: var(--danger-bg); color: var(--danger); }
 .status-running { background: var(--running-bg); color: var(--running); animation: pulse 2s infinite; }
 .status-pending { background: rgba(124,129,152,0.12); color: var(--text-dim); }
