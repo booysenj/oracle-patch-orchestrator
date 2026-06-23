@@ -315,9 +315,11 @@
         <div class="form-group"><label>Execution Mode</label><select id="schedExecMode"><option value="serial">Serial</option><option value="parallel">Parallel</option><option value="rolling">Rolling</option></select></div>
         <div class="form-group" style="grid-column:1/-1"><label>Notes</label><input type="text" id="schedNotes" placeholder="Optional notes"></div>
         <div class="form-group" id="schedDbUniqueNameGroup" style="grid-column:1/-1;display:none">
-          <label>DB Unique Name <span style="color:var(--danger)">*</span></label>
-          <input type="text" id="schedDbUniqueName" placeholder="Auto-filled from selected VM" oninput="this._userEdited=true">
-          <div style="font-size:11px;color:var(--text-dim);margin-top:4px">Required for switch/rollback — use the SID/unique name exactly as it appears in the VM card</div>
+          <label>Target Databases <span style="color:var(--danger)">*</span></label>
+          <div id="schedDbNamesContainer" style="border:1px solid var(--border);border-radius:6px;padding:10px;background:var(--surface2)">
+            <span style="color:var(--text-dim);font-size:12px">Select a VM first</span>
+          </div>
+          <div style="font-size:11px;color:var(--text-dim);margin-top:4px">Each checked database gets its own job when the schedule fires</div>
         </div>
         <div class="form-group" style="grid-column:1/-1"><label>Target VMs</label><div id="schedVmList" style="max-height:150px;overflow-y:auto;border:1px solid var(--border);border-radius:6px;padding:8px"></div></div>
         <div id="schedRollbackNote" style="display:none;grid-column:1/-1;color:var(--warning);font-size:12px">Rollback operations will revert to the previous Oracle home.</div>

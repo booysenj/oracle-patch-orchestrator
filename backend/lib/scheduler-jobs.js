@@ -53,23 +53,35 @@ function fireScheduleAsJob(schedule, wsBroadcast) {
         return null;
     }
 
+    // Parse per-VM DB name map: { vmId: ["db1", "db2"] }
+    let dbNamesMap = {};
+    try { if (schedule.db_unique_names_map) dbNamesMap = JSON.parse(schedule.db_unique_names_map); } catch(_) {}
+
     const jobIds = [];
     const errors = [];
     for (const vmId of vmIds) {
-        try {
-            const result = createJob({
-                vmId,
-                operation: schedule.operation,
-                dryRun: false,
-                createdBy: 'scheduler:' + schedule.name,
-                patchVersionId: schedule.patch_version_id || '',
-                dbUniqueName: schedule.db_unique_name || ''
-            });
-            jobIds.push(result.jobId);
-            console.log('[SCHEDULER] Schedule "' + schedule.name + '" -> Job ' + result.jobId + ' queued for VM ' + vmId);
-        } catch (err) {
-            console.error('[SCHEDULER] Failed to create job for VM ' + vmId + ':', err.message);
-            errors.push(vmId + ': ' + err.message);
+        // Determine which DB names to target for this VM
+        const vmDbNames = dbNamesMap[vmId];
+        const targets = (vmDbNames && vmDbNames.length)
+            ? vmDbNames
+            : (schedule.db_unique_name ? [schedule.db_unique_name] : ['']);
+
+        for (const dbName of targets) {
+            try {
+                const result = createJob({
+                    vmId,
+                    operation: schedule.operation,
+                    dryRun: false,
+                    createdBy: 'scheduler:' + schedule.name,
+                    patchVersionId: schedule.patch_version_id || '',
+                    dbUniqueName: dbName
+                });
+                jobIds.push(result.jobId);
+                console.log('[SCHEDULER] Schedule "' + schedule.name + '" -> Job ' + result.jobId + ' queued for VM ' + vmId + (dbName ? ' db=' + dbName : ''));
+            } catch (err) {
+                console.error('[SCHEDULER] Failed to create job for VM ' + vmId + ' db=' + dbName + ':', err.message);
+                errors.push(vmId + (dbName ? '[' + dbName + ']' : '') + ': ' + err.message);
+            }
         }
     }
 
