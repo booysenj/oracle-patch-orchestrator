@@ -97,7 +97,7 @@ router.get('/', (req, res) => {
     ensureDepotTable();
     const rows = getDB().prepare(`
         SELECT d.*, p.version as patch_version, p.description, p.gi_base_zip, p.db_base_zip
-        FROM depot d LEFT JOIN patches p ON d.patch_id = p.id
+        FROM depot d LEFT JOIN patch_versions p ON d.patch_id = p.id
         ORDER BY d.created_at DESC
     `).all();
     res.json(rows);
@@ -109,7 +109,7 @@ router.post('/extract', (req, res) => {
     const db = getDB();
     const { patch_id } = req.body || {};
     if (!patch_id) return res.status(400).json({ error: 'patch_id required' });
-    const patch = db.prepare('SELECT * FROM patches WHERE id=?').get(patch_id);
+    const patch = db.prepare('SELECT * FROM patch_versions WHERE id=?').get(patch_id);
     if (!patch) return res.status(404).json({ error: 'Patch not found' });
 
     const existing = db.prepare('SELECT * FROM depot WHERE patch_id=?').get(patch_id);
