@@ -6,9 +6,10 @@ const router = express.Router();
 router.get('/', (_req, res) => {
     const rows = getDB().prepare(`
         SELECT v.*,
-               j.status      AS last_status,
-               j.operation   AS last_operation,
-               j.finished_at AS last_finished_at
+               j.status         AS last_status,
+               j.operation      AS last_operation,
+               j.db_unique_name AS last_db_unique_name,
+               j.finished_at    AS last_finished_at
         FROM vms v
         LEFT JOIN jobs j ON j.id = (
             SELECT id FROM jobs
