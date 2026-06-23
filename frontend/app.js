@@ -1970,9 +1970,8 @@ var patchTransfers = [];
 var editingPatchId = null;
 
 async function loadPatches() {
-    var tbody = document.getElementById('patchCatalogBody');
-    if (!tbody) return;
-    tbody.innerHTML = '<tr><td colspan="9" class="loading"><div class="spinner" style="margin:0 auto"></div></td></tr>';
+    var grid = document.getElementById('patchGrid');
+    if (!grid) return;
     try {
         var typeFilter = document.getElementById('patchTypeFilter') ? document.getElementById('patchTypeFilter').value : '';
         var statusFilter = document.getElementById('patchStatusFilter') ? document.getElementById('patchStatusFilter').value : '';
@@ -1985,7 +1984,6 @@ async function loadPatches() {
         renderPatchCatalog();
     } catch (e) {
         if (e.message === 'Session expired') return;
-        tbody.innerHTML = '<tr><td colspan="9" class="loading">Failed to load patches</td></tr>';
         showToast('Failed to load patches: ' + e.message, 'error');
     }
 }
