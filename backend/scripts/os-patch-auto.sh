@@ -817,6 +817,39 @@ attach_latest_oui_logs_since_marker() {
 }
 
 # ------------------------------------------------------------
+# ORACLE INVENTORY CHECK
+# Returns 0 (true) if the given path is registered in the central Oracle inventory.
+# Checks /etc/oraInst.loc → inventory_loc → ContentsXML/inventory.xml
+# Also checks the home-local inventory.xml as a fallback.
+# Never overwrite a home that Oracle has already registered — even if no processes run.
+# ------------------------------------------------------------
+is_home_in_inventory() {
+    local target_home="$1"
+    [[ -z "$target_home" ]] && return 1
+
+    # Central inventory via /etc/oraInst.loc
+    local inv_root=""
+    if [[ -f /etc/oraInst.loc ]]; then
+        inv_root=$(awk -F= '/inventory_loc/ {gsub(/[[:space:]]/, "", $2); print $2}' /etc/oraInst.loc 2>/dev/null || true)
+    fi
+    if [[ -n "$inv_root" && -f "$inv_root/ContentsXML/inventory.xml" ]]; then
+        # Match LOC="<target_home>" in inventory.xml — handles trailing slash variants
+        local norm_target
+        norm_target="${target_home%/}"
+        if grep -qE "LOC=\"${norm_target}/?\"" "$inv_root/ContentsXML/inventory.xml" 2>/dev/null; then
+            return 0
+        fi
+    fi
+
+    # Fallback: home-local inventory (present after install even without central inventory)
+    if [[ -f "$target_home/inventory/ContentsXML/comps.xml" ]]; then
+        return 0
+    fi
+
+    return 1
+}
+
+# ------------------------------------------------------------
 # SOFTWARE STAGING VALIDATION
 # FIX: Added DB_ONLY_MODE guards for GI checks
 # ------------------------------------------------------------
@@ -925,19 +958,27 @@ validate_staged_software_html() {
                     "HARD BLOCK: $_gi_block_reason Run gi_rollback first to return CRS to $OLD_GI_HOME, then retry gi_install."
                 has_failures=true
             else
-                add_html_row "NEW_GI_HOME" "WARN" \
-                    "$NEW_GI_HOME already exists on disk but CRS/HAS is not running from it. \
-gi_install will unzip the base media into it — existing files will be overwritten."
+                # Directory exists but CRS not running from it — check if it's in Oracle inventory
+                if is_home_in_inventory "$NEW_GI_HOME"; then
+                    add_html_row "NEW_GI_HOME" "FAIL" \
+                        "HARD BLOCK: $NEW_GI_HOME is already registered in the Oracle central inventory. \
+This home was previously installed — installing into it again will corrupt the existing Oracle stack. \
+Choose a different target home path (e.g. add a suffix like .new) or remove it from the inventory first."
+                    has_failures=true
+                else
+                    add_html_row "NEW_GI_HOME" "WARN" \
+                        "$NEW_GI_HOME exists on disk but is NOT in the Oracle inventory and CRS is not running from it. \
+This may be a leftover partial install. gi_install will overwrite it."
+                fi
             fi
         else
             add_html_row "NEW_GI_HOME" "PASS" \
-                "$NEW_GI_HOME does not exist yet (will be created by gi_install)"
+                "$NEW_GI_HOME does not exist yet and is not in Oracle inventory — safe to install"
         fi
     fi
     if [[ "$which" == "db" || "$which" == "all" ]]; then
         if [[ -d "$NEW_DB_HOME" ]]; then
             # Check if any database instance is actively running from NEW_DB_HOME.
-            # If so, installing into it would corrupt a live Oracle home — hard FAIL.
             local _running_from_new=()
             local _pmon_sid
             while IFS= read -r _pmon_sid; do
@@ -948,17 +989,22 @@ gi_install will unzip the base media into it — existing files will be overwrit
             if (( ${#_running_from_new[@]} > 0 )); then
                 add_html_row "NEW_DB_HOME" "FAIL" \
                     "HARD BLOCK: Database instance(s) ${_running_from_new[*]} are currently RUNNING from $NEW_DB_HOME. \
-Installing into a live Oracle home will corrupt it. \
-Run db_rollback first to move the database back to $OLD_DB_HOME, then re-run db_install."
+Installing into a live Oracle home will corrupt it. Run db_rollback first, then re-run db_install."
+                has_failures=true
+            elif is_home_in_inventory "$NEW_DB_HOME"; then
+                add_html_row "NEW_DB_HOME" "FAIL" \
+                    "HARD BLOCK: $NEW_DB_HOME is already registered in the Oracle central inventory. \
+This home was previously installed — installing into it again will corrupt the existing Oracle database installation. \
+Choose a different target home path or remove it from the inventory first."
                 has_failures=true
             else
                 add_html_row "NEW_DB_HOME" "WARN" \
-                    "$NEW_DB_HOME already exists on disk but no running instance detected. \
-db_install will unzip the base media into it — existing files will be overwritten."
+                    "$NEW_DB_HOME exists on disk but is NOT in the Oracle inventory and no running instance detected. \
+This may be a leftover partial install. db_install will overwrite it."
             fi
         else
             add_html_row "NEW_DB_HOME" "PASS" \
-                "$NEW_DB_HOME does not exist yet (will be created by db_install)"
+                "$NEW_DB_HOME does not exist yet and is not in Oracle inventory — safe to install"
         fi
     fi
 
