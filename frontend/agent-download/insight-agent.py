@@ -584,10 +584,14 @@ def execute_transfer(t):
 
             if transfer_type == 'tar':
                 # Depot mode: server sends a tar stream of pre-extracted directory.
-                # Extract directly into dest_path — no zip file written to disk.
-                print('[agent] Transfer %s: depot tar stream (%s) → extracting to %s' % (tid, depot_type, dest_path))
+                # For db/gi base, X-Depot-Install-Path tells us to extract directly into NEW_DB_HOME/NEW_GI_HOME.
+                install_path = resp.headers.get('X-Depot-Install-Path') or ''
+                extract_to = install_path if install_path else dest_path
+                if install_path:
+                    os.makedirs(extract_to, exist_ok=True)
+                print('[agent] Transfer %s: depot tar stream (%s) → extracting to %s' % (tid, depot_type, extract_to))
                 import subprocess as _sp
-                tar_proc = _sp.Popen(['tar', '-xf', '-', '-C', dest_path],
+                tar_proc = _sp.Popen(['tar', '-xf', '-', '-C', extract_to],
                                       stdin=_sp.PIPE, stderr=_sp.PIPE)
                 while True:
                     chunk = resp.read(1048576)

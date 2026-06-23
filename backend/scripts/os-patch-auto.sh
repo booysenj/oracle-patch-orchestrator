@@ -4866,18 +4866,24 @@ gi_install() {
         fi
     fi
 
-    if [[ ! -f "$GI_BASE_ZIP" ]]; then
-        add_html_row "GI Base ZIP" "FAIL" "GI base ZIP missing: $GI_BASE_ZIP"
-        die "GI Base ZIP missing: $GI_BASE_ZIP"
-    else
-        add_html_row "GI Base ZIP" "PASS" "$GI_BASE_ZIP"
-    fi
-
     add_html_row "GI RU directory" "INFO" "$RU_DIR"
 
     run_cmd "sudo mkdir -p \"$NEW_GI_HOME\""
     run_cmd "sudo chown -R ${GRID_USER}:${OINSTALL} \"$NEW_GI_HOME\""
-    run_cmd "unzip -oq \"$GI_BASE_ZIP\" -d \"$NEW_GI_HOME\""
+
+    # Depot mode: agent pre-extracted the GI base tar directly into NEW_GI_HOME.
+    if [[ -f "$NEW_GI_HOME/gridSetup.sh" ]]; then
+        add_html_row "GI Base (depot mode)" "PASS" \
+            "$NEW_GI_HOME already contains gridSetup.sh — pre-extracted from orchestrator depot. Skipping zip transfer and unzip."
+        log "INFO: Depot mode — $NEW_GI_HOME already extracted, skipping unzip"
+    elif [[ ! -f "$GI_BASE_ZIP" ]]; then
+        add_html_row "GI Base ZIP" "FAIL" \
+            "GI base ZIP missing: $GI_BASE_ZIP. Either upload the zip or run 'Extract to Depot' from the Patches UI and re-stage."
+        die "GI Base ZIP missing: $GI_BASE_ZIP"
+    else
+        add_html_row "GI Base ZIP" "PASS" "$GI_BASE_ZIP"
+        run_cmd "unzip -oq \"$GI_BASE_ZIP\" -d \"$NEW_GI_HOME\""
+    fi
 
     update_opatch "$NEW_GI_HOME"
     add_html_row "OPatch in NEW_GI_HOME" "INFO" "OPatch updated under $NEW_GI_HOME (see logs)"
@@ -7101,15 +7107,21 @@ Run db_rollback first to return the database to $OLD_DB_HOME, then retry db_inst
         fi
     fi
 
-    if [[ ! -f "$DB_BASE_ZIP" ]]; then
+    # Depot mode: agent pre-extracted the DB base tar directly into NEW_DB_HOME.
+    # Detect by the presence of runInstaller — if it's there, skip zip + unzip entirely.
+    if [[ -f "$NEW_DB_HOME/runInstaller" ]]; then
+        add_html_row "DB Base (depot mode)" "PASS" \
+            "$NEW_DB_HOME already contains runInstaller — pre-extracted from orchestrator depot. Skipping zip transfer and unzip."
+        log "INFO: Depot mode — $NEW_DB_HOME already extracted, skipping unzip"
+    elif [[ ! -f "$DB_BASE_ZIP" ]]; then
         add_html_row "DB Base ZIP" "FAIL" \
-            "DB base ZIP missing: $DB_BASE_ZIP. Searched: /staging/DB_BASE_SOFT, /staging, $STAGING_DROP_DIR, $(dirname "$DB_BASE_ZIP")"
+            "DB base ZIP missing: $DB_BASE_ZIP. Searched: /staging/DB_BASE_SOFT, /staging, $STAGING_DROP_DIR, $(dirname "$DB_BASE_ZIP"). Either upload the zip or run 'Extract to Depot' from the Patches UI and re-stage."
         send_html_report "DB Install FAILED - $HOST" "DB Install Report (FAILED)"
         die "DB Base ZIP missing: $DB_BASE_ZIP"
+    else
+        add_html_row "DB Base ZIP" "PASS" "$DB_BASE_ZIP"
+        run_cmd "unzip -oq \"$DB_BASE_ZIP\" -d \"$NEW_DB_HOME\""
     fi
-    add_html_row "DB Base ZIP" "PASS" "$DB_BASE_ZIP"
-
-    run_cmd "unzip -oq \"$DB_BASE_ZIP\" -d \"$NEW_DB_HOME\""
 
     update_opatch "$NEW_DB_HOME"
     add_html_row "OPatch in NEW_DB_HOME" "INFO" "OPatch updated under $NEW_DB_HOME (see logs)"

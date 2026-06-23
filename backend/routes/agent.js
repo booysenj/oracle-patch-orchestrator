@@ -604,6 +604,14 @@ router.get('/transfer/:id', (req, res) => {
                         res.setHeader('Content-Type', 'application/x-tar');
                         res.setHeader('X-Transfer-Type', 'tar');
                         res.setHeader('X-Depot-Type', depotType);
+                        // For db/gi base, tell agent to extract directly into the Oracle home
+                        if (depotType === 'db' || depotType === 'gi') {
+                            var vmRow = db.prepare('SELECT new_db_home, new_gi_home FROM vms WHERE hostname=? OR ip=?').get(t.target_host, t.target_host);
+                            if (vmRow) {
+                                var _installPath = depotType === 'db' ? vmRow.new_db_home : vmRow.new_gi_home;
+                                if (_installPath) res.setHeader('X-Depot-Install-Path', _installPath);
+                            }
+                        }
                         db.prepare("UPDATE patch_transfers SET file_name=? WHERE id=?").run('[depot:' + depotType + ']', t.id);
                         var tar = spawn('tar', ['-C', depotSubDir, '-cf', '-', '.']);
                         tar.stdout.pipe(res);
