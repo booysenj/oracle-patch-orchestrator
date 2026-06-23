@@ -3555,6 +3555,7 @@ get_db_sid() {
     if [[ -z "$sid" ]]; then
         # Case-insensitive match: Oracle SIDs on Linux are lowercase in pmon
         # but DB_UNIQUE_NAME from v$database is uppercase. Compare via tolower().
+        # Also handle RAC instance suffix: unique_name=sretest → SID=sretest_1
         local db_lower db_no_underscore
         db_lower=$(echo "$db" | tr '[:upper:]' '[:lower:]')
         db_no_underscore="${db_lower//_/}"
@@ -3563,6 +3564,8 @@ get_db_sid() {
                     { l=tolower($0) }
                     l == d  { print $0; exit }
                     l == d2 { print $0; exit }
+                    # RAC instance suffix: sretest_1, sretest_2 etc.
+                    (index(l, d "_") == 1 && substr(l, length(d)+2) ~ /^[0-9]+$/) { print $0; exit }
               ' || true)
     fi
     echo "$sid"
@@ -7885,11 +7888,11 @@ SQEOF
     local msg="Database $DB_UNIQUE_NAME rolled back to OLD_DB_HOME (${OLD_DB_HOME})."
     if [[ "$ran_datapatch" == true ]]; then
         add_html_row "DB Rollback Result" "PASS" "$msg Datapatch executed."
+        send_phase_html_report "DB Rollback" "DB Rollback Report - $HOST" "PASS"
     else
-        add_html_row "DB Rollback Result" "WARN" "$msg Datapatch did NOT run."
+        add_html_row "DB Rollback Result" "WARN" "$msg Datapatch did NOT run. Verify DB is open and run datapatch manually: ORACLE_HOME=$OLD_DB_HOME ORACLE_SID=\$(srvctl status database -d $DB_UNIQUE_NAME | awk '/Instance/{print \$2}') $OLD_DB_HOME/OPatch/datapatch -verbose"
+        send_phase_html_report "DB Rollback" "DB Rollback Report - $HOST" "WARN"
     fi
-
-    send_phase_html_report "DB Rollback" "DB Rollback Report - $HOST" "PASS"
 }
 # ------------------------------------------------------------
 # DB OJVM ONLY (NEW_DB_HOME)
