@@ -348,7 +348,7 @@ async function loadDepot() {
                 '<td>' + depotComponentBadge(d.ru_status) + '</td>' +
                 '<td>' + depotComponentBadge(d.opatch_status) + '</td>' +
                 '<td>' + depotOverallBadge(d.status) +
-                    (d.updated_at ? '<div data-depot-ts="' + esc(d.patch_id) + '" style="font-size:10px;color:var(--text-dim);margin-top:2px">' + esc(new Date(d.updated_at + 'Z').toLocaleTimeString('en-ZA', {hour:'2-digit',minute:'2-digit',second:'2-digit'})) + '</div>' : '') +
+                    (d.updated_at ? '<div data-depot-ts="' + esc(d.patch_id) + '" style="font-size:10px;color:var(--text-dim);margin-top:2px">' + esc(new Date((d.updated_at||'').replace(' ','T')+'Z').toLocaleTimeString('en-ZA', {hour:'2-digit',minute:'2-digit',second:'2-digit'})) + '</div>' : '') +
                 '</td>' +
                 '<td>' +
                     '<button class="btn btn-sm btn-secondary" onclick="extractToDepotById(\'' + d.patch_id + '\',\'' + esc(d.patch_version||d.version) + '\')" title="Re-extract">↺ Re-extract</button> ' +
@@ -374,7 +374,7 @@ function pollDepotStatus(patch_id) {
             var tbody = document.getElementById('depotBody');
             if (tbody) {
                 var tsEl = tbody.querySelector('[data-depot-ts="' + patch_id + '"]');
-                if (tsEl && d.updated_at) tsEl.textContent = new Date(d.updated_at + 'Z').toLocaleTimeString('en-ZA', {hour:'2-digit',minute:'2-digit',second:'2-digit'});
+                if (tsEl && d.updated_at) tsEl.textContent = new Date((d.updated_at||'').replace(' ','T')+'Z').toLocaleTimeString('en-ZA', {hour:'2-digit',minute:'2-digit',second:'2-digit'});
             }
             if (d.status !== 'extracting') {
                 clearInterval(_depotPollTimers[patch_id]);
