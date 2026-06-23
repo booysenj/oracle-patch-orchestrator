@@ -862,6 +862,9 @@ validate_staged_software_html() {
         if [[ "${DB_ONLY_MODE:-false}" == true ]]; then
             add_html_row "GI Base ZIP" "INFO" \
                 "DB-only mode — GI base ZIP not required"
+        elif [[ -n "${NEW_GI_HOME:-}" && -f "${NEW_GI_HOME}/gridSetup.sh" ]]; then
+            add_html_row "GI Base (depot)" "PASS" \
+                "$NEW_GI_HOME already extracted (depot mode) — no zip required"
         elif [[ -f "$GI_BASE_ZIP" ]]; then
             local gi_size
             gi_size=$(du -h "$GI_BASE_ZIP" 2>/dev/null | awk '{print $1}' || echo "unknown")
@@ -874,7 +877,10 @@ validate_staged_software_html() {
     fi
 
     if [[ "$which" == "db" || "$which" == "all" ]]; then
-        if [[ -f "$DB_BASE_ZIP" ]]; then
+        if [[ -n "${NEW_DB_HOME:-}" && -f "${NEW_DB_HOME}/runInstaller" ]]; then
+            add_html_row "DB Base (depot)" "PASS" \
+                "$NEW_DB_HOME already extracted (depot mode) — no zip required"
+        elif [[ -f "$DB_BASE_ZIP" ]]; then
             local db_size
             db_size=$(du -h "$DB_BASE_ZIP" 2>/dev/null | awk '{print $1}' || echo "unknown")
             add_html_row "DB Base ZIP" "PASS" "$DB_BASE_ZIP (${db_size})"
@@ -1487,14 +1493,12 @@ stage_software() {
     log "INFO: ------------------------------------------"
     log "INFO: Step 2/3 — Distribute and extract software"
 
-    # Depot mode: if the agent already extracted content directly into the staging
-    # directories (tar stream from pre-extracted orchestrator depot), skip the
-    # zip distribute/extract step. Detected by presence of runInstaller in gi/db dirs.
+    # Depot mode: agent extracted the base software tar directly into the Oracle home
+    # (NEW_GI_HOME / NEW_DB_HOME) via X-Depot-Install-Path. Detect by presence of
+    # the installer binary in the target home — not in dirname(BASE_ZIP).
     local _depot_gi=false _depot_db=false
-    local _gi_stage_dir; _gi_stage_dir=$(dirname "${GI_BASE_ZIP:-/placeholder}")
-    local _db_stage_dir; _db_stage_dir=$(dirname "${DB_BASE_ZIP:-/placeholder}")
-    [[ "${DB_ONLY_MODE:-false}" != true && -f "${_gi_stage_dir}/runInstaller" ]] && _depot_gi=true
-    [[ -f "${_db_stage_dir}/runInstaller" ]] && _depot_db=true
+    [[ "${DB_ONLY_MODE:-false}" != true && -n "${NEW_GI_HOME:-}" && -f "${NEW_GI_HOME}/gridSetup.sh" ]] && _depot_gi=true
+    [[ -n "${NEW_DB_HOME:-}" && -f "${NEW_DB_HOME}/runInstaller" ]] && _depot_db=true
 
     if [[ "$_depot_gi" == true || "$_depot_db" == true ]]; then
         local _depot_note=""
