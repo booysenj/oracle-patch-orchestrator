@@ -132,7 +132,6 @@ function schedAutoFillDbName() {
     if (!dbUniqGroup || dbUniqGroup.style.display === 'none') return;
 
     var checked = Array.from(document.querySelectorAll('#schedVmList input[type="checkbox"]:checked'));
-    var inp = document.getElementById('schedDbUniqueName');
     var hint = dbUniqGroup.querySelector('.sched-db-hint');
     if (!hint) {
         hint = document.createElement('div');
@@ -141,23 +140,64 @@ function schedAutoFillDbName() {
         dbUniqGroup.appendChild(hint);
     }
 
+    // Helper: ensure a plain text input is in place
+    function ensureTextInput() {
+        var el = document.getElementById('schedDbUniqueName');
+        if (el && el.tagName === 'SELECT') {
+            var inp = document.createElement('input');
+            inp.type = 'text'; inp.id = 'schedDbUniqueName';
+            inp.placeholder = 'Auto-filled from selected VM';
+            inp.oninput = function() { this._userEdited = true; };
+            el.parentNode.replaceChild(inp, el);
+            return inp;
+        }
+        return el;
+    }
+
+    // Helper: ensure a select dropdown is in place
+    function ensureSelect(names) {
+        var el = document.getElementById('schedDbUniqueName');
+        if (!el || el.tagName !== 'SELECT') {
+            var sel = document.createElement('select');
+            sel.id = 'schedDbUniqueName';
+            sel.style.cssText = 'width:100%;padding:8px;background:var(--surface2);color:var(--text);border:1px solid var(--border);border-radius:6px;font-size:14px';
+            if (el) el.parentNode.replaceChild(sel, el);
+            return sel;
+        }
+        return el;
+    }
+
     if (checked.length === 0) {
+        var inp = ensureTextInput();
         if (inp) inp.value = '';
         hint.textContent = '';
         return;
     }
 
     if (checked.length === 1) {
-        // Single VM: auto-fill from VM's known DB names
         var names = [];
         try { names = JSON.parse(checked[0].getAttribute('data-dbnames') || '[]'); } catch(_) {}
-        if (inp && names.length && !inp._userEdited) {
-            inp.value = names[0];
+        var hostname = checked[0].getAttribute('data-hostname') || '';
+
+        if (names.length > 1) {
+            // Multi-DB VM: show dropdown
+            var sel = ensureSelect(names);
+            sel.innerHTML = names.map(function(n) {
+                return '<option value="' + esc(n) + '">' + esc(n) + '</option>';
+            }).join('');
+            hint.textContent = hostname + ' has ' + names.length + ' databases — select the target';
+            hint.style.color = 'var(--text-dim)';
+        } else {
+            // Single-DB VM: text input, auto-fill
+            var inp2 = ensureTextInput();
+            if (inp2 && names.length && !inp2._userEdited) inp2.value = names[0];
+            hint.textContent = '';
         }
-        hint.textContent = names.length > 1 ? 'This VM has multiple DBs: ' + names.join(', ') + ' — verify the correct name' : '';
     } else {
-        // Multi-VM: warn that one name applies to all
-        hint.textContent = '⚠ One DB Unique Name is used for all selected VMs. Ensure it matches across all targets, or run separate schedules per VM.';
+        // Multi-VM: restore text input and warn
+        ensureTextInput();
+        hint.textContent = '⚠ One DB Unique Name applies to all selected VMs — run separate schedules per VM for different databases.';
+        hint.style.color = 'var(--warning)';
     }
 }
 
