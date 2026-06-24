@@ -611,9 +611,28 @@ router.get('/transfer/:id', (req, res) => {
                         // gi/db base → directly into the Oracle home (NEW_GI_HOME / NEW_DB_HOME)
                         // opatch     → also into the Oracle home so it overwrites the bundled OPatch
                         if (depotType === 'db' || depotType === 'gi' || depotType === 'opatch') {
-                            var vmRow = db.prepare('SELECT new_db_home, new_gi_home FROM vms WHERE hostname=? OR ip=?').get(t.target_host, t.target_host);
+                            var vmRow = db.prepare('SELECT * FROM vms WHERE hostname=? OR ip=?').get(t.target_host, t.target_host);
                             if (vmRow) {
+                                // Prefer explicit override; fall back to deriving from base + version
                                 var _installPath = depotType === 'db' ? vmRow.new_db_home : vmRow.new_gi_home;
+                                if (!_installPath && t.patch_id) {
+                                    var _pv2 = db.prepare('SELECT version, new_gi_home, new_db_home FROM patch_versions WHERE id=?').get(t.patch_id);
+                                    var _pvVer = _pv2 && _pv2.version;
+                                    var _pvExplicit = _pv2 && (depotType === 'db' ? _pv2.new_db_home : _pv2.new_gi_home);
+                                    if (_pvExplicit) {
+                                        _installPath = _pvExplicit;
+                                    } else if (_pvVer) {
+                                        var _cfgBase = '';
+                                        try {
+                                            var _bKey = depotType === 'db' ? 'db_home_base' : 'gi_home_base';
+                                            var _bs = db.prepare("SELECT value FROM app_settings WHERE key=?").get(_bKey);
+                                            if (_bs && _bs.value) _cfgBase = _bs.value.replace(/\/$/, '');
+                                        } catch(_) {}
+                                        var _oldHome = depotType === 'db' ? (vmRow.old_db_home || vmRow.current_db_home) : vmRow.old_gi_home;
+                                        var _base = _cfgBase || (_oldHome ? _oldHome.replace(/\/[^/]+$/, '') : '');
+                                        if (_base && _pvVer) _installPath = _base + '/' + _pvVer;
+                                    }
+                                }
                                 if (_installPath) res.setHeader('X-Depot-Install-Path', _installPath);
                             }
                         }
