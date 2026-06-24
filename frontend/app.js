@@ -1908,8 +1908,9 @@ function stopLogPolling() {
 
 async function fetchLogsIncremental() {
   if (!logPollJobId) return;
-  // WS is the authoritative real-time source; only poll REST when WS is gone
-  if (ws && ws.readyState === WebSocket.OPEN) return;
+  // WS is the authoritative real-time source; only poll REST when WS is gone.
+  // Guard on CONNECTING too — first poll fires before WS is OPEN and would duplicate all [CHECK] rows.
+  if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) return;
   try {
     var logs = await api('/logs/' + logPollJobId + '?offset=' + logPollOffset);
     if (Array.isArray(logs) && logs.length) {

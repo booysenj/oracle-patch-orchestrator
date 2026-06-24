@@ -1891,11 +1891,10 @@ send_html_report() {
 
     if [[ "$DRYRUN" == true ]]; then
         log "[DRYRUN] Would send email: $subject"
-        log "[DRYRUN] Body (HTML):"
-        printf '%s\n' "$html_body" | tee -a "$LOG_FILE"
+        # Write HTML body to log file only — do NOT echo to stdout to avoid flooding agent log stream with raw HTML
+        printf '%s\n' "$html_body" >> "$LOG_FILE" 2>/dev/null || true
         if (( ${#ATTACH_FILES[@]} > 0 )); then
-            log "[DRYRUN] Attachments:"
-            printf '  %s\n' "${ATTACH_FILES[@]}" | tee -a "$LOG_FILE"
+            log "[DRYRUN] Attachments: ${ATTACH_FILES[*]}"
         fi
         return 0
     fi
