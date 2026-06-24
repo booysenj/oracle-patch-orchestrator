@@ -604,13 +604,19 @@ _pick_latest_numeric_subdir() {
 
 _discover_ru_dir() {
     local root patchset ru
+    # If a specific patch version was selected (e.g. "19.26"), only look in p19.26/
+    # directories. Avoids picking a newer p19.30 when 19.26 was explicitly chosen.
+    local _ver_glob="p19.*"
+    if [[ -n "${PATCH_TARGET_VERSION:-}" ]]; then
+        _ver_glob="p${PATCH_TARGET_VERSION}"
+    fi
     for root in "${PATCH_SEARCH_ROOTS[@]}"; do
         [[ -d "$root" ]] || continue
         # DB-only mode — skip /grid/ paths entirely
         if [[ "${DB_ONLY_MODE:-false}" == true && "$root" == /grid* ]]; then
             continue
         fi
-        patchset="$(_pick_latest_by_version "${root%/}/p19.*")" || continue
+        patchset="$(_pick_latest_by_version "${root%/}/${_ver_glob}")" || continue
         [[ -n "$patchset" ]] || continue
         ru="$(_pick_latest_numeric_subdir "$patchset")" || continue
         [[ -n "$ru" ]] && { printf '%s' "$ru"; return 0; }
@@ -647,10 +653,12 @@ autoconfigure_patches() {
     # FIX: If RU_DIR is still empty, try to find and auto-extract the RU ZIP
     if [[ -z "${RU_DIR:-}" || ! -d "${RU_DIR:-}" ]]; then
         local _root _ps
+        local _ver_glob2="p19.*"
+        [[ -n "${PATCH_TARGET_VERSION:-}" ]] && _ver_glob2="p${PATCH_TARGET_VERSION}"
         for _root in "${PATCH_SEARCH_ROOTS[@]}"; do
             [[ -d "$_root" ]] || continue
             [[ "${DB_ONLY_MODE:-false}" == true && "$_root" == /grid* ]] && continue
-            _ps="$(_pick_latest_by_version "${_root%/}/p19.*")" || continue
+            _ps="$(_pick_latest_by_version "${_root%/}/${_ver_glob2}")" || continue
             if [[ -n "$_ps" && -d "$_ps" ]]; then
                 # Look for an un-extracted RU ZIP (largest non-OPatch ZIP)
                 shopt -s nullglob
@@ -707,10 +715,12 @@ autoconfigure_patches() {
     # FIX: Fallback for OPATCH_ZIP_DIR if still empty (RU_DIR was set but OPATCH_ZIP_DIR wasn't)
     if [[ -z "${OPATCH_ZIP_DIR:-}" || ! -d "${OPATCH_ZIP_DIR:-}" ]]; then
         local _root2 _ps2
+        local _ver_glob3="p19.*"
+        [[ -n "${PATCH_TARGET_VERSION:-}" ]] && _ver_glob3="p${PATCH_TARGET_VERSION}"
         for _root2 in "${PATCH_SEARCH_ROOTS[@]}"; do
             [[ -d "$_root2" ]] || continue
             [[ "${DB_ONLY_MODE:-false}" == true && "$_root2" == /grid* ]] && continue
-            _ps2="$(_pick_latest_by_version "${_root2%/}/p19.*")" || continue
+            _ps2="$(_pick_latest_by_version "${_root2%/}/${_ver_glob3}")" || continue
             if [[ -n "$_ps2" && -d "$_ps2" ]]; then
                 shopt -s nullglob
                 local _oc=( "$_ps2"/${OPATCH_ZIP_PATTERN} )
@@ -751,6 +761,7 @@ autoconfigure_patches() {
     fi
 
     echo "PATCH AUTO-CONFIG:" >&2
+    echo "  PATCH_TARGET_VERSION = ${PATCH_TARGET_VERSION:-<not set — will pick latest>}" >&2
     echo "  OPATCH_ZIP_DIR = ${OPATCH_ZIP_DIR:-<not found>}" >&2
     echo "  RU_DIR         = ${RU_DIR:-<not found>}" >&2
     echo "  RU_README      = ${RU_README:-<not found>}" >&2

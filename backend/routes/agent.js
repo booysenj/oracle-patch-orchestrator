@@ -142,6 +142,9 @@ router.get('/poll', (req, res) => {
             if (pv.patch_search_root) env.PATCH_SEARCH_ROOTS_ENV = pv.patch_search_root;
         }
     }
+    // Always pass the selected patch version so the bash script can pin RU discovery
+    // to the correct p<version> directory instead of always picking the latest p19.x
+    if (pvVersion) env.PATCH_TARGET_VERSION = pvVersion;
 
     // Fall back to global admin ZIP paths when patch version doesn't set them
     if (!env.GI_BASE_ZIP && globalGiZip) env.GI_BASE_ZIP = globalGiZip;
