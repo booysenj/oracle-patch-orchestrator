@@ -6,12 +6,18 @@ const { spawn } = require('child_process');
 const { v4: uuidv4 } = require('uuid');
 const { getDB } = require('../lib/db');
 
-// Prefer /backup/insight-depot (large filesystem) over the app directory (root fs).
-// Override with DEPOT_PATH env var if needed.
-const DEPOT_BASE = process.env.DEPOT_PATH ||
-    (fs.existsSync('/backup') ? '/backup/insight-depot' : path.join(__dirname, '..', '..', 'depot'));
+const DEFAULT_DEPOT_BASE = path.join(__dirname, '..', '..', 'depot');
+
+function getDepotBase() {
+    try {
+        const row = getDB().prepare("SELECT value FROM app_settings WHERE key='depot_base_path'").get();
+        if (row && row.value && row.value.trim()) return row.value.trim();
+    } catch(_) {}
+    return process.env.DEPOT_PATH || DEFAULT_DEPOT_BASE;
+}
+
 // Shared base software lives here — extracted once, reused by all RU versions
-const SHARED_BASE = path.join(DEPOT_BASE, '_shared');
+function getSharedBase() { return path.join(getDepotBase(), '_shared'); }
 
 function ensureDepotTable() {
     try {
@@ -89,7 +95,7 @@ function extractZip(zipPath, destDir, patch_id, statusField) {
 async function runExtraction(patch, depotPath, patch_id) {
     try {
         fs.mkdirSync(depotPath, { recursive: true });
-        fs.mkdirSync(SHARED_BASE, { recursive: true });
+        fs.mkdirSync(getSharedBase(), { recursive: true });
 
         // -------------------------------------------------------
         // GI BASE: extract once into _shared/gi/<zip-name>/
@@ -99,7 +105,7 @@ async function runExtraction(patch, depotPath, patch_id) {
         let sharedGiPath = null;
         if (patch.gi_base_zip && fs.existsSync(patch.gi_base_zip)) {
             const giKey = zipKey(patch.gi_base_zip);
-            sharedGiPath = path.join(SHARED_BASE, 'gi', giKey);
+            sharedGiPath = path.join(getSharedBase(), 'gi', giKey);
             const giAlready = fs.existsSync(path.join(sharedGiPath, 'gridSetup.sh'));
             if (!giAlready) depotUpdate(patch_id, { gi_status: 'extracting', shared_gi_path: sharedGiPath });
             giStatus = await extractZipShared(patch.gi_base_zip, sharedGiPath, 'gridSetup.sh');
@@ -116,7 +122,7 @@ async function runExtraction(patch, depotPath, patch_id) {
         let sharedDbPath = null;
         if (patch.db_base_zip && fs.existsSync(patch.db_base_zip)) {
             const dbKey = zipKey(patch.db_base_zip);
-            sharedDbPath = path.join(SHARED_BASE, 'db', dbKey);
+            sharedDbPath = path.join(getSharedBase(), 'db', dbKey);
             const dbAlready = fs.existsSync(path.join(sharedDbPath, 'runInstaller'));
             if (!dbAlready) depotUpdate(patch_id, { db_status: 'extracting', shared_db_path: sharedDbPath });
             dbStatus = await extractZipShared(patch.db_base_zip, sharedDbPath, 'runInstaller');
@@ -187,7 +193,7 @@ router.post('/extract', (req, res) => {
         return res.json({ id: existing.id, status: 'extracting' });
     }
 
-    const depotPath = path.join(DEPOT_BASE, patch.version || patch_id);
+    const depotPath = path.join(getDepotBase(), patch.version || patch_id);
     if (existing) {
         // Re-extract: only reset RU + OPatch (version-specific).
         // GI + DB base are shared across versions — keep their status unless the shared dir is gone.

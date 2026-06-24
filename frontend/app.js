@@ -177,7 +177,8 @@ async function loadOrcSettings() {
       db_home_base: 'settingDbHomeBase',
       patches_base_path: 'settingPatchesBase',
       mail_to: 'settingMailTo',
-      mail_from: 'settingMailFrom'
+      mail_from: 'settingMailFrom',
+      depot_base_path: 'settingDepotBasePath'
     };
     Object.keys(fields).forEach(function(key) {
       var el = document.getElementById(fields[key]);
@@ -195,7 +196,8 @@ async function saveOrcSettings() {
     db_home_base: (document.getElementById('settingDbHomeBase') || {}).value || '',
     patches_base_path: (document.getElementById('settingPatchesBase') || {}).value || '',
     mail_to: (document.getElementById('settingMailTo') || {}).value || '',
-    mail_from: (document.getElementById('settingMailFrom') || {}).value || ''
+    mail_from: (document.getElementById('settingMailFrom') || {}).value || '',
+    depot_base_path: (document.getElementById('settingDepotBasePath') || {}).value || ''
   };
   try {
     await api('/admin/settings', { method: 'PUT', body: JSON.stringify(body) });
