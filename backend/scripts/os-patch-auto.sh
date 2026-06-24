@@ -452,8 +452,59 @@ fi
 # ============================================================
 # SRVCTL INIT + DB-ONLY MODE — MUST run before autoconfigure_patches
 # ============================================================
-# init_srvctl defined later in the file (single canonical definition)
-# Run it FIRST so DB_ONLY_MODE is set before anything else
+DB_ONLY_MODE=false
+
+init_srvctl() {
+    SRVCTL_BIN=""
+
+    # After a gi_switch, CRS runs from NEW_GI_HOME — try that first so its srvctl
+    # matches the running CRS version. Fall back to OLD_GI_HOME if NEW is not present.
+    local _candidates=()
+    [[ -x "$NEW_GI_HOME/bin/srvctl" ]] && _candidates+=("$NEW_GI_HOME/bin/srvctl")
+    [[ -x "$OLD_GI_HOME/bin/srvctl" ]] && _candidates+=("$OLD_GI_HOME/bin/srvctl")
+
+    for _s in "${_candidates[@]}"; do
+        if "$_s" config database >/dev/null 2>&1; then
+            SRVCTL_BIN="$_s"
+            DB_ONLY_MODE=false
+            log "INFO: srvctl working: $SRVCTL_BIN"
+            return 0
+        else
+            log "WARN: srvctl found at $_s but 'config database' failed — trying next."
+        fi
+    done
+
+    # Check for running ASM — definitive proof of GI even without working srvctl
+    if ps -eo args 2>/dev/null | grep -q '[p]mon_+ASM'; then
+        DB_ONLY_MODE=false
+        log "WARN: ASM pmon detected — treating as GI node even though srvctl is not functional."
+        [[ -x "$NEW_GI_HOME/bin/srvctl" ]] && SRVCTL_BIN="$NEW_GI_HOME/bin/srvctl" || \
+            { [[ -x "$OLD_GI_HOME/bin/srvctl" ]] && SRVCTL_BIN="$OLD_GI_HOME/bin/srvctl"; }
+        return 0
+    fi
+
+    # Check for CRS/HAS daemon from either home
+    local has_gi=false
+    for _home in "$NEW_GI_HOME" "$OLD_GI_HOME"; do
+        if [[ -d "$_home" && -x "$_home/bin/crsctl" ]]; then
+            if "$_home/bin/crsctl" check crs >/dev/null 2>&1 || \
+               "$_home/bin/crsctl" check has >/dev/null 2>&1; then
+                has_gi=true
+                [[ -x "$_home/bin/srvctl" ]] && SRVCTL_BIN="$_home/bin/srvctl"
+                break
+            fi
+        fi
+    done
+
+    if [[ "$has_gi" == true ]]; then
+        DB_ONLY_MODE=false
+        log "WARN: CRS/HAS detected but srvctl not functional — GI operations may be limited."
+    else
+        DB_ONLY_MODE=true
+        log "INFO: DB_ONLY_MODE auto-detected (no GI, no ASM, no functional srvctl). DB switch/rollback will use SQL*Plus."
+    fi
+}
+
 init_srvctl
 
 # ------------------------------------------------------------
@@ -3190,62 +3241,6 @@ ensure_cvu_config_ol7() {
     else
         add_html_row "Update CV_ASSUME_DISTID" "WARN" \
             "File ${cv_file} not present yet in ${home}"
-    fi
-}
-# ------------------------------------------------------------
-# SRVCTL INITIALISATION + DB-ONLY MODE AUTO-DETECTION
-# ------------------------------------------------------------
-DB_ONLY_MODE=false
-
-init_srvctl() {
-    SRVCTL_BIN=""
-
-    # After a gi_switch, CRS runs from NEW_GI_HOME — try that first so its srvctl
-    # matches the running CRS version. Fall back to OLD_GI_HOME if NEW is not present.
-    local _candidates=()
-    [[ -x "$NEW_GI_HOME/bin/srvctl" ]] && _candidates+=("$NEW_GI_HOME/bin/srvctl")
-    [[ -x "$OLD_GI_HOME/bin/srvctl" ]] && _candidates+=("$OLD_GI_HOME/bin/srvctl")
-
-    for _s in "${_candidates[@]}"; do
-        if "$_s" config database >/dev/null 2>&1; then
-            SRVCTL_BIN="$_s"
-            DB_ONLY_MODE=false
-            log "INFO: srvctl working: $SRVCTL_BIN"
-            return 0
-        else
-            log "WARN: srvctl found at $_s but 'config database' failed — trying next."
-        fi
-    done
-
-    # Check for running ASM — definitive proof of GI even without working srvctl
-    if ps -eo args 2>/dev/null | grep -q '[p]mon_+ASM'; then
-        DB_ONLY_MODE=false
-        log "WARN: ASM pmon detected — treating as GI node even though srvctl is not functional."
-        # Use whichever srvctl binary exists for non-config operations
-        [[ -x "$NEW_GI_HOME/bin/srvctl" ]] && SRVCTL_BIN="$NEW_GI_HOME/bin/srvctl" || \
-            { [[ -x "$OLD_GI_HOME/bin/srvctl" ]] && SRVCTL_BIN="$OLD_GI_HOME/bin/srvctl"; }
-        return 0
-    fi
-
-    # Check for CRS/HAS daemon from either home
-    local has_gi=false
-    for _home in "$NEW_GI_HOME" "$OLD_GI_HOME"; do
-        if [[ -d "$_home" && -x "$_home/bin/crsctl" ]]; then
-            if "$_home/bin/crsctl" check crs >/dev/null 2>&1 || \
-               "$_home/bin/crsctl" check has >/dev/null 2>&1; then
-                has_gi=true
-                [[ -x "$_home/bin/srvctl" ]] && SRVCTL_BIN="$_home/bin/srvctl"
-                break
-            fi
-        fi
-    done
-
-    if [[ "$has_gi" == true ]]; then
-        DB_ONLY_MODE=false
-        log "WARN: CRS/HAS detected but srvctl not functional — GI operations may be limited."
-    else
-        DB_ONLY_MODE=true
-        log "INFO: DB_ONLY_MODE auto-detected (no GI, no ASM, no functional srvctl). DB switch/rollback will use SQL*Plus."
     fi
 }
 # ------------------------------------------------------------
