@@ -50,37 +50,54 @@ function createJob({ vmId, operation, dryRun = false, verbose = false, applyOjvm
         ).run(jobId, vmId, operation, phase, dryRun ? 1 : 0, verbose ? 1 : 0, applyOjvm ? 1 : 0, createdBy, dbUniqueName || '', pvId);
 
         // Auto-queue depot transfers for install operations.
-        // Agent checks patch_transfers before picking up jobs, so the GI/DB base
-        // will be fully extracted into NEW_GI_HOME / NEW_DB_HOME before the installer runs.
+        // Agent checks patch_transfers before picking up jobs — all three components
+        // (base home, RU, OPatch) must arrive on the VM before the installer runs.
         // The poll handler transparently serves depot tar streams in place of raw zips.
         if (pvId && (operation === 'gi_install' || operation === 'db_install' ||
                      operation === 'gi_upgrade_install' || operation === 'db_upgrade_install')) {
             try {
                 const pv = db.prepare('SELECT * FROM patch_versions WHERE id = ?').get(pvId);
                 const depot = pv ? db.prepare("SELECT * FROM depot WHERE patch_id = ? AND status IN ('ready','partial')").get(pvId) : null;
-                const stmtTransfer = db.prepare(`INSERT OR IGNORE INTO patch_transfers
-                    (id, patch_id, source_path, target_host, target_stage_path, status, file_type, transfer_method)
-                    VALUES (?, ?, ?, ?, ?, 'PENDING', ?, 'DEPOT')`);
+                if (depot) {
+                    const stmtTransfer = db.prepare(`INSERT OR IGNORE INTO patch_transfers
+                        (id, patch_id, source_path, target_host, target_stage_path, status, file_type, transfer_method)
+                        VALUES (?, ?, ?, ?, ?, 'PENDING', ?, 'DEPOT')`);
 
-                // GI base — for gi_install / gi_upgrade_install
-                if ((operation === 'gi_install' || operation === 'gi_upgrade_install') && depot && depot.gi_status === 'ready') {
-                    // Get gi_base_zip path for source_path (backend intercepts and serves depot tar)
-                    var giZip = (pv && pv.gi_base_zip) || '';
-                    if (!giZip) {
-                        try { var _s = db.prepare("SELECT value FROM app_settings WHERE key='gi_base_zip_path'").get(); if (_s) giZip = _s.value; } catch(_) {}
-                    }
-                    if (giZip) stmtTransfer.run(uuidv4(), pvId, giZip, vm.hostname, vm.stage_path || '/grid/software', 'gi_base');
-                }
+                    var pvVer = (pv && pv.version) || '';
+                    var vmStage = vm.stage_path || '';
 
-                // DB base — for db_install / db_upgrade_install
-                if ((operation === 'db_install' || operation === 'db_upgrade_install') && depot && depot.db_status === 'ready') {
-                    var dbZip = (pv && pv.db_base_zip) || '';
-                    if (!dbZip) {
-                        try { var _s2 = db.prepare("SELECT value FROM app_settings WHERE key='db_base_zip_path'").get(); if (_s2) dbZip = _s2.value; } catch(_) {}
+                    // GI base → extracted directly into NEW_GI_HOME by the agent (X-Depot-Install-Path)
+                    if ((operation === 'gi_install' || operation === 'gi_upgrade_install') && depot.gi_status === 'ready') {
+                        var giZip = (pv && pv.gi_base_zip) || '';
+                        if (!giZip) { try { var _s = db.prepare("SELECT value FROM app_settings WHERE key='gi_base_zip_path'").get(); if (_s) giZip = _s.value; } catch(_) {} }
+                        if (giZip) stmtTransfer.run(uuidv4(), pvId, giZip, vm.hostname, vmStage || '/grid/software', 'gi_base');
                     }
-                    if (dbZip) stmtTransfer.run(uuidv4(), pvId, dbZip, vm.hostname, vm.stage_path || '/app/software', 'db_base');
+
+                    // DB base → extracted directly into NEW_DB_HOME by the agent (X-Depot-Install-Path)
+                    if ((operation === 'db_install' || operation === 'db_upgrade_install') && depot.db_status === 'ready') {
+                        var dbZip = (pv && pv.db_base_zip) || '';
+                        if (!dbZip) { try { var _s2 = db.prepare("SELECT value FROM app_settings WHERE key='db_base_zip_path'").get(); if (_s2) dbZip = _s2.value; } catch(_) {} }
+                        if (dbZip) stmtTransfer.run(uuidv4(), pvId, dbZip, vm.hostname, vmStage || '/app/software', 'db_base');
+                    }
+
+                    // RU patch → extracted to <stage>/p<version>/ on VM so script's PATCH_SEARCH_ROOTS finds it.
+                    // With PATCH_TARGET_VERSION set, _discover_ru_dir pins to p<version> — avoids picking a newer RU.
+                    if (depot.ru_status === 'ready') {
+                        var ruStage = (vmStage || '/grid/software') + (pvVer ? '/p' + pvVer : '/patches');
+                        var ruSrc = (pv && pv.patch_search_root) || ruStage;
+                        stmtTransfer.run(uuidv4(), pvId, ruSrc, vm.hostname, ruStage, 'ru_patch');
+                    }
+
+                    // OPatch → extracted into NEW_GI_HOME or NEW_DB_HOME (agent uses X-Depot-Install-Path)
+                    if (depot.opatch_status === 'ready') {
+                        var opSrc = (pv && pv.opatch_zip) || (pv && pv.patch_search_root) || '';
+                        var opStage = (operation === 'db_install' || operation === 'db_upgrade_install')
+                            ? (vmStage || '/app/software')
+                            : (vmStage || '/grid/software');
+                        if (opSrc) stmtTransfer.run(uuidv4(), pvId, opSrc, vm.hostname, opStage, 'opatch');
+                    }
                 }
-            } catch(_e) { /* non-fatal — job still runs; script will try GI_BASE_ZIP env var */ }
+            } catch(_e) { /* non-fatal — job still queued; script falls back to GI_BASE_ZIP env var */ }
         }
 
         return { jobId, vmId, operation, phase, dryRun, verbose, applyOjvm, mode: 'agent' };
