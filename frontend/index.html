@@ -131,6 +131,9 @@
           <button class="btn btn-sm btn-primary" onclick="openAddVmModal()">
             + Add VM
           </button>
+          <button class="btn btn-sm btn-secondary" onclick="openBulkDeployModal()" title="Deploy/update agent on multiple VMs at once">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-2px;margin-right:4px"><polyline points="16 16 12 12 8 16"/><line x1="12" y1="12" x2="12" y2="21"/><path d="M20.39 18.39A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.3"/></svg>Deploy Agents
+          </button>
           <button id="refreshVMs" class="btn btn-sm btn-secondary">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
             Refresh
@@ -518,6 +521,51 @@
         <div class="modal-footer" style="display:flex;gap:10px;justify-content:flex-end">
           <button class="btn btn-secondary" onclick="closeClearHistoryModal()">Cancel</button>
           <button class="btn btn-danger" onclick="confirmClearHistory()">Delete Records</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Bulk Deploy Agents Modal -->
+    <div id="bulkDeployModal" class="modal hidden">
+      <div class="modal-content" style="max-width:560px">
+        <div class="modal-header">
+          <h3>Deploy / Update Agents</h3>
+          <button class="modal-close" onclick="closeBulkDeployModal()">×</button>
+        </div>
+        <div class="modal-body">
+          <p style="font-size:12px;color:var(--text-muted);margin:0 0 14px">Deploys or updates the agent on selected VMs using the orchestrator SSH key. Password only needed the first time to install the key.</p>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px">
+            <div>
+              <label style="font-size:12px;display:block;margin-bottom:4px">SSH Username</label>
+              <input id="bulkDaUser" value="oracle" style="width:100%;box-sizing:border-box;padding:6px 8px;background:var(--bg);border:1px solid var(--border);border-radius:4px;color:var(--text)"/>
+            </div>
+            <div>
+              <label style="font-size:12px;display:block;margin-bottom:4px">SSH Password <span style="color:var(--text-muted);font-size:11px">(leave blank if key installed)</span></label>
+              <input id="bulkDaPass" type="password" placeholder="Optional" style="width:100%;box-sizing:border-box;padding:6px 8px;background:var(--bg);border:1px solid var(--border);border-radius:4px;color:var(--text)"/>
+            </div>
+          </div>
+          <label style="font-size:12px;display:flex;align-items:center;gap:8px;margin-bottom:14px;cursor:pointer">
+            <input id="bulkDaSudo" type="checkbox" checked style="width:14px;height:14px"/>
+            Use sudo for privileged commands
+          </label>
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+            <span style="font-size:12px;font-weight:600">Select VMs</span>
+            <div style="display:flex;gap:8px">
+              <button class="btn btn-sm btn-secondary" onclick="bulkDeploySelectAll(true)" style="font-size:11px;padding:3px 8px">All</button>
+              <button class="btn btn-sm btn-secondary" onclick="bulkDeploySelectAll(false)" style="font-size:11px;padding:3px 8px">None</button>
+              <button class="btn btn-sm btn-secondary" onclick="bulkDeploySelectOnline()" style="font-size:11px;padding:3px 8px">Online only</button>
+            </div>
+          </div>
+          <div id="bulkDeployVmList" style="max-height:240px;overflow-y:auto;border:1px solid var(--border);border-radius:6px;padding:6px"></div>
+          <div id="bulkDeployStatus" style="margin-top:12px;font-size:12px;display:none">
+            <div id="bulkDeployProgress" style="background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:8px;max-height:160px;overflow-y:auto;font-family:monospace;font-size:11px;line-height:1.6"></div>
+          </div>
+        </div>
+        <div class="modal-footer" style="display:flex;justify-content:flex-end;gap:8px">
+          <button class="btn btn-secondary" onclick="closeBulkDeployModal()">Close</button>
+          <button id="bulkDeployBtn" class="btn btn-primary" onclick="runBulkDeploy()">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-2px;margin-right:4px"><polyline points="16 16 12 12 8 16"/><line x1="12" y1="12" x2="12" y2="21"/><path d="M20.39 18.39A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.3"/></svg>Deploy Selected
+          </button>
         </div>
       </div>
     </div>

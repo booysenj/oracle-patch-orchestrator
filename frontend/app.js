@@ -1535,6 +1535,102 @@ async function _saveVmConfig(vmId) {
   }
 }
 
+// ── Bulk Agent Deploy ────────────────────────────────────────────────────────
+
+function openBulkDeployModal() {
+  var modal = document.getElementById('bulkDeployModal');
+  if (!modal) return;
+  // Reset state
+  document.getElementById('bulkDeployStatus').style.display = 'none';
+  document.getElementById('bulkDeployProgress').innerHTML = '';
+  document.getElementById('bulkDeployBtn').disabled = false;
+  document.getElementById('bulkDaPass').value = '';
+  // Populate VM list
+  var list = document.getElementById('bulkDeployVmList');
+  list.innerHTML = '';
+  var vmsToShow = (vms || []).filter(function(v) { return v.execution_mode !== 'ssh'; });
+  if (!vmsToShow.length) {
+    list.innerHTML = '<div style="color:var(--text-muted);padding:8px;font-size:12px">No agent-mode VMs found.</div>';
+  } else {
+    vmsToShow.forEach(function(vm) {
+      var online = vm.agent_online;
+      var row = document.createElement('label');
+      row.style.cssText = 'display:flex;align-items:center;gap:10px;padding:6px 8px;border-radius:4px;cursor:pointer;font-size:12px';
+      row.innerHTML =
+        '<input type="checkbox" class="bulk-deploy-cb" data-vmid="' + vm.id + '" data-hostname="' + esc(vm.hostname) + '" data-sshuser="' + esc(vm.deploy_ssh_user || 'oracle') + '" checked style="width:14px;height:14px"/>' +
+        '<span style="flex:1">' + esc(vm.hostname) + '<span style="color:var(--text-muted);margin-left:6px">' + esc(vm.ip) + '</span></span>' +
+        '<span style="font-size:11px;padding:2px 7px;border-radius:10px;background:' + (online ? '#1a3a2a' : '#2a1a1a') + ';color:' + (online ? '#6fcf97' : '#e57373') + '">' + (online ? 'Online' : 'Offline') + '</span>';
+      list.appendChild(row);
+    });
+  }
+  modal.classList.remove('hidden');
+}
+
+function closeBulkDeployModal() {
+  document.getElementById('bulkDeployModal').classList.add('hidden');
+}
+
+function bulkDeploySelectAll(checked) {
+  document.querySelectorAll('.bulk-deploy-cb').forEach(function(cb) { cb.checked = checked; });
+}
+
+function bulkDeploySelectOnline() {
+  document.querySelectorAll('label:has(.bulk-deploy-cb)').forEach(function(row) {
+    var cb = row.querySelector('.bulk-deploy-cb');
+    var isOnline = row.querySelector('span[style*="#6fcf97"]');
+    if (cb) cb.checked = !!isOnline;
+  });
+}
+
+async function runBulkDeploy() {
+  var selected = Array.from(document.querySelectorAll('.bulk-deploy-cb:checked'));
+  if (!selected.length) { alert('Select at least one VM.'); return; }
+
+  var sshUser = document.getElementById('bulkDaUser').value.trim() || 'oracle';
+  var sshPass = document.getElementById('bulkDaPass').value;
+  var useSudo = document.getElementById('bulkDaSudo').checked;
+
+  var statusBox = document.getElementById('bulkDeployStatus');
+  var log = document.getElementById('bulkDeployProgress');
+  statusBox.style.display = 'block';
+  log.innerHTML = '';
+  document.getElementById('bulkDeployBtn').disabled = true;
+
+  var addLine = function(msg, color) {
+    var line = document.createElement('div');
+    line.style.color = color || 'var(--text)';
+    line.textContent = msg;
+    log.appendChild(line);
+    log.scrollTop = log.scrollHeight;
+  };
+
+  addLine('Starting bulk deploy for ' + selected.length + ' VM(s)…', '#aaa');
+
+  for (var i = 0; i < selected.length; i++) {
+    var cb = selected[i];
+    var vmId = cb.dataset.vmid;
+    var hostname = cb.dataset.hostname;
+    addLine('[' + (i+1) + '/' + selected.length + '] ' + hostname + ' — deploying…', '#aaa');
+    try {
+      var body = { sshUser: sshUser, useSudo: useSudo };
+      if (sshPass) body.sshPassword = sshPass;
+      var res = await api('/admin/vms/' + vmId + '/deploy-agent', { method: 'POST', body: JSON.stringify(body) });
+      if (res && res.ok) {
+        addLine('  ✓ ' + hostname + ' — success', '#6fcf97');
+      } else {
+        addLine('  ✗ ' + hostname + ' — ' + (res && res.error ? res.error : 'failed'), '#e57373');
+      }
+    } catch(e) {
+      addLine('  ✗ ' + hostname + ' — ' + e.message, '#e57373');
+    }
+  }
+
+  addLine('Done.', '#aaa');
+  document.getElementById('bulkDeployBtn').disabled = false;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 async function deployAgent(vmId, hostname, savedSshUser) {
   // Collect SSH credentials via modal
   var modal = document.createElement('div');
