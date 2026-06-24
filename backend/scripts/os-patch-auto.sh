@@ -5914,19 +5914,22 @@ gi_upgrade_install() {
     fi
     add_html_row "GI 23/26ai Base ZIP" "PASS" "$GI_UPGRADE_BASE_ZIP"
 
+    # ── DRY-RUN: show plan before any file operations ─────────────────────────
+    if [[ "$DRYRUN" == true ]]; then
+        add_html_row "GI Upgrade Install (dry-run)" "INFO" \
+            "Would: mkdir $GI_UPGRADE_NEW_HOME → unzip $GI_UPGRADE_BASE_ZIP → run gridSetup.sh -silent -ignorePrereqFailure -responseFile $GI_UPGRADE_RSP -waitForCompletion"
+        add_html_row "DRY-RUN SUMMARY" "WARN" "No files extracted, no installer run."
+        send_html_report "GI Upgrade Install (Dry-run) - $HOST" "GI Upgrade Install"
+        return 0
+    fi
+    # ──────────────────────────────────────────────────────────────────────────
+
     # Stage 23/26ai GI software
     run_cmd "sudo mkdir -p \"$GI_UPGRADE_NEW_HOME\""
     run_cmd "sudo chown -R ${GRID_USER}:${OINSTALL} \"$GI_UPGRADE_NEW_HOME\""
     run_cmd "unzip -oq \"$GI_UPGRADE_BASE_ZIP\" -d \"$GI_UPGRADE_NEW_HOME\""
 
     local grid_log="${GI_UPGRADE_LOG_DIR}/gridSetup_23ai_install_$(date +%F_%H%M%S).log"
-
-    if [[ "$DRYRUN" == true ]]; then
-        add_html_row "GI Upgrade Install (dry-run)" "INFO" \
-            "Would run $GI_UPGRADE_NEW_HOME/gridSetup.sh -silent -ignorePrereqFailure -responseFile $GI_UPGRADE_RSP -waitForCompletion"
-        send_html_report "GI Upgrade Install (Dry-run) - $HOST" "GI Upgrade Install"
-        return 0
-    fi
 
     log "Starting 23/26ai GI Software Install. Installer log will be in ${grid_log}"
 
@@ -6054,15 +6057,18 @@ gi_upgrade_upgrade() {
     add_html_row "GI Upgrade" "INFO" \
         "Will perform GI upgrade using $GI_UPGRADE_NEW_HOME and response $GI_UPGRADE_RSP_UPGRADE."
 
-    # Stop DBs first (srvctl if available, else PMON-based SID shutdown)
-    stop_all_dbs_for_gi_upgrade
-
+    # ── DRY-RUN: show plan before stopping any databases ──────────────────────
     if [[ "$DRYRUN" == true ]]; then
         add_html_row "GI Upgrade (dry-run)" "INFO" \
-            "Would run: yes randn_pass | $GI_UPGRADE_NEW_HOME/gridSetup.sh -silent -responseFile $GI_UPGRADE_RSP_UPGRADE -waitForCompletion"
+            "Would: stop all DBs → run gridSetup.sh -silent -responseFile $GI_UPGRADE_RSP_UPGRADE -waitForCompletion → root.sh → datapatch"
+        add_html_row "DRY-RUN SUMMARY" "WARN" "No databases stopped, no upgrade scripts executed."
         send_html_report "GI Upgrade (Dry-run) - $HOST" "GI Upgrade"
         return 0
     fi
+    # ──────────────────────────────────────────────────────────────────────────
+
+    # Stop DBs first (srvctl if available, else PMON-based SID shutdown)
+    stop_all_dbs_for_gi_upgrade
 
     local upg_log="${GI_UPGRADE_LOG_DIR}/gridSetup_23ai_upgrade_$(date +%F_%H%M%S).log"
 
@@ -8359,31 +8365,36 @@ db_upgrade_install() {
 
     add_html_row "DB Upgrade target ORACLE_HOME" "INFO" "$DB_UPGRADE_NEW_HOME"
 
-    run_cmd "mkdir -p \"$DB_UPGRADE_NEW_HOME\""
-    run_cmd "chown -R ${ORACLE_USER}:${OINSTALL} \"$DB_UPGRADE_NEW_HOME\""
-
     if [[ ! -f "$DB_UPGRADE_BASE_ZIP" ]]; then
         add_html_row "DB 23/26ai Base ZIP" "FAIL" "Missing DB_UPGRADE_BASE_ZIP: $DB_UPGRADE_BASE_ZIP"
         send_html_report "DB Upgrade Install FAILED - $HOST" "DB Upgrade Install"
         die "DB_UPGRADE_BASE_ZIP missing: $DB_UPGRADE_BASE_ZIP"
     fi
+    add_html_row "DB 23/26ai Base ZIP" "PASS" "$DB_UPGRADE_BASE_ZIP"
 
+    # ── DRY-RUN: show plan before any file operations ─────────────────────────
+    if [[ "$DRYRUN" == true ]]; then
+        add_html_row "DB Upgrade Install (dry-run)" "INFO" \
+            "Would: mkdir $DB_UPGRADE_NEW_HOME → unzip $DB_UPGRADE_BASE_ZIP → run $DB_UPGRADE_NEW_HOME/runInstaller -silent -responseFile $DB_RSP -waitForCompletion"
+        add_html_row "DRY-RUN SUMMARY" "WARN" "No files extracted, no installer run."
+        send_html_report "DB Upgrade Install (Dry-run) - $HOST" "DB Upgrade Install"
+        return 0
+    fi
+    # ──────────────────────────────────────────────────────────────────────────
+
+    run_cmd "mkdir -p \"$DB_UPGRADE_NEW_HOME\""
+    run_cmd "chown -R ${ORACLE_USER}:${OINSTALL} \"$DB_UPGRADE_NEW_HOME\""
     run_cmd "unzip -oq \"$DB_UPGRADE_BASE_ZIP\" -d \"$DB_UPGRADE_NEW_HOME\""
 
     local db_log="${DB_UPGRADE_LOG_DIR}/db_23ai_install_$(date +%F_%H%M%S).log"
-    if [[ "$DRYRUN" == true ]]; then
-        add_html_row "DB Upgrade Install (dry-run)" "INFO" \
-            "Would run: $DB_UPGRADE_NEW_HOME/runInstaller -silent -responseFile $DB_RSP (23ai rsp) ..."
+    sudo -u "$ORACLE_USER" bash -c "\"$DB_UPGRADE_NEW_HOME/runInstaller\" -silent -ignorePrereqFailure -responseFile \"$DB_RSP\" -waitForCompletion" \
+        &> "$db_log"
+    add_attachment "$db_log"
+    if grep -q "Successfully Setup Software" "$db_log" 2>/dev/null; then
+        add_html_row "DB 23/26ai Software Install" "PASS" \
+            "Successfully Setup Software. See $db_log"
     else
-        sudo -u "$ORACLE_USER" bash -c "\"$DB_UPGRADE_NEW_HOME/runInstaller\" -silent -ignorePrereqFailure -responseFile \"$DB_RSP\" -waitForCompletion" \
-            &> "$db_log"
-        add_attachment "$db_log"
-        if grep -q "Successfully Setup Software" "$db_log" 2>/dev/null; then
-            add_html_row "DB 23/26ai Software Install" "PASS" \
-                "Successfully Setup Software. See $db_log"
-        else
-            add_html_row "DB 23/26ai Software Install" "FAIL" "See $db_log"
-        fi
+        add_html_row "DB 23/26ai Software Install" "FAIL" "See $db_log"
     fi
 
     send_html_report "DB Upgrade Install (23/26ai) - $HOST" "DB Upgrade Install"
@@ -9102,10 +9113,18 @@ cluster_stop_dbs() {
     LOG_FILE="${CLUSTER_LOG_DIR}/cluster_stop_dbs_$(date +%F_%H%M%S).log"
     STATE_FILE="${CLUSTER_LOG_DIR}/cluster_state_$(date +%F_%H%M%S).txt"
     CLUSTER_STOPPED_DBS_FILE="${CLUSTER_LOG_DIR}/cluster_stopped_dbs.list"
-    : > "$CLUSTER_STOPPED_DBS_FILE"    # truncate for this run
 
     log "CLUSTER MAINTENANCE - STOP DBS (LOCAL NODE)"
 
+    if [[ "$DRYRUN" == true ]]; then
+        add_html_row "Cluster Stop DBs (dry-run)" "INFO" \
+            "Would stop all running databases on this node using srvctl/SQL*Plus before OS patching."
+        add_html_row "DRY-RUN SUMMARY" "WARN" "No databases stopped."
+        send_html_report "Cluster DB Stop (Dry-run) - $HOST" "Cluster DB Stop"
+        return 0
+    fi
+
+    : > "$CLUSTER_STOPPED_DBS_FILE"    # truncate for this run
     init_srvctl
     cluster_stop_local_dbs "Cluster maintenance"
     send_html_report "Cluster DB Stop - $HOST" "Cluster DB Stop"
@@ -9200,6 +9219,14 @@ cluster_os_patch() {
     reset_html_report
     LOG_FILE="${CLUSTER_LOG_DIR}/cluster_os_patch_$(date +%F_%H%M%S).log"
     log "CLUSTER MAINTENANCE - OS PATCH (LOCAL NODE)"
+
+    if [[ "$DRYRUN" == true ]]; then
+        add_html_row "Cluster OS Patch (dry-run)" "INFO" \
+            "Would run: package manager health check → kernel update (enable_and_patch_kernel) → OS package update (yum/dnf update) → report reboot required."
+        add_html_row "DRY-RUN SUMMARY" "WARN" "No packages installed or updated."
+        send_html_report "Cluster OS Patch (Dry-run) - $HOST" "Cluster OS Patch"
+        return 0
+    fi
 
     add_attachment "$LOG_FILE"
     package_manager_health_check_html || log "WARN: package_manager_health_check_html returned non-zero (continuing)."
