@@ -4892,6 +4892,31 @@ gi_install() {
             send_html_report "GI Install BLOCKED - $HOST" "GI Install Report (BLOCKED)"
             die "HARD BLOCK: gi_install refused — $_why"
         fi
+
+        # HARD BLOCK: if NEW_GI_HOME is already registered in the Oracle central inventory
+        # the gridSetup.sh installer has already run there — re-running would corrupt it.
+        # NOTE: depot mode puts gridSetup.sh in NEW_GI_HOME BEFORE the installer runs,
+        # so we cannot use gridSetup.sh presence as the check — only inventory registration matters.
+        local _inv_xml="" _inv_hit=""
+        # Find the central inventory location from oraInst.loc
+        for _oloc in /etc/oraInst.loc /var/opt/oracle/oraInst.loc; do
+            if [[ -f "$_oloc" ]]; then
+                _inv_xml=$(awk -F= '/^inventory_loc/{print $2}' "$_oloc" | tr -d '[:space:]')
+                _inv_xml="${_inv_xml}/ContentsXML/inventory.xml"
+                break
+            fi
+        done
+        if [[ -f "$_inv_xml" ]]; then
+            _inv_hit=$(grep -F "LOC=\"${NEW_GI_HOME}\"" "$_inv_xml" 2>/dev/null || true)
+        fi
+        if [[ -n "$_inv_hit" ]]; then
+            add_html_row "GI Install Safety Check" "FAIL" \
+                "HARD BLOCK: NEW_GI_HOME ($NEW_GI_HOME) is already registered in the Oracle central inventory ($( basename "$_inv_xml" )). The installer has already run there — reinstalling will corrupt this home. Did you select the wrong patch version? Check that NEW_GI_HOME points to a home that has NOT yet been installed."
+            send_html_report "GI Install BLOCKED - $HOST" "GI Install Report (BLOCKED)"
+            die "HARD BLOCK: gi_install refused — NEW_GI_HOME already in Oracle inventory"
+        fi
+        add_html_row "GI Install Safety Check" "PASS" \
+            "NEW_GI_HOME ($NEW_GI_HOME) not yet in Oracle inventory — safe to install."
     fi
 
     add_html_row "GI RU directory" "INFO" "$RU_DIR"
