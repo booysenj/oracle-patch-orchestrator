@@ -604,8 +604,10 @@ router.get('/transfer/:id', (req, res) => {
                         res.setHeader('Content-Type', 'application/x-tar');
                         res.setHeader('X-Transfer-Type', 'tar');
                         res.setHeader('X-Depot-Type', depotType);
-                        // For db/gi base, tell agent to extract directly into the Oracle home
-                        if (depotType === 'db' || depotType === 'gi') {
+                        // Tell agent where to extract:
+                        // gi/db base → directly into the Oracle home (NEW_GI_HOME / NEW_DB_HOME)
+                        // opatch     → also into the Oracle home so it overwrites the bundled OPatch
+                        if (depotType === 'db' || depotType === 'gi' || depotType === 'opatch') {
                             var vmRow = db.prepare('SELECT new_db_home, new_gi_home FROM vms WHERE hostname=? OR ip=?').get(t.target_host, t.target_host);
                             if (vmRow) {
                                 var _installPath = depotType === 'db' ? vmRow.new_db_home : vmRow.new_gi_home;

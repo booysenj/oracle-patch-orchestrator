@@ -3069,6 +3069,16 @@ update_opatch() {
         local matches=( "${OPATCH_ZIP_DIR}"/${OPATCH_ZIP_PATTERN} )
         shopt -u nullglob
         if (( ${#matches[@]} == 0 )); then
+            # Depot mode: OPatch was already streamed directly into the Oracle home by the agent.
+            # The depot opatch tar extracts an OPatch/ directory into NEW_GI_HOME/NEW_DB_HOME,
+            # replacing the base-software OPatch before this function runs.
+            if [[ -x "$home/OPatch/opatch" ]]; then
+                local _cur_op
+                _cur_op=$("$home/OPatch/opatch" version 2>/dev/null | awk '/OPatch Version/{print $NF}' || true)
+                log "INFO: Depot mode — OPatch already in $home/OPatch (version: ${_cur_op:-unknown}). No zip to unzip."
+                run_cmd_allow_fail "chown -R ${ORACLE_USER}:${OINSTALL} \"$home/OPatch\""
+                return 0
+            fi
             die "OPatch ZIP missing: expected ${OPATCH_ZIP} or ${OPATCH_ZIP_DIR}/${OPATCH_ZIP_PATTERN}"
         fi
         zip="${matches[0]}"
