@@ -166,7 +166,7 @@ async function runExtraction(patch, depotPath, patch_id) {
             const stat = fs.statSync(ruRoot);
             const scanDir = stat.isDirectory() ? ruRoot : path.dirname(ruRoot);
             const zips = fs.readdirSync(scanDir)
-                .filter(f => f.endsWith('.zip') && !/^p688088/i.test(f) && !/^p\d+_190000_/i.test(f))
+                .filter(f => f.endsWith('.zip') && !/^p6880880/i.test(f))
                 .map(f => ({ f, size: fs.statSync(path.join(scanDir, f)).size }))
                 .sort((a, b) => b.size - a.size);
             if (zips.length) ruZip = path.join(scanDir, zips[0].f);
