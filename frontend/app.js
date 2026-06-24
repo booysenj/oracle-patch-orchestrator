@@ -471,7 +471,7 @@ function closeModal() {
 }
 
 var PRECHECK_OPS = ['gi_precheck','db_precheck','gi_upgrade_precheck','db_upgrade_precheck','cluster_precheck','stage_software'];
-var OJVM_OPS = ['gi_install','db_install','gi_upgrade_install','db_upgrade_install'];
+var OJVM_OPS = ['db_install','db_upgrade_install'];
 // Operations where selecting a patch version auto-derives NEW_DB_HOME / NEW_GI_HOME
 var PATCH_VERSION_OPS = ['gi_precheck','db_precheck','stage_software','gi_install','db_install',
     'gi_upgrade_precheck','db_upgrade_precheck','gi_upgrade_install','db_upgrade_install'];
