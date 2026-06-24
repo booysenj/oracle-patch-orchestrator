@@ -279,7 +279,8 @@ _autodetect_cluster_identity() {
 }
 _autodetect_cluster_identity
 
-DRYRUN=false
+# Honour DRYRUN if the agent already set it; otherwise default to false
+[[ "${DRYRUN:-}" == "true" ]] || DRYRUN=false
 REPORT_BODY=""
 LOG_FILE=/dev/null
 SCRIPT_PATH=$(readlink -f "$0")
