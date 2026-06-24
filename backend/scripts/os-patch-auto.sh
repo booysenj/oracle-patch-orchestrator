@@ -2114,6 +2114,9 @@ format_oratab_html() {
 format_crs_stat_html() {
     local log_file="$1"
     [[ ! -f "$log_file" ]] && echo "(log not found: $log_file)" && return
+
+    # crsctl stat res -t wraps long Details values across multiple lines.
+    # Buffer each row and accumulate continuation text before flushing to HTML.
     local html=""
     html+="<table style='border-collapse:collapse;font-size:12px;width:100%;font-family:monospace'>"
     html+="<thead><tr>"
@@ -2121,79 +2124,81 @@ format_crs_stat_html() {
     html+="<th style='background:#1a3a2a;color:#aee8c0;padding:5px 10px;text-align:left;border:1px solid #2d6a4f'>Target</th>"
     html+="<th style='background:#1a3a2a;color:#aee8c0;padding:5px 10px;text-align:left;border:1px solid #2d6a4f'>State</th>"
     html+="<th style='background:#1a3a2a;color:#aee8c0;padding:5px 10px;text-align:left;border:1px solid #2d6a4f'>Server</th>"
-    html+="<th style='background:#1a3a2a;color:#aee8c0;padding:5px 10px;text-align:left;border:1px solid #2d6a4f'>Details</th>"
+    html+="<th style='background:#1a3a2a;color:#aee8c0;padding:5px 10px;text-align:left;border:1px solid #2d6a4f;min-width:160px'>Details</th>"
     html+="</tr></thead><tbody>"
-    local current_resource="" current_section="" row_idx=0
+
+    # Pending row fields — flushed when the next data row starts
+    local p_res="" p_tgt="" p_st="" p_srv="" p_det="" p_color="" p_bg="" row_idx=0 current_resource=""
+
+    _flush_pending_row() {
+        [[ -z "$p_res" ]] && return
+        local esc_res esc_det
+        esc_res=$(printf '%s' "$p_res" | escape_html)
+        esc_det=$(printf '%s' "$p_det" | escape_html)
+        html+="<tr style='background:${p_bg}'>"
+        html+="<td style='padding:4px 10px;border:1px solid #2d6a4f;color:#e0ffe0'>${esc_res}</td>"
+        html+="<td style='padding:4px 10px;border:1px solid #2d6a4f;color:#aaa'>${p_tgt}</td>"
+        html+="<td style='padding:4px 10px;border:1px solid #2d6a4f;font-weight:bold;color:${p_color}'>${p_st}</td>"
+        html+="<td style='padding:4px 10px;border:1px solid #2d6a4f;color:#ccc'>${p_srv}</td>"
+        html+="<td style='padding:4px 10px;border:1px solid #2d6a4f;color:#aaa;word-break:break-all'>${esc_det}</td>"
+        html+="</tr>"
+        (( row_idx++ )) || true
+        p_res="" p_tgt="" p_st="" p_srv="" p_det="" p_color="" p_bg=""
+    }
+
     while IFS= read -r line; do
         # Section headers
         if [[ "$line" =~ ^"Local Resources" ]]; then
+            _flush_pending_row
             html+="<tr><td colspan='5' style='background:#0d2418;color:#6fcf97;padding:4px 10px;font-weight:bold;border:1px solid #2d6a4f'>▶ Local Resources</td></tr>"
-            current_section="local"; continue
+            current_resource=""; continue
         fi
         if [[ "$line" =~ ^"Cluster Resources" ]]; then
+            _flush_pending_row
             html+="<tr><td colspan='5' style='background:#0d2418;color:#6fcf97;padding:4px 10px;font-weight:bold;border:1px solid #2d6a4f'>▶ Cluster Resources</td></tr>"
-            current_section="cluster"; continue
+            current_resource=""; continue
         fi
-        # Skip separator lines
+        # Skip separator / header lines
         [[ "$line" =~ ^-+ ]] && continue
         [[ "$line" =~ ^"Name" ]] && continue
         [[ -z "${line// }" ]] && continue
+
         # Resource name line (starts without leading spaces)
         if [[ "$line" =~ ^[^[:space:]] ]]; then
             current_resource=$(echo "$line" | awk '{print $1}')
-            # If the line also has status columns on same line (local resources)
-            local rest
-            rest="${line#$current_resource}"
+            local rest="${line#$current_resource}"
             if [[ "$rest" =~ ([A-Z]+)[[:space:]]+([A-Z]+)[[:space:]]+([^[:space:]].*) ]]; then
+                _flush_pending_row
                 local tgt="${BASH_REMATCH[1]}" st="${BASH_REMATCH[2]}" srv_det="${BASH_REMATCH[3]}"
-                local srv det
-                srv=$(echo "$srv_det" | awk '{print $1}')
-                det=$(echo "$srv_det" | cut -d' ' -f2-)
-                local state_color="#c3e6cb"
-                [[ "$st" == "OFFLINE" ]] && state_color="#f5c6cb"
-                [[ "$st" == "ONLINE"  ]] && state_color="#c3e6cb"
-                local row_bg; (( row_idx % 2 == 0 )) && row_bg="#0f2d1e" || row_bg="#122a1c"
-                local esc_res esc_det
-                esc_res=$(printf '%s' "$current_resource" | escape_html)
-                esc_det=$(printf '%s' "$det" | escape_html)
-                html+="<tr style='background:${row_bg}'>"
-                html+="<td style='padding:4px 10px;border:1px solid #2d6a4f;color:#e0ffe0'>${esc_res}</td>"
-                html+="<td style='padding:4px 10px;border:1px solid #2d6a4f;color:#aaa'>${tgt}</td>"
-                html+="<td style='padding:4px 10px;border:1px solid #2d6a4f;font-weight:bold;color:${state_color}'>${st}</td>"
-                html+="<td style='padding:4px 10px;border:1px solid #2d6a4f;color:#ccc'>${srv}</td>"
-                html+="<td style='padding:4px 10px;border:1px solid #2d6a4f;color:#aaa'>${esc_det}</td>"
-                html+="</tr>"
-                (( row_idx++ )) || true
+                p_res="$current_resource"
+                p_tgt="$tgt"; p_st="$st"
+                p_srv=$(echo "$srv_det" | awk '{print $1}')
+                p_det=$(echo "$srv_det" | cut -d' ' -f2-)
+                p_color="#c3e6cb"; [[ "$st" == "OFFLINE" ]] && p_color="#f5c6cb"
+                (( row_idx % 2 == 0 )) && p_bg="#0f2d1e" || p_bg="#122a1c"
                 current_resource=""
             fi
-        # Numbered instance line (cluster resources): "      1        ONLINE  ONLINE  server  details"
+
+        # Numbered instance line (cluster resources): "      1   ONLINE  ONLINE  server  details"
         elif [[ "$line" =~ ^[[:space:]]+([0-9]+)[[:space:]]+([A-Z]+)[[:space:]]+([A-Z]+)[[:space:]]*(.*) ]]; then
-            local inst="${BASH_REMATCH[1]}" tgt="${BASH_REMATCH[2]}" st="${BASH_REMATCH[3]}" rest="${BASH_REMATCH[4]}"
-            local srv det
-            srv=$(echo "$rest" | awk '{print $1}')
-            det=$(echo "$rest" | cut -d' ' -f2-)
-            [[ -z "$srv" ]] && srv="—"
-            local state_color="#c3e6cb"
-            [[ "$st" == "OFFLINE" ]] && state_color="#f5c6cb"
-            local row_bg; (( row_idx % 2 == 0 )) && row_bg="#0f2d1e" || row_bg="#122a1c"
-            local esc_res esc_det
-            esc_res=$(printf '%s' "${current_resource}" | escape_html)
-            esc_det=$(printf '%s' "$det" | escape_html)
-            html+="<tr style='background:${row_bg}'>"
-            html+="<td style='padding:4px 10px;border:1px solid #2d6a4f;color:#e0ffe0'>${esc_res}</td>"
-            html+="<td style='padding:4px 10px;border:1px solid #2d6a4f;color:#aaa'>${tgt}</td>"
-            html+="<td style='padding:4px 10px;border:1px solid #2d6a4f;font-weight:bold;color:${state_color}'>${st}</td>"
-            html+="<td style='padding:4px 10px;border:1px solid #2d6a4f;color:#ccc'>${srv}</td>"
-            html+="<td style='padding:4px 10px;border:1px solid #2d6a4f;color:#aaa'>${esc_det}</td>"
-            html+="</tr>"
-            (( row_idx++ )) || true
-        # Continuation line (wrapped State details column)
-        elif [[ -n "$current_resource" && "$line" =~ ^[[:space:]] ]]; then
+            _flush_pending_row
+            local tgt="${BASH_REMATCH[2]}" st="${BASH_REMATCH[3]}" rest="${BASH_REMATCH[4]}"
+            p_res="$current_resource"
+            p_tgt="$tgt"; p_st="$st"
+            p_srv=$(echo "$rest" | awk '{print $1}'); [[ -z "$p_srv" ]] && p_srv="—"
+            p_det=$(echo "$rest" | cut -d' ' -f2-)
+            p_color="#c3e6cb"; [[ "$st" == "OFFLINE" ]] && p_color="#f5c6cb"
+            (( row_idx % 2 == 0 )) && p_bg="#0f2d1e" || p_bg="#122a1c"
+
+        # Continuation line — crsctl wrapped the Details value; append to pending row
+        elif [[ "$line" =~ ^[[:space:]] ]]; then
             local cont
             cont=$(echo "$line" | xargs)
-            [[ -n "$cont" ]] && html+="<tr style='background:#0a1f12'><td colspan='4'></td><td style='padding:2px 10px;border:1px solid #2d6a4f;color:#888;font-size:11px'>${cont}</td></tr>"
+            [[ -n "$cont" && -n "$p_res" ]] && p_det+="$cont"
         fi
     done < "$log_file"
+
+    _flush_pending_row
     html+="</tbody></table>"
     echo "$html"
 }
