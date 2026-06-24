@@ -4843,6 +4843,21 @@ gi_install() {
 
     add_html_row "GI RU directory" "INFO" "$RU_DIR"
 
+    # ── DRY-RUN: show plan and exit before touching any files ─────────────────
+    if [[ "$DRYRUN" == true ]]; then
+        local _gi_src="zip ($GI_BASE_ZIP)"
+        [[ -f "$NEW_GI_HOME/gridSetup.sh" ]] && _gi_src="depot (already in $NEW_GI_HOME)"
+        add_html_row "GI Base source" "INFO" "Would use: $_gi_src"
+        add_html_row "OPatch update" "INFO" "Would update OPatch in $NEW_GI_HOME"
+        add_html_row "GI Install (dry-run)" "INFO" \
+            "Would run: $NEW_GI_HOME/gridSetup.sh -silent -ignorePrereqFailure -responseFile $GI_RSP -applyRU $RU_DIR -waitForCompletion"
+        add_html_row "DRY-RUN SUMMARY" "WARN" \
+            "No files extracted, no directories created, no installer run. Uncheck Dry Run to apply."
+        send_html_report "GI Install (Dry-run) - $HOST" "GI Install (Dry-run) Report"
+        return 0
+    fi
+    # ──────────────────────────────────────────────────────────────────────────
+
     run_cmd "sudo mkdir -p \"$NEW_GI_HOME\""
     run_cmd "sudo chown -R ${GRID_USER}:${OINSTALL} \"$NEW_GI_HOME\""
 
@@ -4867,14 +4882,6 @@ gi_install() {
 
     local grid_log="${GI_LOG_DIR}/gridSetup_$(date +%F_%H%M%S).log"
     add_attachment "$grid_log"
-
-    if [[ "$DRYRUN" == true ]]; then
-        log "[DRYRUN] Would run GI installer"
-        log "[DRYRUN] Command: $NEW_GI_HOME/gridSetup.sh -silent -ignorePrereqFailure -responseFile $GI_RSP -applyRU $RU_DIR -waitForCompletion"
-        add_html_row "GI Install (dry-run)" "INFO" "Installer would log to $grid_log"
-        send_html_report "GI Install (Dry-run) - $HOST" "GI Install (Dry-run) Report"
-        return 0
-    fi
 
     # Marker so we can attach the OUI logs created during this run
     local oui_marker="${GI_LOG_DIR}/.marker_gi_install_$(date +%F_%H%M%S)"
@@ -7082,6 +7089,21 @@ Run db_rollback first to return the database to $OLD_DB_HOME, then retry db_inst
         fi
     fi
 
+    # ── DRY-RUN: show plan and exit before touching any files ─────────────────
+    if [[ "$DRYRUN" == true ]]; then
+        local _db_src="zip ($DB_BASE_ZIP)"
+        [[ -f "$NEW_DB_HOME/runInstaller" ]] && _db_src="depot (already in $NEW_DB_HOME)"
+        add_html_row "DB Base source" "INFO" "Would use: $_db_src"
+        add_html_row "OPatch update" "INFO" "Would update OPatch in $NEW_DB_HOME"
+        add_html_row "DB Install (dry-run)" "INFO" \
+            "Would run: $NEW_DB_HOME/runInstaller -silent -ignorePrereqFailure -responseFile $DB_RSP -applyRU $RU_DIR -waitForCompletion"
+        add_html_row "DRY-RUN SUMMARY" "WARN" \
+            "No files extracted, no directories created, no installer run. Uncheck Dry Run to apply."
+        send_html_report "DB Install (Dry-run) - $HOST" "DB Install (Dry-run) Report"
+        return 0
+    fi
+    # ──────────────────────────────────────────────────────────────────────────
+
     # Depot mode: agent pre-extracted the DB base tar directly into NEW_DB_HOME.
     # Detect by the presence of runInstaller — if it's there, skip zip + unzip entirely.
     if [[ -f "$NEW_DB_HOME/runInstaller" ]]; then
@@ -7110,12 +7132,6 @@ Run db_rollback first to return the database to $OLD_DB_HOME, then retry db_inst
         "Copied config/SPFILE/listener/tnsnames/sqlnet files from $OLD_DB_HOME into $NEW_DB_HOME (where present)."
 
     local db_log="${DB_LOG_DIR}/dbSetup_$(date +%F_%H%M%S).log"
-    if [[ "$DRYRUN" == true ]]; then
-        log "[DRYRUN] Would run DB installer"
-        add_html_row "DB Install (dry-run)" "INFO" "Installer would log to $db_log"
-        send_html_report "DB Install (Dry-run) - $HOST" "DB Install (Dry-run) Report"
-        return 0
-    fi
 
     log "Starting DB Software Install. Installer log will be in ${db_log}"
 

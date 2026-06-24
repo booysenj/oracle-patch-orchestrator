@@ -802,7 +802,7 @@ def main():
             except Exception as e:
                 print('[agent] Discovery error: %s' % e)
 
-        if job and job.get('transfer'):
+        if job and job.get('transfer') and not job.get('dryRun', False):
             execute_transfer(job['transfer'])
         elif job:
             execute_job(job)
