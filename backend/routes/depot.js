@@ -56,40 +56,66 @@ function zipKey(zipPath) {
     return path.basename(zipPath, '.zip');
 }
 
-// Extract a zip to destDir, but ONLY if the sentinel file doesn't exist yet.
-// sentinelFile is a file that proves the extraction is complete (e.g. runInstaller, gridSetup.sh).
-// Returns: 'ready' | 'skipped' | 'extracting' | 'failed'
-function extractZipShared(zipPath, destDir, sentinelFile) {
+const MAX_EXTRACT_RETRIES = 3;
+
+// Run unzip with auto-retry: on failure, wipe the partial destDir and retry.
+// Returns true on success, false after all retries exhausted.
+function unzipWithRetry(zipPath, destDir, attempt) {
     return new Promise((resolve) => {
-        if (!zipPath || !fs.existsSync(zipPath)) return resolve('skipped');
-
-        // Already extracted — reuse
-        if (fs.existsSync(path.join(destDir, sentinelFile))) {
-            return resolve('ready');
-        }
-
-        fs.mkdirSync(destDir, { recursive: true });
         const proc = spawn('unzip', ['-o', '-q', zipPath, '-d', destDir]);
-        proc.on('close', code => resolve(code === 0 ? 'ready' : 'failed'));
-        proc.on('error', () => resolve('failed'));
+        proc.on('close', code => {
+            if (code === 0) return resolve(true);
+            console.error(`[DEPOT] unzip failed (exit ${code}) for ${zipPath}, attempt ${attempt}/${MAX_EXTRACT_RETRIES}`);
+            // Wipe partial output so next attempt starts clean
+            try { fs.rmSync(destDir, { recursive: true, force: true }); } catch(_) {}
+            if (attempt < MAX_EXTRACT_RETRIES) {
+                console.log(`[DEPOT] Retrying extraction of ${path.basename(zipPath)}...`);
+                fs.mkdirSync(destDir, { recursive: true });
+                unzipWithRetry(zipPath, destDir, attempt + 1).then(resolve);
+            } else {
+                resolve(false);
+            }
+        });
+        proc.on('error', (e) => {
+            console.error(`[DEPOT] unzip spawn error for ${zipPath}:`, e.message);
+            try { fs.rmSync(destDir, { recursive: true, force: true }); } catch(_) {}
+            resolve(false);
+        });
     });
 }
 
-function extractZip(zipPath, destDir, patch_id, statusField) {
-    return new Promise((resolve) => {
-        if (!zipPath || !fs.existsSync(zipPath)) {
-            depotUpdate(patch_id, { [statusField]: 'skipped' });
-            return resolve(true);
-        }
-        fs.mkdirSync(destDir, { recursive: true });
-        depotUpdate(patch_id, { [statusField]: 'extracting' });
-        const proc = spawn('unzip', ['-o', '-q', zipPath, '-d', destDir]);
-        proc.on('close', code => {
-            depotUpdate(patch_id, { [statusField]: code === 0 ? 'ready' : 'failed' });
-            resolve(code === 0);
-        });
-        proc.on('error', () => { depotUpdate(patch_id, { [statusField]: 'failed' }); resolve(false); });
-    });
+// Extract a zip to destDir, but ONLY if the sentinel file doesn't exist yet.
+// sentinelFile is a file that proves the extraction is complete (e.g. runInstaller, gridSetup.sh).
+// Returns: 'ready' | 'skipped' | 'failed'
+async function extractZipShared(zipPath, destDir, sentinelFile) {
+    if (!zipPath || !fs.existsSync(zipPath)) return 'skipped';
+
+    // Already extracted — reuse
+    if (fs.existsSync(path.join(destDir, sentinelFile))) return 'ready';
+
+    fs.mkdirSync(destDir, { recursive: true });
+    const ok = await unzipWithRetry(zipPath, destDir, 1);
+    if (!ok) return 'failed';
+
+    // Verify sentinel exists after extraction
+    if (!fs.existsSync(path.join(destDir, sentinelFile))) {
+        console.error(`[DEPOT] Sentinel ${sentinelFile} not found after extraction of ${zipPath} — marking failed`);
+        try { fs.rmSync(destDir, { recursive: true, force: true }); } catch(_) {}
+        return 'failed';
+    }
+    return 'ready';
+}
+
+async function extractZip(zipPath, destDir, patch_id, statusField) {
+    if (!zipPath || !fs.existsSync(zipPath)) {
+        depotUpdate(patch_id, { [statusField]: 'skipped' });
+        return true;
+    }
+    fs.mkdirSync(destDir, { recursive: true });
+    depotUpdate(patch_id, { [statusField]: 'extracting' });
+    const ok = await unzipWithRetry(zipPath, destDir, 1);
+    depotUpdate(patch_id, { [statusField]: ok ? 'ready' : 'failed' });
+    return ok;
 }
 
 async function runExtraction(patch, depotPath, patch_id) {
