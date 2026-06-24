@@ -5460,6 +5460,17 @@ phase_switch_home() {
 
     collect_lspatches "$OLD_GI_HOME" "$NEW_GI_HOME" "Before_Switch"
 
+    # ── DRY-RUN: show plan before any system changes ──────────────────────────
+    if [[ "$DRYRUN" == true ]]; then
+        add_html_row "GI Switch (dry-run)" "INFO" \
+            "Would run: rootadd_rdbms.sh → gridSetup.sh -switchGridHome (CRS) or roothas.sh (HAS) → root.sh → datapatch in NEW_GI_HOME (${NEW_GI_HOME})"
+        add_html_row "DRY-RUN SUMMARY" "WARN" \
+            "No CRS/HAS commands executed. Uncheck Dry Run to apply the switch."
+        send_phase_html_report "GI Switch" "GI Switch (Dry-run) - $HOST" "INFO"
+        return 0
+    fi
+    # ──────────────────────────────────────────────────────────────────────────
+
     add_html_row "rootadd_rdbms.sh" "INFO" "Executing rootadd_rdbms.sh from NEW_GI_HOME"
     run_cmd "sudo ${NEW_GI_HOME}/rdbms/install/rootadd_rdbms.sh || true"
 
@@ -5472,20 +5483,15 @@ phase_switch_home() {
         run_cmd "sudo chown -R ${GRID_USER}:${OINSTALL} \"${NEW_GI_HOME}\""
         run_cmd "sudo chmod -R 775 \"${NEW_GI_HOME}\""
 
-        if [[ "$DRYRUN" == true ]]; then
-            add_html_row "GI Switch core" "INFO" \
-                "DRYRUN ? would run: ORACLE_HOME=${NEW_GI_HOME}; gridSetup.sh -switchGridHome; then sudo ${NEW_GI_HOME}/root.sh"
-        else
-            local current_node
-            current_node=$(hostname)
-            run_cmd "ORACLE_HOME=\"${NEW_GI_HOME}\" \"${NEW_GI_HOME}/gridSetup.sh\" \
+        local current_node
+        current_node=$(hostname)
+        run_cmd "ORACLE_HOME=\"${NEW_GI_HOME}\" \"${NEW_GI_HOME}/gridSetup.sh\" \
  -silent -switchGridHome \
  oracle.install.option=CRS_SWONLY \
  ORACLE_HOME=\"${NEW_GI_HOME}\" \
  oracle.install.crs.config.clusterNodes=\"${current_node}\" \
  oracle.install.crs.rootconfig.executeRootScript=false"
-            run_cmd "sudo ${NEW_GI_HOME}/root.sh"
-        fi
+        run_cmd "sudo ${NEW_GI_HOME}/root.sh"
     elif [[ "$mode" == "HAS" ]]; then
         add_html_row "GI Switch Mode" "INFO" \
             "Oracle Restart (HAS) detected ? using roothas.sh -prepatch/-postpatch -dstcrshome ${NEW_GI_HOME} (GI downtime)"
@@ -5508,19 +5514,10 @@ phase_switch_home() {
 
     check_asm_running_html "$NEW_GI_HOME"
 
-    if [[ "$DRYRUN" == false ]]; then
-        run_gi_datapatch_for_home "$NEW_GI_HOME" "Switch"
-        update_oratab_gi_home "$NEW_GI_HOME"
-    else
-        add_html_row "GI datapatch (Switch)" "INFO" "DRYRUN: GI datapatch not executed."
-    fi
+    run_gi_datapatch_for_home "$NEW_GI_HOME" "Switch"
+    update_oratab_gi_home "$NEW_GI_HOME"
 
-    local msg
-    if [[ "$DRYRUN" == true ]]; then
-        msg="DRYRUN: GI switch simulated. No changes applied."
-    else
-        msg="CRS/HAS home successfully switched to NEW_GI_HOME (${NEW_GI_HOME})."
-    fi
+    local msg="CRS/HAS home successfully switched to NEW_GI_HOME (${NEW_GI_HOME})."
     add_html_row "GI Switch Result" "PASS" "$msg"
     send_phase_html_report "GI Switch" "GI Switch Report - $HOST" "$PHASE_STATUS"
 
@@ -5553,6 +5550,17 @@ phase_rollback() {
     add_html_row "GI cluster mode (runtime)" "INFO" "$GI_CLUSTER_MODE"
 
     collect_lspatches "$OLD_GI_HOME" "$NEW_GI_HOME" "Before_Rollback"
+
+    # ── DRY-RUN: show plan before any system changes ──────────────────────────
+    if [[ "$DRYRUN" == true ]]; then
+        add_html_row "GI Rollback (dry-run)" "INFO" \
+            "Would run: rootadd_rdbms.sh → rootcrs.sh -prepatch/-postpatch -rollback (CRS) or roothas.sh (HAS) → datapatch in OLD_GI_HOME (${OLD_GI_HOME})"
+        add_html_row "DRY-RUN SUMMARY" "WARN" \
+            "No CRS/HAS commands executed. Uncheck Dry Run to apply the rollback."
+        send_phase_html_report "GI Rollback" "GI Rollback (Dry-run) - $HOST" "INFO"
+        return 0
+    fi
+    # ──────────────────────────────────────────────────────────────────────────
 
     add_html_row "rootadd_rdbms.sh" "INFO" "Executing rootadd_rdbms.sh from NEW_GI_HOME (rollback prep)"
     run_cmd "sudo ${NEW_GI_HOME}/rdbms/install/rootadd_rdbms.sh || true"
@@ -5606,19 +5614,10 @@ phase_rollback() {
 
     check_asm_running_html "$OLD_GI_HOME"
 
-    if [[ "$DRYRUN" == false ]]; then
-        run_gi_datapatch_for_home "$OLD_GI_HOME" "Rollback"
-        update_oratab_gi_home "$OLD_GI_HOME"
-    else
-        add_html_row "GI datapatch (Rollback)" "INFO" "DRYRUN: GI datapatch not executed."
-    fi
+    run_gi_datapatch_for_home "$OLD_GI_HOME" "Rollback"
+    update_oratab_gi_home "$OLD_GI_HOME"
 
-    local msg
-    if [[ "$DRYRUN" == true ]]; then
-        msg="DRYRUN: GI rollback simulated. No changes applied."
-    else
-        msg="CRS/HAS home successfully rolled back to OLD_GI_HOME (${OLD_GI_HOME})."
-    fi
+    local msg="CRS/HAS home successfully rolled back to OLD_GI_HOME (${OLD_GI_HOME})."
     add_html_row "GI Rollback Result" "PASS" "$msg"
 
     send_phase_html_report "GI Rollback" "GI Rollback Report - $HOST" "$PHASE_STATUS"
