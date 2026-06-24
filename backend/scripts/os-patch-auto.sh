@@ -2163,34 +2163,49 @@ format_crs_stat_html() {
         [[ "$line" =~ ^"Name" ]] && continue
         [[ -z "${line// }" ]] && continue
 
-        # Resource name line (starts without leading spaces)
+        # Helper: given TARGET STATE rest, set pending row fields.
+        # Handles OFFLINE resources where server field is absent (rest = "STABLE" only).
+        _set_pending_row() {
+            local _tgt="$1" _st="$2" _rest="$3"
+            p_tgt="$_tgt"; p_st="$_st"
+            p_srv=$(echo "$_rest" | awk '{print $1}')
+            p_det=$(echo "$_rest" | cut -d' ' -f2- | sed 's/^[[:space:]]*//')
+            # If state is OFFLINE and the parsed "server" field is all-uppercase with no
+            # dots (e.g. STABLE, SHUTDOWN) it is actually a state detail, not a hostname.
+            if [[ "$_st" == "OFFLINE" && "$p_srv" =~ ^[A-Z_,]+$ && ! "$p_srv" =~ \. ]]; then
+                p_det="${p_srv}${p_det:+ $p_det}"
+                p_srv="—"
+            fi
+            [[ -z "$p_srv" ]] && p_srv="—"
+            p_color="#c3e6cb"; [[ "$_st" == "OFFLINE" ]] && p_color="#f5c6cb"
+            (( row_idx % 2 == 0 )) && p_bg="#0f2d1e" || p_bg="#122a1c"
+        }
+
+        # Resource name line (no leading spaces) — may have status on same line or not
         if [[ "$line" =~ ^[^[:space:]] ]]; then
             current_resource=$(echo "$line" | awk '{print $1}')
             local rest="${line#$current_resource}"
-            if [[ "$rest" =~ ([A-Z]+)[[:space:]]+([A-Z]+)[[:space:]]+([^[:space:]].*) ]]; then
+            if [[ "$rest" =~ ([A-Z]+)[[:space:]]+([A-Z]+)[[:space:]]*(.*) ]]; then
                 _flush_pending_row
-                local tgt="${BASH_REMATCH[1]}" st="${BASH_REMATCH[2]}" srv_det="${BASH_REMATCH[3]}"
                 p_res="$current_resource"
-                p_tgt="$tgt"; p_st="$st"
-                p_srv=$(echo "$srv_det" | awk '{print $1}')
-                p_det=$(echo "$srv_det" | cut -d' ' -f2-)
-                p_color="#c3e6cb"; [[ "$st" == "OFFLINE" ]] && p_color="#f5c6cb"
-                (( row_idx % 2 == 0 )) && p_bg="#0f2d1e" || p_bg="#122a1c"
+                _set_pending_row "${BASH_REMATCH[1]}" "${BASH_REMATCH[2]}" "${BASH_REMATCH[3]}"
                 current_resource=""
             fi
+            # else: resource name only — wait for the status line below
 
-        # Numbered instance line (cluster resources): "      1   ONLINE  ONLINE  server  details"
-        elif [[ "$line" =~ ^[[:space:]]+([0-9]+)[[:space:]]+([A-Z]+)[[:space:]]+([A-Z]+)[[:space:]]*(.*) ]]; then
+        # Numbered instance line (cluster): "      1   ONLINE  ONLINE  server  details"
+        elif [[ "$line" =~ ^[[:space:]]+[0-9]+[[:space:]]+([A-Z]+)[[:space:]]+([A-Z]+)[[:space:]]*(.*) ]]; then
             _flush_pending_row
-            local tgt="${BASH_REMATCH[2]}" st="${BASH_REMATCH[3]}" rest="${BASH_REMATCH[4]}"
             p_res="$current_resource"
-            p_tgt="$tgt"; p_st="$st"
-            p_srv=$(echo "$rest" | awk '{print $1}'); [[ -z "$p_srv" ]] && p_srv="—"
-            p_det=$(echo "$rest" | cut -d' ' -f2-)
-            p_color="#c3e6cb"; [[ "$st" == "OFFLINE" ]] && p_color="#f5c6cb"
-            (( row_idx % 2 == 0 )) && p_bg="#0f2d1e" || p_bg="#122a1c"
+            _set_pending_row "${BASH_REMATCH[1]}" "${BASH_REMATCH[2]}" "${BASH_REMATCH[3]}"
 
-        # Continuation line — crsctl wrapped the Details value; append to pending row
+        # Unnumbered status line (local resources): "          ONLINE  ONLINE  server  details"
+        elif [[ "$line" =~ ^[[:space:]]+([A-Z]+)[[:space:]]+([A-Z]+)[[:space:]]*(.*) ]]; then
+            _flush_pending_row
+            p_res="$current_resource"
+            _set_pending_row "${BASH_REMATCH[1]}" "${BASH_REMATCH[2]}" "${BASH_REMATCH[3]}"
+
+        # Continuation line — crsctl wrapped the Details value; concatenate to pending row
         elif [[ "$line" =~ ^[[:space:]] ]]; then
             local cont
             cont=$(echo "$line" | xargs)
