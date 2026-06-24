@@ -771,17 +771,20 @@ function toggleLogFilter(btn) {
 
 function appendLogLine(log) {
   var line = log.line || '';
-  // Parse [CHECK] lines — send to Report tab only
-  var checkIdx = line.indexOf('[CHECK] ');
-  if (checkIdx >= 0) {
-    var parts = line.slice(checkIdx + 8).split('|');
-    if (parts.length >= 2) {
-      appendReportRow(parts[0].trim(), parts[1].trim(), parts.slice(2).join('|').trim());
-    }
-    return;
-  }
-  // Classify line
+  // Classify trace lines first — bash -x traces of the log("[CHECK]...) call also contain
+  // "[CHECK]" and would be parsed as duplicate report rows if we don't exclude them first.
   var isTrace = /^\s*\++ /.test(line);
+  // Parse [CHECK] lines — send to Report tab only (skip bash -x trace echoes)
+  if (!isTrace) {
+    var checkIdx = line.indexOf('[CHECK] ');
+    if (checkIdx >= 0) {
+      var parts = line.slice(checkIdx + 8).split('|');
+      if (parts.length >= 2) {
+        appendReportRow(parts[0].trim(), parts[1].trim(), parts.slice(2).join('|').trim());
+      }
+      return;
+    }
+  }
   var filter = isTrace ? 'trace' :
                line.indexOf('[AutoUpgrade]') >= 0 ? 'autoupg' :
                log.stream === 'stderr' ? 'stderr' :
