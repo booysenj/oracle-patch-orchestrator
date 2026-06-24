@@ -346,4 +346,19 @@ router.get('/orchestrator-url', (req, res) => {
     } catch(_) { res.json({ url: '' }); }
 });
 
+// Self-update: git pull then restart the service.
+// The restart is scheduled 500ms after responding so the HTTP reply reaches the client first.
+router.post('/self-update', (req, res) => {
+    const appDir = path.resolve(__dirname, '..', '..');
+    exec(`git -C ${JSON.stringify(appDir)} pull`, { timeout: 30000 }, (err, stdout, stderr) => {
+        const output = (stdout || '') + (stderr || '');
+        if (err) return res.status(500).json({ error: 'git pull failed', output });
+        res.json({ ok: true, output });
+        // Restart after reply is flushed
+        setTimeout(() => {
+            exec('systemctl restart insight-patch-ui', { timeout: 10000 }, () => {});
+        }, 500);
+    });
+});
+
 module.exports = router;

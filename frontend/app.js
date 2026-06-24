@@ -187,6 +187,25 @@ async function loadOrcSettings() {
   } catch(e) { /* settings optional */ }
 }
 
+async function selfUpdate() {
+  var btn = document.querySelector('[onclick="selfUpdate()"]');
+  var out = document.getElementById('selfUpdateOutput');
+  if (btn) { btn.disabled = true; btn.textContent = 'Pulling…'; }
+  out.style.display = 'none';
+  try {
+    var r = await api('/admin/self-update', { method: 'POST' });
+    out.textContent = r.output || '(no output)';
+    out.style.display = 'block';
+    showToast('Update pulled — restarting in 4s…', 'success');
+    setTimeout(function() { location.reload(); }, 4000);
+  } catch(e) {
+    out.textContent = e.message || 'Update failed';
+    out.style.display = 'block';
+    if (btn) { btn.disabled = false; btn.textContent = '⬆ Pull & Restart'; }
+    showToast('Update failed: ' + (e.message || 'unknown error'), 'error');
+  }
+}
+
 async function saveOrcSettings() {
   var body = {
     orchestrator_url: (document.getElementById('settingOrcUrl') || {}).value || '',

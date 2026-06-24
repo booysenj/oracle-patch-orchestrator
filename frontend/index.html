@@ -234,6 +234,13 @@
           </div>
         </div>
 
+        <div class="section-header" style="margin-top:32px"><h2>Server Update</h2></div>
+        <div style="max-width:540px;margin-bottom:32px">
+          <p style="font-size:13px;color:var(--text-dim);margin:0 0 12px">Pulls the latest code from GitHub and restarts the service. The page will reload automatically after ~4 seconds.</p>
+          <button class="btn btn-primary" onclick="selfUpdate()">&#x2B06; Pull &amp; Restart</button>
+          <pre id="selfUpdateOutput" style="display:none;margin-top:12px;padding:10px;background:var(--surface-alt);border-radius:6px;font-size:12px;white-space:pre-wrap;word-break:break-all;color:var(--text-muted);max-height:200px;overflow:auto"></pre>
+        </div>
+
         <div class="section-header" style="margin-top:32px"><h2>Change My Password</h2></div>
         <div style="max-width:400px">
           <div class="form-group"><label>Current Password</label><input type="password" id="myCurrentPwd" /></div>
