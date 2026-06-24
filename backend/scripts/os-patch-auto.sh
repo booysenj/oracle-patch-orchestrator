@@ -4817,17 +4817,55 @@ gi_install() {
     # HARD BLOCK: refuse to install into a GI home that is currently hosting CRS/HAS/ASM.
     # This is belt-and-suspenders — gi_precheck should catch it first, but someone could
     # skip precheck entirely.
+    #
+    # IMPORTANT: crsctl check crs/has succeeds from ANY Oracle home when CRS is running —
+    # it does NOT mean CRS is running FROM that home. Use olr.loc / getcrshome to get the
+    # actual active CRS home and compare against NEW_GI_HOME.
     if [[ -d "$NEW_GI_HOME" ]]; then
-        local _gi_live=false
-        if [[ -x "$NEW_GI_HOME/bin/crsctl" ]]; then
-            if "$NEW_GI_HOME/bin/crsctl" check crs >/dev/null 2>&1 || \
-               "$NEW_GI_HOME/bin/crsctl" check has >/dev/null 2>&1; then
+        local _gi_live=false _active_crs_home=""
+
+        # Method 1: olr.loc contains crs_home= pointing to the active home
+        if [[ -f /etc/oracle/olr.loc ]]; then
+            _active_crs_home=$(awk -F= '/^crs_home/{print $2}' /etc/oracle/olr.loc | tr -d '[:space:]')
+        fi
+
+        # Method 2: getcrshome utility (more authoritative when olr.loc is absent)
+        if [[ -z "$_active_crs_home" ]]; then
+            for _gcr in "$NEW_GI_HOME/srvm/admin/getcrshome" "$OLD_GI_HOME/srvm/admin/getcrshome"; do
+                if [[ -x "$_gcr" ]]; then
+                    _active_crs_home=$("$_gcr" 2>/dev/null | tr -d '[:space:]') && break
+                fi
+            done
+        fi
+
+        if [[ -n "$_active_crs_home" ]]; then
+            # Resolved the active home — only block if NEW_GI_HOME matches it
+            if [[ "$_active_crs_home" == "$NEW_GI_HOME" ]]; then
                 _gi_live=true
             fi
+        else
+            # Could not determine active CRS home — fall back to the old crsctl check
+            # but only for OLD_GI_HOME (the home CRS is expected to be running from).
+            # Never block just because a crsctl binary exists in NEW_GI_HOME.
+            if [[ "$NEW_GI_HOME" == "$OLD_GI_HOME" ]]; then
+                _gi_live=true
+            elif [[ -x "$OLD_GI_HOME/bin/crsctl" ]]; then
+                if "$OLD_GI_HOME/bin/crsctl" check crs >/dev/null 2>&1 || \
+                   "$OLD_GI_HOME/bin/crsctl" check has >/dev/null 2>&1; then
+                    # CRS is running, but we cannot confirm which home it's from.
+                    # Only block if NEW_GI_HOME already has a live crsctl process.
+                    if ps -eo args 2>/dev/null | grep -q "${NEW_GI_HOME}/bin/ocssd\|${NEW_GI_HOME}/bin/crsd"; then
+                        _gi_live=true
+                    fi
+                fi
+            fi
         fi
-        [[ "$NEW_GI_HOME" == "$OLD_GI_HOME" ]] && _gi_live=true
+
+        add_html_row "GI Install Safety Check" "INFO" \
+            "Active CRS home: ${_active_crs_home:-unknown (olr.loc not found)}. NEW_GI_HOME: $NEW_GI_HOME."
+
         if [[ "$_gi_live" == true ]]; then
-            local _why="CRS/HAS is active from $NEW_GI_HOME"
+            local _why="CRS/HAS is active from $NEW_GI_HOME (active_crs_home=${_active_crs_home:-unknown})"
             [[ "$NEW_GI_HOME" == "$OLD_GI_HOME" ]] && _why="NEW_GI_HOME equals OLD_GI_HOME ($OLD_GI_HOME)"
             add_html_row "GI Install Safety Check" "FAIL" \
                 "HARD BLOCK: $_why. Unzipping base media into a live GI home will corrupt ASM, voting disks, and OCR. Run gi_rollback first to return CRS to $OLD_GI_HOME, then retry gi_install."
