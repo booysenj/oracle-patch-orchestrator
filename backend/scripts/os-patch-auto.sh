@@ -5678,6 +5678,12 @@ phase_rollback() {
     local msg="CRS/HAS home successfully rolled back to OLD_GI_HOME (${OLD_GI_HOME})."
     add_html_row "GI Rollback Result" "PASS" "$msg"
 
+    # Tell the backend the homes swapped back.
+    # home_switched semantics: new_gi_home = home CRS is NOW on (OLD_GI_HOME after var swap = pre-switch home).
+    #                          old_gi_home = home CRS rolled away from (NEW_GI_HOME after var swap).
+    # Backend sets: vms.old_gi_home = new_gi_home (=19c), vms.rollback_gi_home = old_gi_home (=19.30).
+    echo "[DISCOVERY_JSON] {\"type\":\"home_switched\",\"old_gi_home\":\"${NEW_GI_HOME}\",\"new_gi_home\":\"${OLD_GI_HOME}\",\"old_db_home\":\"\",\"new_db_home\":\"\"}"
+
     send_phase_html_report "GI Rollback" "GI Rollback Report - $HOST" "$PHASE_STATUS"
 }
 # ------------------------------------------------------------
