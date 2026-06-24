@@ -6,7 +6,10 @@ const { spawn } = require('child_process');
 const { v4: uuidv4 } = require('uuid');
 const { getDB } = require('../lib/db');
 
-const DEPOT_BASE = path.join(__dirname, '..', '..', 'depot');
+// Prefer /backup/insight-depot (large filesystem) over the app directory (root fs).
+// Override with DEPOT_PATH env var if needed.
+const DEPOT_BASE = process.env.DEPOT_PATH ||
+    (fs.existsSync('/backup') ? '/backup/insight-depot' : path.join(__dirname, '..', '..', 'depot'));
 // Shared base software lives here — extracted once, reused by all RU versions
 const SHARED_BASE = path.join(DEPOT_BASE, '_shared');
 
