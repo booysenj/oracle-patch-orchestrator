@@ -132,8 +132,8 @@ router.get('/poll', (req, res) => {
     } catch(_ge) {}
 
     var pv = null, pvVersion = vm.patch_target || '';
-    if (vm.target_patch_version_id) {
-        pv = db.prepare('SELECT * FROM patch_versions WHERE id = ?').get(vm.target_patch_version_id);
+    if (job.target_patch_version_id) {
+        pv = db.prepare('SELECT * FROM patch_versions WHERE id = ?').get(job.target_patch_version_id);
         if (pv) {
             if (pv.version)          pvVersion              = pv.version;
             if (pv.gi_base_zip)      env.GI_BASE_ZIP        = pv.gi_base_zip;

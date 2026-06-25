@@ -718,7 +718,7 @@ document.getElementById('executeBtn').addEventListener('click', async function()
 });
 
 // -- Log Viewer --
-function openLogViewer(jobId, hostname, operation) {
+async function openLogViewer(jobId, hostname, operation) {
   activeLogJobId = jobId;
   _jobReportId = null;
   var dlBtn = document.getElementById('logReportDownloadBtn');
@@ -736,6 +736,19 @@ function openLogViewer(jobId, hostname, operation) {
   switchLogView('logs');
   document.getElementById('logModal').classList.remove('hidden');
   wsLogCount = 0;
+
+  // For already-completed jobs, skip WS (it has no history replay) and load logs via REST only.
+  // WS is only useful for live jobs where it can push new lines as they arrive.
+  try {
+    var job = await api('/jobs/' + jobId);
+    if (job && (job.status === 'success' || job.status === 'failed' || job.status === 'cancelled' || job.status === 'warn')) {
+      if (ws) { ws.close(); ws = null; }
+      updateJobStatus(job.status);
+      startLogPolling(jobId);
+      return;
+    }
+  } catch(e) { /* fall through to WS+poll for live jobs */ }
+
   connectLogWS(jobId);
   startLogPolling(jobId);
 }
