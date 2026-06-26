@@ -161,6 +161,33 @@ router.get('/poll', (req, res) => {
         }
     }
 
+    // Re-inject staging path AFTER patch version config — pv.patch_search_root at line 144
+    // overwrites PATCH_SEARCH_ROOTS_ENV and drops the staging path added earlier.
+    // Also override GI_BASE_ZIP / DB_BASE_ZIP to the staged location when depot transfers
+    // have already copied the zip to stagingPath/<filename> on the VM.
+    if (stagingPath) {
+        if (!env.PATCH_SEARCH_ROOTS_ENV) {
+            env.PATCH_SEARCH_ROOTS_ENV = stagingPath;
+        } else if (env.PATCH_SEARCH_ROOTS_ENV.indexOf(stagingPath) < 0) {
+            env.PATCH_SEARCH_ROOTS_ENV = stagingPath + ':' + env.PATCH_SEARCH_ROOTS_ENV;
+        }
+        if (job.target_patch_version_id) {
+            var _npath = require('path');
+            var _stagedGi = db.prepare(
+                "SELECT 1 FROM patch_transfers WHERE patch_id=? AND target_host=? AND type='gi_base' AND status='STAGED'"
+            ).get(job.target_patch_version_id, vm.hostname);
+            if (_stagedGi && env.GI_BASE_ZIP) {
+                env.GI_BASE_ZIP = stagingPath + '/' + _npath.basename(env.GI_BASE_ZIP);
+            }
+            var _stagedDb = db.prepare(
+                "SELECT 1 FROM patch_transfers WHERE patch_id=? AND target_host=? AND type='db_base' AND status='STAGED'"
+            ).get(job.target_patch_version_id, vm.hostname);
+            if (_stagedDb && env.DB_BASE_ZIP) {
+                env.DB_BASE_ZIP = stagingPath + '/' + _npath.basename(env.DB_BASE_ZIP);
+            }
+        }
+    }
+
     // Derive NEW_GI_HOME / NEW_DB_HOME: explicit stored > patch version explicit > base + version
     var newGiHome = vm.old_gi_home
         ? _deriveHome(vm.new_gi_home, pv && pv.new_gi_home, _base(vm.old_gi_home, giHomeBase), pvVersion)
