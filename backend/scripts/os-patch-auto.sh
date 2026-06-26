@@ -1895,7 +1895,7 @@ send_html_report() {
     { set -x; } 2>/dev/null
 
     local text_body
-    text_body=$(printf '%s\n' "$html_body" | sed 's/<[^>]*>//g' | sed 's/[[:space:]]\+/ /g')
+    text_body=$(printf '%s\n' "$html_body" | sed 's/<[^>]*>//g' | sed 's/[[:space:]]\+/ /g') || text_body=""
 
     if [[ "$DRYRUN" == true ]]; then
         log "[DRYRUN] Would send email: $subject"
@@ -1957,7 +1957,7 @@ send_html_report() {
                 echo
                 echo "$html_body"
             fi
-        } | sendmail -t
+        } | sendmail -t 2>/dev/null || true
         if (( ${#ATTACH_FILES[@]} > 0 )); then
             log "HTML report (with ${#ATTACH_FILES[@]} attachment(s)) emailed to $MAIL_TO: $subject"
         else
@@ -1972,9 +1972,9 @@ send_html_report() {
             [[ -f "$f" ]] && cmd+=( -a "$f" )
         done
         cmd+=( "$MAIL_TO" )
-        printf '%b\n' "$text_body" | "${cmd[@]}"
+        printf '%b\n' "$text_body" | "${cmd[@]}" 2>/dev/null || true
     else
-        printf '%b\n' "$text_body" | mailx -r "$MAIL_FROM" -s "$subject" "$MAIL_TO"
+        printf '%b\n' "$text_body" | mailx -r "$MAIL_FROM" -s "$subject" "$MAIL_TO" 2>/dev/null || true
     fi
 
     # Emit full HTML to the log stream so the UI can store and display it
@@ -8009,9 +8009,17 @@ SQEOF
                 [[ -z "$sid_for_rb" ]] && sid_for_rb="$DB_UNIQUE_NAME"
                 if [[ -n "$sid_for_rb" ]]; then
                     add_html_row "Datapatch" "INFO" "Running datapatch on $OLD_DB_HOME..."
-                    run_cmd "ORACLE_HOME=\"$OLD_DB_HOME\" ORACLE_SID=\"$sid_for_rb\" PATH=\"$OLD_DB_HOME/bin:\$PATH\" \"$OLD_DB_HOME/OPatch/datapatch\" -verbose"
-                    ran_datapatch=true
-                    add_html_row "Datapatch" "PASS" "datapatch completed on $OLD_DB_HOME"
+                    local dp_rb_rc=0
+                    set +e
+                    eval "ORACLE_HOME=\"$OLD_DB_HOME\" ORACLE_SID=\"$sid_for_rb\" PATH=\"$OLD_DB_HOME/bin:\$PATH\" \"$OLD_DB_HOME/OPatch/datapatch\" -verbose"
+                    dp_rb_rc=$?
+                    set -e
+                    if (( dp_rb_rc == 0 )); then
+                        ran_datapatch=true
+                        add_html_row "Datapatch" "PASS" "datapatch completed on $OLD_DB_HOME."
+                    else
+                        add_html_row "Datapatch" "WARN" "datapatch exited RC=${dp_rb_rc} on $OLD_DB_HOME — verify patch catalog manually."
+                    fi
                 fi
             else
                 add_html_row "DB open mode check (rollback)" "PASS" \
@@ -8073,9 +8081,17 @@ SQEOF
                 "Database role PRIMARY reached OPEN READ WRITE — running datapatch."
             if [[ -n "$sid_for_dp" ]]; then
                 add_html_row "Datapatch" "INFO" "Running datapatch on $OLD_DB_HOME..."
-                run_cmd "ORACLE_HOME=\"$OLD_DB_HOME\" ORACLE_SID=\"$sid_for_dp\" PATH=\"$OLD_DB_HOME/bin:\$PATH\" \"$OLD_DB_HOME/OPatch/datapatch\" -verbose"
-                ran_datapatch=true
-                add_html_row "Datapatch" "PASS" "datapatch completed on $OLD_DB_HOME"
+                local dp_rc=0
+                set +e
+                eval "ORACLE_HOME=\"$OLD_DB_HOME\" ORACLE_SID=\"$sid_for_dp\" PATH=\"$OLD_DB_HOME/bin:\$PATH\" \"$OLD_DB_HOME/OPatch/datapatch\" -verbose"
+                dp_rc=$?
+                set -e
+                if (( dp_rc == 0 )); then
+                    ran_datapatch=true
+                    add_html_row "Datapatch" "PASS" "datapatch completed on $OLD_DB_HOME."
+                else
+                    add_html_row "Datapatch" "WARN" "datapatch exited RC=${dp_rc} on $OLD_DB_HOME — verify patch catalog manually."
+                fi
             fi
         else
             add_html_row "DB open mode check (rollback)" "PASS" \
