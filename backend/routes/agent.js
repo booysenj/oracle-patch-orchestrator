@@ -174,13 +174,13 @@ router.get('/poll', (req, res) => {
         if (job.target_patch_version_id) {
             var _npath = require('path');
             var _stagedGi = db.prepare(
-                "SELECT 1 FROM patch_transfers WHERE patch_id=? AND target_host=? AND type='gi_base' AND status='STAGED'"
+                "SELECT 1 FROM patch_transfers WHERE patch_id=? AND target_host=? AND file_type='gi_base' AND status='STAGED'"
             ).get(job.target_patch_version_id, vm.hostname);
             if (_stagedGi && env.GI_BASE_ZIP) {
                 env.GI_BASE_ZIP = stagingPath + '/' + _npath.basename(env.GI_BASE_ZIP);
             }
             var _stagedDb = db.prepare(
-                "SELECT 1 FROM patch_transfers WHERE patch_id=? AND target_host=? AND type='db_base' AND status='STAGED'"
+                "SELECT 1 FROM patch_transfers WHERE patch_id=? AND target_host=? AND file_type='db_base' AND status='STAGED'"
             ).get(job.target_patch_version_id, vm.hostname);
             if (_stagedDb && env.DB_BASE_ZIP) {
                 env.DB_BASE_ZIP = stagingPath + '/' + _npath.basename(env.DB_BASE_ZIP);
