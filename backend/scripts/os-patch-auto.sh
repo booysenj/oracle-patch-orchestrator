@@ -1775,12 +1775,14 @@ add_html_row() {
         FAIL) PHASE_STATUS="FAIL" ;;
         WARN) [[ "$PHASE_STATUS" != "FAIL" ]] && PHASE_STATUS="WARN" ;;
     esac
+    { set +x; } 2>/dev/null
     HTML_ROWS+="
     <tr style=\"background-color:${color};\">
         <td style=\"padding:4px 8px;\"><b>${label}</b></td>
         <td style=\"padding:4px 8px; white-space:nowrap;\">${status}</td>
         <td style=\"padding:4px 8px;\">${details}</td>
     </tr>"
+    { set -x; } 2>/dev/null
     log "[CHECK] ${label}|${status}|${details}"
 }
 
@@ -1798,21 +1800,25 @@ _html_row() {
         WARN) color="#fff3cd" ;;
         INFO) color="#d1ecf1" ;;
     esac
+    { set +x; } 2>/dev/null
     HTML_ROWS+="
     <tr style=\"background-color:${color};\">
         <td style=\"padding:4px 8px;\"><b>${label}</b></td>
         <td style=\"padding:4px 8px; white-space:nowrap;\">${status}</td>
         <td style=\"padding:4px 8px;\">${details}</td>
     </tr>"
+    { set -x; } 2>/dev/null
 }
 
 # Insert a full-width section header row to visually separate blocks in the report
 add_html_section() {
     local title="$1"
+    { set +x; } 2>/dev/null
     HTML_ROWS+="
     <tr>
         <td colspan=\"3\" style=\"padding:6px 10px; background-color:#003366; color:#ffffff; font-weight:bold; font-size:13px; letter-spacing:0.5px;\">&#9654; ${title}</td>
     </tr>"
+    { set -x; } 2>/dev/null
     log "[SECTION] ${title}"
 }
 
@@ -1859,6 +1865,7 @@ send_html_report() {
     local MAX_ATTACH_BYTES="${MAX_ATTACH_BYTES:-2097152}"
 
     local html_body
+    { set +x; } 2>/dev/null
     html_body="<html>
 <head>
   <meta http-equiv=\"Content-Type\" content=\"text/html; charset=UTF-8\" />
@@ -1885,6 +1892,7 @@ send_html_report() {
   </p>
 </body>
 </html>"
+    { set -x; } 2>/dev/null
 
     local text_body
     text_body=$(printf '%s\n' "$html_body" | sed 's/<[^>]*>//g' | sed 's/[[:space:]]\+/ /g')
@@ -1973,8 +1981,10 @@ send_html_report() {
     # Strip all newlines from b64 — the fallback `base64` (BSD/old GNU) wraps at 76 chars,
     # which would split the log line and break the [HTML_REPORT] parser on the backend.
     local _b64
+    { set +x; } 2>/dev/null
     _b64=$(printf '%s' "$html_body" | base64 -w0 2>/dev/null || printf '%s' "$html_body" | base64 2>/dev/null || true)
     _b64=$(printf '%s' "$_b64" | tr -d '\n\r')
+    { set -x; } 2>/dev/null
     if [[ -n "$_b64" ]]; then
         log "[HTML_REPORT] ${subject}|${_b64}"
     fi
