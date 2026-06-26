@@ -1,13 +1,13 @@
 #!/bin/bash
 # Insight Patch Agent - Installer
-# Usage: curl -s http://<orchestrator>:4000/agent-download/install-agent.sh | \
-#          INSIGHT_API_URL=http://<orchestrator>:4000 \
+# Usage: curl -s https://oop-orchestrator.4cgroup.co.za/agent-download/install-agent.sh | \
+#          INSIGHT_API_URL=https://oop-orchestrator.4cgroup.co.za \
 #          INSIGHT_AGENT_TOKEN=<token> \
 #          bash
 
 set -e
 
-ORCHESTRATOR_URL="${INSIGHT_API_URL:-http://172.16.36.95:4000}"
+ORCHESTRATOR_URL="${INSIGHT_API_URL:-https://oop-orchestrator.4cgroup.co.za}"
 AGENT_TOKEN="${INSIGHT_AGENT_TOKEN:-}"
 AGENT_DEST="/home/oracle/insight-agent.py"
 SERVICE_NAME="insight-agent"

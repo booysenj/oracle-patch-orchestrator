@@ -29,7 +29,7 @@ except ImportError:
             req = urllib.request.Request(url, data=data, headers={**kw.get('headers', {}), 'Content-Type': 'application/json'})
             return _Resp(urllib.request.urlopen(req, timeout=kw.get('timeout', 30)))
 
-API_URL = os.environ.get('INSIGHT_API_URL', 'http://172.16.36.95:4000')
+API_URL = os.environ.get('INSIGHT_API_URL', 'https://oop-orchestrator.4cgroup.co.za')
 AGENT_TOKEN = os.environ.get('INSIGHT_AGENT_TOKEN', '')
 HOSTNAME = os.environ.get('INSIGHT_HOSTNAME', os.uname()[1].split('.')[0])
 POLL_INTERVAL = int(os.environ.get('INSIGHT_POLL_INTERVAL', '5'))
