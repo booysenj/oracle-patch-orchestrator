@@ -62,6 +62,14 @@ server.listen(PORT, '0.0.0.0', () => {
         const _db = require('./lib/db').getDB();
         const _reset = _db.prepare("UPDATE patch_transfers SET status='PENDING', started_at=NULL WHERE status='TRANSFERRING'").run();
         if (_reset.changes) console.log('[startup] Reset ' + _reset.changes + ' stuck TRANSFERRING transfer(s) to PENDING');
+
+        // One-time migration: rename gi_switch/db_switch → gi_oh_switch/db_oh_switch
+        const _giSwitch = _db.prepare("UPDATE jobs SET operation='gi_oh_switch', phase='gi_oh_switch' WHERE operation='gi_switch'").run();
+        const _dbSwitch = _db.prepare("UPDATE jobs SET operation='db_oh_switch', phase='db_oh_switch' WHERE operation='db_switch'").run();
+        const _giSched  = _db.prepare("UPDATE jobs SET operation='gi_oh_switch_scheduled', phase='gi_oh_switch_scheduled' WHERE operation='gi_switch_scheduled'").run();
+        const _dbSched  = _db.prepare("UPDATE jobs SET operation='db_oh_switch_scheduled', phase='db_oh_switch_scheduled' WHERE operation='db_switch_scheduled'").run();
+        const _migrated = _giSwitch.changes + _dbSwitch.changes + _giSched.changes + _dbSched.changes;
+        if (_migrated) console.log('[startup] Migrated ' + _migrated + ' gi/db_switch job(s) to gi/db_oh_switch');
     } catch(_) {}
 
     // Run immediately on startup to clear any stale jobs, then every 5 minutes
