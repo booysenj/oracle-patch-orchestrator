@@ -5015,8 +5015,11 @@ gi_install() {
                 success=true
                 break
             fi
-            if grep -qi "error" "$grid_log" 2>/dev/null; then
-                failure_reason="Error string detected in installer log. See $grid_log"
+            # Check for unambiguous fatal errors only — do NOT use generic "error" grep:
+            # Oracle installer emits "error" strings even in successful runs
+            # (e.g. "-ignorePrereqFailure", "0 errors", "Ignoring errors").
+            if grep -q "\[FATAL\]\|FATAL ERROR\|INS-[0-9]\{5\}: " "$grid_log" 2>/dev/null; then
+                failure_reason="Fatal installer error detected. See $grid_log"
                 break
             fi
         fi
@@ -6066,9 +6069,8 @@ gi_upgrade_install() {
 
     log "Monitoring 23/26ai GI installer (PID=$installer_pid) with timeout ${timeout_seconds}s..."
     while (( elapsed < timeout_seconds )); do
-        # Only bail early for obvious errors
-        if [[ -f "$grid_log" ]] && grep -qi "error" "$grid_log" 2>/dev/null; then
-            failure_reason="Error string detected in 23/26ai installer log. See $grid_log"
+        if [[ -f "$grid_log" ]] && grep -q "\[FATAL\]\|FATAL ERROR\|INS-[0-9]\{5\}: " "$grid_log" 2>/dev/null; then
+            failure_reason="Fatal installer error detected in 23/26ai log. See $grid_log"
             break
         fi
 
