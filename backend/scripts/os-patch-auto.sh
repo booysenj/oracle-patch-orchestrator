@@ -1895,7 +1895,9 @@ send_html_report() {
     { set -x; } 2>/dev/null
 
     local text_body
+    { set +x; } 2>/dev/null
     text_body=$(printf '%s\n' "$html_body" | sed 's/<[^>]*>//g' | sed 's/[[:space:]]\+/ /g') || text_body=""
+    { set -x; } 2>/dev/null
 
     if [[ "$DRYRUN" == true ]]; then
         log "[DRYRUN] Would send email: $subject"
@@ -1909,6 +1911,7 @@ send_html_report() {
 
     if command -v sendmail >/dev/null 2>&1; then
         local boundary="====OOP_ORCH_MULTIPART$$.$RANDOM===="
+        { set +x; } 2>/dev/null
         {
             echo "From: $MAIL_FROM"
             echo "To: $MAIL_TO"
@@ -1958,6 +1961,7 @@ send_html_report() {
                 echo "$html_body"
             fi
         } | sendmail -t 2>/dev/null || true
+        { set -x; } 2>/dev/null
         if (( ${#ATTACH_FILES[@]} > 0 )); then
             log "HTML report (with ${#ATTACH_FILES[@]} attachment(s)) emailed to $MAIL_TO: $subject"
         else
@@ -1966,6 +1970,7 @@ send_html_report() {
         return 0
     fi
 
+    { set +x; } 2>/dev/null
     if (( ${#ATTACH_FILES[@]} > 0 )); then
         local cmd=(mailx -r "$MAIL_FROM" -s "$subject")
         for f in "${ATTACH_FILES[@]}"; do
@@ -1976,6 +1981,7 @@ send_html_report() {
     else
         printf '%b\n' "$text_body" | mailx -r "$MAIL_FROM" -s "$subject" "$MAIL_TO" 2>/dev/null || true
     fi
+    { set -x; } 2>/dev/null
 
     # Emit full HTML to the log stream so the UI can store and display it
     # Strip all newlines from b64 — the fallback `base64` (BSD/old GNU) wraps at 76 chars,
