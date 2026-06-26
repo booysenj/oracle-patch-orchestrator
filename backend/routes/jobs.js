@@ -14,13 +14,13 @@ router.get('/operations', (_req, res) => {
         gi: { label: 'GI Operations (19c patching)', items: [
             { key: 'gi_precheck', label: 'GI Precheck', downtime: false, priv: 'oracle' },
             { key: 'gi_install',  label: 'GI Install',  downtime: false, priv: 'grid'   },
-            { key: 'gi_switch',   label: 'GI Switch (immediate)', downtime: true, priv: 'root' },
+            { key: 'gi_oh_switch', label: 'GI OH Switch (immediate)', downtime: true, priv: 'root' },
             { key: 'gi_rollback', label: 'GI Rollback', downtime: true,  priv: 'root'   },
         ]},
         db: { label: 'DB Operations (19c patching)', items: [
             { key: 'db_precheck',  label: 'DB Precheck',  downtime: false, priv: 'oracle' },
             { key: 'db_install',   label: 'DB Install',   downtime: false, priv: 'oracle' },
-            { key: 'db_switch',    label: 'DB Switch (immediate)', downtime: true, needsDbName: true, priv: 'oracle' },
+            { key: 'db_oh_switch', label: 'DB OH Switch (immediate)', downtime: true, needsDbName: true, priv: 'oracle' },
             { key: 'db_rollback',  label: 'DB Rollback',  downtime: true,  needsDbName: true, priv: 'oracle' },
             { key: 'db_ojvm_only', label: 'DB OJVM Only', downtime: false, priv: 'oracle' },
         ]},

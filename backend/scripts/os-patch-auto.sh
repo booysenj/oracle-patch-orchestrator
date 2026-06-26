@@ -6394,17 +6394,17 @@ list_orchestrator_jobs() {
             when=$(awk '{print $2, $3, $4, $5, $6}' <<<"$line")
 
             local cmd
-            cmd=$(at -c "$id" 2>/dev/null | grep -F "$SCRIPT_PATH gi_switch_scheduled" || \
-                  at -c "$id" 2>/dev/null | grep -F "$SCRIPT_PATH db_switch_scheduled" || true)
+            cmd=$(at -c "$id" 2>/dev/null | grep -F "$SCRIPT_PATH gi_oh_switch_scheduled" || \
+                  at -c "$id" 2>/dev/null | grep -F "$SCRIPT_PATH db_oh_switch_scheduled" || true)
             if [[ -z "$cmd" ]]; then
                 continue
             fi
 
             local type="UNKNOWN"
-            if grep -Fq "$SCRIPT_PATH gi_switch_scheduled" <<<"$cmd"; then
-                type="GI_SWITCH"
-            elif grep -Fq "$SCRIPT_PATH db_switch_scheduled" <<<"$cmd"; then
-                type="DB_SWITCH"
+            if grep -Fq "$SCRIPT_PATH gi_oh_switch_scheduled" <<<"$cmd"; then
+                type="GI_OH_SWITCH"
+            elif grep -Fq "$SCRIPT_PATH db_oh_switch_scheduled" <<<"$cmd"; then
+                type="DB_OH_SWITCH"
             fi
 
             found=true
@@ -6447,7 +6447,7 @@ schedule_gi_switch() {
     local minute="${BASH_REMATCH[5]}"
     local at_time="${hour}:${minute} ${month}/${day}/${year}"
     local out jobid
-    out=$(echo "$SCRIPT_PATH gi_switch_scheduled" | at "$at_time" 2>&1)
+    out=$(echo "$SCRIPT_PATH gi_oh_switch_scheduled" | at "$at_time" 2>&1)
     jobid=$(awk '/job/{print $2}' <<<"$out" || true)
     log "GI switch scheduled for $sched_time (jobid=${jobid:-unknown})"
     echo "GI switch scheduled for $sched_time (jobid=${jobid:-unknown})"
@@ -8173,7 +8173,7 @@ schedule_db_switch() {
     local minute="${BASH_REMATCH[5]}"
     local at_time="${hour}:${minute} ${month}/${day}/${year}"
     local out jobid
-    out=$(echo "$SCRIPT_PATH db_switch_scheduled $db" | at "$at_time" 2>&1)
+    out=$(echo "$SCRIPT_PATH db_oh_switch_scheduled $db" | at "$at_time" 2>&1)
     jobid=$(awk '/job/{print $2}' <<<"$out" || true)
     log "DB switch for $db scheduled for $sched_time (jobid=${jobid:-unknown})"
     echo "DB switch for $db scheduled for $sched_time (jobid=${jobid:-unknown})"
@@ -10743,15 +10743,15 @@ if [[ $# -gt 0 ]]; then
 
         gi_precheck)              gi_precheck;              exit 0 ;;
         gi_install)               gi_install;               exit 0 ;;
-        gi_switch)                phase_switch_home;        exit 0 ;;
+        gi_oh_switch)             phase_switch_home;        exit 0 ;;
         gi_rollback)              phase_rollback;           exit 0 ;;
 
         db_precheck)              db_precheck;              exit 0 ;;
         db_install)               db_install;               exit 0 ;;
-        db_switch)
+        db_oh_switch)
             shift
             if [[ $# -lt 1 ]]; then
-                echo "Usage: $0 db_switch <DB_UNIQUE_NAME>"
+                echo "Usage: $0 db_oh_switch <DB_UNIQUE_NAME>"
                 exit 1
             fi
             db_switch_core "$1"
@@ -10769,11 +10769,11 @@ if [[ $# -gt 0 ]]; then
             ;;
         db_ojvm_only)             db_ojvm_only;             exit 0 ;;
 
-        gi_switch_scheduled)      phase_switch_home;        exit 0 ;;
-        db_switch_scheduled)
+        gi_oh_switch_scheduled)   phase_switch_home;        exit 0 ;;
+        db_oh_switch_scheduled)
             shift
             if [[ $# -lt 1 ]]; then
-                echo "db_switch_scheduled requires DB_UNIQUE_NAME argument"
+                echo "db_oh_switch_scheduled requires DB_UNIQUE_NAME argument"
                 exit 1
             fi
             db_switch_core "$1"

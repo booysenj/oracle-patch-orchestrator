@@ -16,7 +16,7 @@ async function loadVmsForScheduler() {
 
 // Destructive operations that require explicit confirmation before scheduling
 var DESTRUCTIVE_SCHEDULE_OPS = new Set([
-    'gi_install','db_install','gi_switch','db_switch',
+    'gi_install','db_install','gi_oh_switch','db_oh_switch',
     'gi_rollback','db_rollback','full_patch',
     'gi_upgrade_upgrade','db_upgrade_upgrade','db_upgrade_rollback'
 ]);
@@ -56,7 +56,7 @@ async function openScheduleModal(presetOp, presetVmIds) {
     var opSel = document.getElementById('schedOperation');
     if (opSel && opSel.options.length <= 1) {
         var ops = ['gi_precheck','db_precheck','gi_install','db_install',
-            'gi_switch','db_switch','stage_software','full_patch',
+            'gi_oh_switch','db_oh_switch','stage_software','full_patch',
             'gi_rollback','db_rollback','precheck','health_check'];
         ops.forEach(function(op) {
             var o = document.createElement('option');
@@ -119,7 +119,7 @@ function toggleSchedPatchVersion() {
     if (rollbackNote) rollbackNote.classList.toggle('hidden', !isRollback);
 
     // Show DB Unique Name field for any op that targets a specific database
-    var needsDbUniq = /db_switch|db_rollback|gi_switch|gi_rollback/i.test(op);
+    var needsDbUniq = /db_oh_switch|db_rollback|gi_oh_switch|gi_rollback/i.test(op);
     var dbUniqGroup = document.getElementById('schedDbUniqueNameGroup');
     if (dbUniqGroup) {
         dbUniqGroup.style.display = needsDbUniq ? '' : 'none';
@@ -570,7 +570,7 @@ async function openMaintWindowModal() {
     var opsDiv = document.getElementById('maintOps');
     if (opsDiv && !opsDiv.children.length) {
         var ops = ['gi_precheck','db_precheck','gi_install','db_install',
-            'gi_switch','db_switch','stage_software','full_patch','health_check'];
+            'gi_oh_switch','db_oh_switch','stage_software','full_patch','health_check'];
         opsDiv.innerHTML = ops.map(function(op) {
             return '<label class="sched-vm-item"><input type="checkbox" value="' + op + '"> ' +
                 op.replace(/_/g,' ').toUpperCase() + '</label>';

@@ -7,10 +7,10 @@ jobEvents.setMaxListeners(100);
 
 // Maps UI operation names to the exact phase args the shell script expects
 const OPERATION_PHASES = {
-    gi_precheck: 'gi_precheck', gi_install: 'gi_install', gi_switch: 'gi_switch',
-    gi_switch_scheduled: 'gi_switch_scheduled', gi_rollback: 'gi_rollback',
-    db_precheck: 'db_precheck', db_install: 'db_install', db_switch: 'db_switch',
-    db_switch_scheduled: 'db_switch_scheduled', db_rollback: 'db_rollback',
+    gi_precheck: 'gi_precheck', gi_install: 'gi_install', gi_oh_switch: 'gi_oh_switch',
+    gi_oh_switch_scheduled: 'gi_oh_switch_scheduled', gi_rollback: 'gi_rollback',
+    db_precheck: 'db_precheck', db_install: 'db_install', db_oh_switch: 'db_oh_switch',
+    db_oh_switch_scheduled: 'db_oh_switch_scheduled', db_rollback: 'db_rollback',
     db_ojvm_only: 'db_ojvm_only',
     cluster_precheck: 'cluster_precheck', cluster_stop_dbs: 'cluster_stop_dbs',
     cluster_os_patch: 'cluster_os_patch', cluster_reboot: 'cluster_reboot',

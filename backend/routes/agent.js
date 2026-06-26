@@ -62,7 +62,7 @@ router.get('/poll', (req, res) => {
     ).run('running', 'now', job.id);
 
     var phaseArg = job.phase;
-    const needsDbName = ['db_switch', 'db_rollback', 'db_switch_scheduled', 'db_upgrade_upgrade', 'db_upgrade_rollback'];
+    const needsDbName = ['db_oh_switch', 'db_rollback', 'db_oh_switch_scheduled', 'db_upgrade_upgrade', 'db_upgrade_rollback'];
     if (needsDbName.indexOf(job.operation) >= 0 && job.db_unique_name) {
         phaseArg = job.phase + ' ' + job.db_unique_name;
     }

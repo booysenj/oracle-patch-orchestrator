@@ -4,7 +4,7 @@ const { createJob } = require('./job-runner');
 const { exec } = require('child_process');
 
 const DOWNTIME_OPS = new Set([
-    'gi_switch','gi_rollback','db_switch','db_rollback',
+    'gi_oh_switch','gi_rollback','db_oh_switch','db_rollback',
     'gi_upgrade_upgrade','db_upgrade_upgrade','db_upgrade_rollback',
     'cluster_stop_dbs','cluster_reboot','remote_shutdown_apps_then_db'
 ]);

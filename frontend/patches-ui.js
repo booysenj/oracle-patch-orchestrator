@@ -235,7 +235,7 @@ async function printReportById(id) {
 
 // ---- PATCH VERSION PICKER IN JOB MODAL ----
 var PATCH_OPS = ['gi_install','db_install','gi_precheck','db_precheck',
-    'gi_switch','db_switch','stage_software','full_patch',
+    'gi_oh_switch','db_oh_switch','stage_software','full_patch',
     'install','precheck','switch','stage'];
 
 async function loadPatchVersionsForModal() {

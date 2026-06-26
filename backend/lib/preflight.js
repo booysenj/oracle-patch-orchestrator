@@ -2,11 +2,11 @@ const { getDB } = require('./db');
 
 const PREREQUISITES = {
     gi_install:             { requires: 'gi_precheck',          msg: 'Run GI Precheck first' },
-    gi_switch:              { requires: 'gi_install',           msg: 'Run GI Install first' },
-    gi_rollback:            { requires: 'gi_switch',            msg: 'Only makes sense after GI Switch' },
+    gi_oh_switch:           { requires: 'gi_install',           msg: 'Run GI Install first' },
+    gi_rollback:            { requires: 'gi_oh_switch',         msg: 'Only makes sense after GI OH Switch' },
     db_install:             { requires: 'db_precheck',          msg: 'Run DB Precheck first' },
-    db_switch:              { requires: 'db_install',           msg: 'Run DB Install first' },
-    db_rollback:            { requires: 'db_switch',            msg: 'Only makes sense after DB Switch' },
+    db_oh_switch:           { requires: 'db_install',           msg: 'Run DB Install first' },
+    db_rollback:            { requires: 'db_oh_switch',         msg: 'Only makes sense after DB OH Switch' },
     gi_upgrade_install:     { requires: 'gi_upgrade_precheck',  msg: 'Run GI Upgrade Precheck first' },
     gi_upgrade_upgrade:     { requires: 'gi_upgrade_install',   msg: 'Run GI Upgrade Install first' },
     db_upgrade_install:     { requires: 'db_upgrade_precheck',  msg: 'Run DB Upgrade Precheck first' },
@@ -15,8 +15,8 @@ const PREREQUISITES = {
 };
 
 const DOWNTIME_OPS = new Set([
-    'gi_switch', 'gi_rollback',
-    'db_switch', 'db_rollback',
+    'gi_oh_switch', 'gi_rollback',
+    'db_oh_switch', 'db_rollback',
     'gi_upgrade_upgrade',
     'db_upgrade_upgrade', 'db_upgrade_rollback',
     'cluster_stop_dbs', 'cluster_reboot',
@@ -24,8 +24,8 @@ const DOWNTIME_OPS = new Set([
 ]);
 
 const ROLLBACK_MAP = {
-    gi_switch:  'gi_rollback',
-    db_switch:  'db_rollback',
+    gi_oh_switch: 'gi_rollback',
+    db_oh_switch: 'db_rollback',
 };
 
 function runPreflightChecks(vmId, operation) {

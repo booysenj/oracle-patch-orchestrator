@@ -2743,7 +2743,7 @@ async function populateSchedOps() {
     });
   } catch(e) {
     // fallback static list if API call fails
-    var ops = ['gi_precheck','db_precheck','gi_install','db_install','gi_switch','db_switch','gi_rollback','db_rollback','stage_software'];
+    var ops = ['gi_precheck','db_precheck','gi_install','db_install','gi_oh_switch','db_oh_switch','gi_rollback','db_rollback','stage_software'];
     ops.forEach(function(o) {
       var opt = document.createElement('option');
       opt.value = o;
