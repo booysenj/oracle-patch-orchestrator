@@ -28,9 +28,11 @@ router.get('/poll', (req, res) => {
     // Record heartbeat so dashboard can show agent online/offline status
     db.prepare(`UPDATE vms SET agent_last_seen = datetime('now') WHERE id = ?`).run(vm.id);
 
-    // Recover stuck TRANSFERRING transfers (agent died mid-transfer, >10 min ago)
+    // Recover stuck TRANSFERRING transfers (agent died mid-transfer, >60 min ago)
+    // 60 min threshold: large depot tar streams (RU ~1-2 GB) over slow inter-subnet links
+    // can take 30-60 min; resetting too early causes the agent to loop and never complete.
     db.prepare(
-        "UPDATE patch_transfers SET status='PENDING', started_at=NULL WHERE target_host=? AND status='TRANSFERRING' AND started_at < datetime('now', '-10 minutes')"
+        "UPDATE patch_transfers SET status='PENDING', started_at=NULL WHERE target_host=? AND status='TRANSFERRING' AND started_at < datetime('now', '-60 minutes')"
     ).run(hostname);
 
     // Check for a pending file transfer first (transfers don't block jobs)
