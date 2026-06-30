@@ -750,8 +750,18 @@ async function openLogViewer(jobId, hostname, operation) {
     }
   } catch(e) { /* fall through to WS+poll for live jobs */ }
 
+  // Load historical logs before connecting WS so the REST guard (ws CONNECTING) doesn't block them.
+  // After the initial fetch, WS takes over for live lines; REST poll only resumes if WS drops.
+  try {
+    var histLogs = await api('/logs/' + jobId + '?offset=0');
+    if (Array.isArray(histLogs) && histLogs.length) {
+      histLogs.forEach(function(l) { appendLogLine(l); });
+      wsLogCount = histLogs.length;
+    }
+  } catch(_) {}
+
   connectLogWS(jobId);
-  startLogPolling(jobId);
+  startLogPolling(jobId, wsLogCount);
 }
 
 function switchLogView(view) {
@@ -1928,10 +1938,10 @@ var logPollTimer = null;
 var logPollJobId = null;
 var logPollOffset = 0;
 
-function startLogPolling(jobId) {
+function startLogPolling(jobId, startOffset) {
   stopLogPolling();
   logPollJobId = jobId;
-  logPollOffset = 0;
+  logPollOffset = startOffset || 0;
   fetchLogsIncremental();
   logPollTimer = setInterval(fetchLogsIncremental, 2000);
 }
