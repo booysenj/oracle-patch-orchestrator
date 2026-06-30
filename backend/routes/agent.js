@@ -631,31 +631,25 @@ router.get('/transfer/:id', (req, res) => {
             if (_unzipTo) res.setHeader('X-Unzip-To', _unzipTo);
         }
         // Fall through to raw zip serving below
-    } else {
-        // RU / OPatch: use depot tar stream if available (small files, pre-extraction saves VM unzip time)
-        var depotTypeMap = { ru_patch: 'ru', opatch: 'opatch' };
-        var depotType = depotTypeMap[fileType];
-        if (depotType && t.patch_id) {
-            try {
-                var depotRow = db.prepare("SELECT * FROM depot WHERE patch_id=? AND status IN ('ready','partial')").get(t.patch_id);
-                if (depotRow && depotRow.depot_path) {
-                    var depotStatusField = depotType + '_status';
-                    if (depotRow[depotStatusField] === 'ready') {
-                        var depotSubDir = path.join(depotRow.depot_path, depotType);
-                        if (fs.existsSync(depotSubDir) && fs.statSync(depotSubDir).isDirectory()) {
-                            res.setHeader('Content-Type', 'application/x-tar');
-                            res.setHeader('X-Transfer-Type', 'tar');
-                            res.setHeader('X-Depot-Type', depotType);
-                            db.prepare("UPDATE patch_transfers SET file_name=? WHERE id=?").run('[depot:' + depotType + ']', t.id);
-                            var tar = spawn('tar', ['-C', depotSubDir, '-cf', '-', '.']);
-                            tar.stdout.pipe(res);
-                            tar.on('error', function(e) { if (!res.headersSent) res.status(500).json({ error: String(e) }); });
-                            req.on('close', function() { try { tar.kill(); } catch(_) {} });
-                            return;
-                        }
-                    }
-                }
-            } catch(_) {}
+    } else if (fileType === 'ru_patch') {
+        // RU: unzip to the staging path — creates the patch number subdir (e.g. 38629535/) there
+        // which the bash script finds via PATCH_SEARCH_ROOTS_ENV
+        if (t.target_stage_path) res.setHeader('X-Unzip-To', t.target_stage_path);
+    } else if (fileType === 'opatch') {
+        // OPatch: unzip directly into NEW_GI_HOME / NEW_DB_HOME to replace the bundled OPatch
+        var _vmRowOp = db.prepare('SELECT * FROM vms WHERE hostname=? OR ip=?').get(t.target_host, t.target_host);
+        if (_vmRowOp && t.patch_id) {
+            var _pvOp = db.prepare('SELECT version, new_gi_home, new_db_home FROM patch_versions WHERE id=?').get(t.patch_id);
+            var _pvVerOp = _pvOp && _pvOp.version;
+            var _unzipToOp = (_vmRowOp.new_gi_home || (_pvOp && _pvOp.new_gi_home)) || '';
+            if (!_unzipToOp && _pvVerOp) {
+                var _cfgBaseOp = '';
+                try { var _bsOp = db.prepare("SELECT value FROM app_settings WHERE key='gi_home_base'").get(); if (_bsOp && _bsOp.value) _cfgBaseOp = _bsOp.value.replace(/\/$/, ''); } catch(_) {}
+                var _oldHOp = _vmRowOp.old_gi_home;
+                var _baseOp = _cfgBaseOp || (_oldHOp ? _oldHOp.replace(/\/[^/]+$/, '') : '');
+                if (_baseOp && _pvVerOp) _unzipToOp = _baseOp + '/' + _pvVerOp;
+            }
+            if (_unzipToOp) res.setHeader('X-Unzip-To', _unzipToOp);
         }
     }
     var src = t.source_path;

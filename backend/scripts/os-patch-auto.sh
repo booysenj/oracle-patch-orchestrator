@@ -5009,7 +5009,10 @@ gi_install() {
     local failure_reason="Unknown failure"
 
     log "Monitoring GI installer (PID=$installer_pid) with timeout ${timeout_seconds}s..."
+    local next_progress=60
     while (( elapsed < timeout_seconds )); do
+        { set +x; sleep "$poll_interval"; set -x; } 2>/dev/null
+        elapsed=$(( elapsed + poll_interval ))
         if [[ -f "$grid_log" ]]; then
             if grep -q "Successfully Setup Software" "$grid_log" 2>/dev/null; then
                 success=true
@@ -5023,7 +5026,6 @@ gi_install() {
                 break
             fi
         fi
-
         if ! kill -0 "$installer_pid" 2>/dev/null; then
             wait "$installer_pid" || installer_rc=$?
             if (( installer_rc == 0 )); then
@@ -5034,9 +5036,10 @@ gi_install() {
             fi
             break
         fi
-
-        sleep "$poll_interval"
-        elapsed=$(( elapsed + poll_interval ))
+        if (( elapsed >= next_progress )); then
+            log "GI installer still running... ${elapsed}s elapsed (PID=$installer_pid)"
+            next_progress=$(( next_progress + 60 ))
+        fi
     done
 
     if [[ "$success" != true && $elapsed -ge $timeout_seconds ]]; then
@@ -6068,19 +6071,22 @@ gi_upgrade_install() {
     local failure_reason="Unknown failure"
 
     log "Monitoring 23/26ai GI installer (PID=$installer_pid) with timeout ${timeout_seconds}s..."
+    local next_progress=60
     while (( elapsed < timeout_seconds )); do
+        { set +x; sleep "$poll_interval"; set -x; } 2>/dev/null
+        elapsed=$(( elapsed + poll_interval ))
         if [[ -f "$grid_log" ]] && grep -q "\[FATAL\]\|FATAL ERROR\|INS-[0-9]\{5\}: " "$grid_log" 2>/dev/null; then
             failure_reason="Fatal installer error detected in 23/26ai log. See $grid_log"
             break
         fi
-
         if ! kill -0 "$installer_pid" 2>/dev/null; then
             wait "$installer_pid" || installer_rc=$?
             break
         fi
-
-        sleep "$poll_interval"
-        elapsed=$(( elapsed + poll_interval ))
+        if (( elapsed >= next_progress )); then
+            log "23/26ai GI installer still running... ${elapsed}s elapsed (PID=$installer_pid)"
+            next_progress=$(( next_progress + 60 ))
+        fi
     done
 
     if (( elapsed >= timeout_seconds )) && kill -0 "$installer_pid" 2>/dev/null; then
@@ -6207,15 +6213,19 @@ gi_upgrade_upgrade() {
     local installer_rc=0
     local finished=false
 
+    local next_progress=60
     while (( elapsed < timeout_seconds )); do
+        { set +x; sleep "$poll_interval"; set -x; } 2>/dev/null
+        elapsed=$(( elapsed + poll_interval ))
         if ! kill -0 "$installer_pid" 2>/dev/null; then
-            # process finished
             wait "$installer_pid" || installer_rc=$?
             finished=true
             break
         fi
-        sleep "$poll_interval"
-        elapsed=$(( elapsed + poll_interval ))
+        if (( elapsed >= next_progress )); then
+            log "GI upgrade installer still running... ${elapsed}s elapsed (PID=$installer_pid)"
+            next_progress=$(( next_progress + 60 ))
+        fi
     done
 
     if [[ "$finished" != true ]]; then
