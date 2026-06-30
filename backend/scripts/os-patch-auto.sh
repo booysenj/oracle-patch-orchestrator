@@ -7236,12 +7236,39 @@ Run db_rollback first to return the database to $OLD_DB_HOME, then retry db_inst
     fi
     # ──────────────────────────────────────────────────────────────────────────
 
-    # Depot mode: agent pre-extracted the DB base tar directly into NEW_DB_HOME.
-    # Detect by the presence of runInstaller — if it's there, skip zip + unzip entirely.
-    if [[ -f "$NEW_DB_HOME/runInstaller" ]]; then
+    # Depot mode: agent pre-extracted the DB base zip directly into NEW_DB_HOME.
+    # Detect by presence of runInstaller WITHOUT install/portlist.ini — that file is
+    # created only after a successful OUI run, so its absence means a clean depot.
+    # If portlist.ini exists the home was previously attempted (possibly partially
+    # installed) — fall through to re-extract from the zip to get a clean slate.
+    # cfgtoollogs/ is created by OUI the moment it starts running (even on failure).
+    # If it exists alongside runInstaller the home has been attempted before and may
+    # be in a partial/broken state — remove and re-extract for a clean slate.
+    local _depot_db=false
+    if [[ -f "$NEW_DB_HOME/runInstaller" && ! -d "$NEW_DB_HOME/cfgtoollogs" ]]; then
+        _depot_db=true
+    fi
+
+    if [[ "$_depot_db" == true ]]; then
         add_html_row "DB Base (depot mode)" "PASS" \
             "$NEW_DB_HOME already contains runInstaller — pre-extracted from orchestrator depot. Skipping zip transfer and unzip."
         log "INFO: Depot mode — $NEW_DB_HOME already extracted, skipping unzip"
+    elif [[ -f "$NEW_DB_HOME/runInstaller" && -d "$NEW_DB_HOME/cfgtoollogs" ]]; then
+        # Home has a prior OUI run (cfgtoollogs present). Clean it so the install
+        # starts from a known-good state.
+        add_html_row "DB Base (stale home)" "WARN" \
+            "$NEW_DB_HOME has a prior install attempt (cfgtoollogs found). Removing and re-extracting from zip for a clean start."
+        log "WARN: $NEW_DB_HOME has prior OUI run (cfgtoollogs present) — removing and re-extracting"
+        run_cmd "rm -rf \"$NEW_DB_HOME\""
+        run_cmd "mkdir -p \"$NEW_DB_HOME\""
+        run_cmd "chown -R $ORACLE_USER:$OINSTALL_GROUP \"$NEW_DB_HOME\""
+        if [[ ! -f "$DB_BASE_ZIP" ]]; then
+            add_html_row "DB Base ZIP" "FAIL" \
+                "DB base ZIP missing after stale-home cleanup: $DB_BASE_ZIP. Re-stage the software before retrying."
+            send_html_report "DB Install FAILED - $HOST" "DB Install Report (FAILED)"
+            die "DB Base ZIP missing after stale-home cleanup: $DB_BASE_ZIP"
+        fi
+        run_cmd "unzip -oq \"$DB_BASE_ZIP\" -d \"$NEW_DB_HOME\""
     elif [[ ! -f "$DB_BASE_ZIP" ]]; then
         add_html_row "DB Base ZIP" "FAIL" \
             "DB base ZIP missing: $DB_BASE_ZIP. Searched: /staging/DB_BASE_SOFT, /staging, $STAGING_DROP_DIR, $(dirname "$DB_BASE_ZIP"). Either upload the zip or run 'Extract to Depot' from the Patches UI and re-stage."
