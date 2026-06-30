@@ -1157,8 +1157,12 @@ distribute_staged_files() {
             else
                 add_html_row "$label" "INFO" \
                     "Size mismatch (src=${src_size}B dest=${dest_size}B) — recopying"
-                rm -f "$dest"
+                run_cmd "rm -f \"$dest\""
             fi
+        fi
+        if [[ "$DRYRUN" == true ]]; then
+            add_html_row "$label" "INFO" "DRYRUN: would copy $(basename "$src") → $dest"
+            return 0
         fi
         if ! cp "$src" "$dest" 2>/tmp/_stage_err; then
             local err; err=$(cat /tmp/_stage_err 2>/dev/null)
@@ -7816,6 +7820,13 @@ SQEOF
     # -------------------------------------------------------
     # SRVCTL path
     # -------------------------------------------------------
+    if [[ "$DRYRUN" == true ]]; then
+        add_html_row "DB Switch (dry-run)" "INFO" \
+            "DRYRUN: would srvctl stop → modify home $NEW_DB_HOME → srvctl start → datapatch. No changes made."
+        send_phase_html_report "DB Switch" "DB Switch Report (Dry-run) - $HOST" "INFO"
+        return 0
+    fi
+
     local db_type_raw db_type
     db_type_raw=$(get_db_type "$DB_UNIQUE_NAME")
     db_type=$(echo "$db_type_raw" | tr '[:upper:]' '[:lower:]')
@@ -8093,6 +8104,13 @@ SQEOF
     # -------------------------------------------------------
     # SRVCTL path
     # -------------------------------------------------------
+    if [[ "$DRYRUN" == true ]]; then
+        add_html_row "DB Rollback (dry-run)" "INFO" \
+            "DRYRUN: would srvctl stop → modify home back to $OLD_DB_HOME → srvctl start → datapatch. No changes made."
+        send_phase_html_report "DB Rollback" "DB Rollback Report (Dry-run) - $HOST" "INFO"
+        return 0
+    fi
+
     local db_type
     db_type=$(get_db_type "$DB_UNIQUE_NAME" | tr '[:upper:]' '[:lower:]')
 
