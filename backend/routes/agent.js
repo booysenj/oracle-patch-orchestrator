@@ -92,7 +92,7 @@ router.get('/poll', (req, res) => {
             const allStaged = !hasTypedTransfers || required.every(function(ft) {
                 return db.prepare(
                     "SELECT 1 FROM patch_transfers WHERE patch_id=? AND target_host=? AND file_type=? AND status='STAGED'"
-                ).get(pvId, hostname);
+                ).get(pvId, hostname, ft);
             });
             if (!allStaged) {
                 // Log once per job (not every 5s poll) to avoid noise
