@@ -156,6 +156,10 @@ router.patch('/:id/config', (req, res) => {
     for (const k of allowed) {
         if (req.body[k] !== undefined) updates[k] = req.body[k];
     }
+    // preferred_staging_mount is the UI field; stage_path is what job-runner reads — keep in sync
+    if (updates.preferred_staging_mount !== undefined) {
+        updates.stage_path = updates.preferred_staging_mount;
+    }
     if (!Object.keys(updates).length) return res.status(400).json({ error: 'Nothing to update' });
     const cols = Object.keys(updates).map(k => k + ' = ?').join(', ');
     const vals = [...Object.values(updates), req.params.id];
