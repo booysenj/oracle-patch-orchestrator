@@ -169,6 +169,20 @@ router.delete('/history', (req, res) => {
     res.json({ deleted: result.changes });
 });
 
+// Transfer progress for a queued install job — used by the UI log viewer
+// while the job is still waiting for staged files before the bash script starts.
+router.get('/:id/transfer-status', (req, res) => {
+    const { getDB } = require('../lib/db');
+    const db = getDB();
+    const job = db.prepare('SELECT j.*, v.hostname FROM jobs j JOIN vms v ON j.vm_id = v.id WHERE j.id = ?').get(req.params.id);
+    if (!job) return res.status(404).json({ error: 'Job not found' });
+    if (!job.target_patch_version_id) return res.json({ transfers: [] });
+    const transfers = db.prepare(
+        'SELECT id, file_type, status, bytes_transferred, total_bytes, started_at, completed_at, source_path FROM patch_transfers WHERE patch_id = ? AND target_host = ? ORDER BY created_at ASC'
+    ).all(job.target_patch_version_id, job.hostname);
+    res.json({ jobStatus: job.status, transfers });
+});
+
 router.post('/:id/cancel', (req, res) => {
     try {
         const result = cancelJob(req.params.id);

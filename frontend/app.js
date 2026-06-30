@@ -757,6 +757,7 @@ async function openLogViewer(jobId, hostname, operation) {
 
   // For already-completed jobs, skip WS (it has no history replay) and load logs via REST only.
   // WS is only useful for live jobs where it can push new lines as they arrive.
+  var STAGED_OPS = ['gi_install','db_install','gi_upgrade_install','db_upgrade_install','stage_software'];
   try {
     var job = await api('/jobs/' + jobId);
     if (job && (job.status === 'success' || job.status === 'failed' || job.status === 'cancelled' || job.status === 'warn')) {
@@ -764,6 +765,10 @@ async function openLogViewer(jobId, hostname, operation) {
       updateJobStatus(job.status);
       startLogPolling(jobId);
       return;
+    }
+    // Show transfer progress panel while job is queued waiting for staged files
+    if (job && job.status === 'queued' && STAGED_OPS.indexOf(operation) >= 0) {
+      startTransferPolling(jobId);
     }
   } catch(e) { /* fall through to WS+poll for live jobs */ }
 
@@ -791,6 +796,7 @@ function switchLogView(view) {
 
 function closeLogModal() {
   stopLogPolling();
+  stopTransferPolling();
   document.getElementById('logModal').classList.add('hidden');
   activeLogJobId = null;
   if (ws) { ws.close(); ws = null; }
@@ -1954,6 +1960,60 @@ function loadOpsForCategory() {
 var logPollTimer = null;
 var logPollJobId = null;
 var logPollOffset = 0;
+var transferPollTimer = null;
+
+function startTransferPolling(jobId) {
+  stopTransferPolling();
+  var _fileLabels = { gi_base: 'GI Base', db_base: 'DB Base', ru_patch: 'RU Patch', opatch: 'OPatch' };
+  async function _tick() {
+    try {
+      var r = await api('/jobs/' + jobId + '/transfer-status');
+      if (!r || !r.transfers || !r.transfers.length) return;
+      var el = document.getElementById('transferStatusLines');
+      if (!el) {
+        var out = document.getElementById('logOutput');
+        if (!out) return;
+        var div = document.createElement('div');
+        div.id = 'transferStatusLines';
+        div.style.cssText = 'padding:8px 12px;font-family:monospace;font-size:12px;border-bottom:1px solid var(--color-border-tertiary);color:var(--text-muted)';
+        out.parentNode.insertBefore(div, out);
+        el = div;
+      }
+      var html = '<div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:var(--text-muted);margin-bottom:4px">Staging Software — waiting for transfers before job starts</div>';
+      r.transfers.forEach(function(t) {
+        var label = _fileLabels[t.file_type] || t.file_type || 'File';
+        var fname = (t.source_path || '').split('/').pop() || t.file_type;
+        var icon, color, detail;
+        if (t.status === 'STAGED') {
+          icon = '✓'; color = 'var(--color-success,#22c55e)';
+          detail = fname;
+        } else if (t.status === 'TRANSFERRING') {
+          var pct = t.total_bytes > 0 ? Math.round(t.bytes_transferred / t.total_bytes * 100) : '…';
+          icon = '⬇'; color = 'var(--color-warning,#fbbf24)';
+          detail = fname + ' — ' + pct + (typeof pct === 'number' ? '%' : '');
+        } else {
+          icon = '○'; color = 'var(--text-muted)';
+          detail = fname + ' (queued)';
+        }
+        html += '<div style="padding:2px 0"><span style="color:' + color + ';margin-right:6px">' + icon + '</span>' +
+          '<span style="color:var(--color-text-primary)">' + label + '</span> <span style="color:var(--text-muted)">' + esc(detail) + '</span></div>';
+      });
+      el.innerHTML = html;
+      if (r.jobStatus === 'running' || r.jobStatus === 'success' || r.jobStatus === 'failed') {
+        stopTransferPolling();
+        if (el) { el.style.opacity = '0.5'; }
+      }
+    } catch(_) {}
+  }
+  _tick();
+  transferPollTimer = setInterval(_tick, 3000);
+}
+
+function stopTransferPolling() {
+  if (transferPollTimer) { clearInterval(transferPollTimer); transferPollTimer = null; }
+  var el = document.getElementById('transferStatusLines');
+  if (el) el.remove();
+}
 
 function startLogPolling(jobId, startOffset) {
   stopLogPolling();
