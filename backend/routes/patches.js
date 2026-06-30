@@ -43,6 +43,8 @@ function initPatchTables() {
         const tcols = db.prepare("PRAGMA table_info(patch_transfers)").all().map(c => c.name);
         if (!tcols.includes('file_name'))
             db.exec("ALTER TABLE patch_transfers ADD COLUMN file_name TEXT DEFAULT ''");
+        if (!tcols.includes('file_type'))
+            db.exec("ALTER TABLE patch_transfers ADD COLUMN file_type TEXT DEFAULT ''");
     } catch(_) {}
 
     // Create transfers table
@@ -53,6 +55,7 @@ function initPatchTables() {
             patch_id        TEXT NOT NULL REFERENCES patch_versions(id),
             source_path     TEXT DEFAULT '',
             file_name       TEXT DEFAULT '',
+            file_type       TEXT DEFAULT '',
             target_host     TEXT NOT NULL,
             target_stage_path TEXT DEFAULT '',
             status          TEXT NOT NULL DEFAULT 'PENDING',

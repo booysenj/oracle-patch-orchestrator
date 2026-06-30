@@ -76,12 +76,20 @@ router.get('/poll', (req, res) => {
     ).all(vm.id, 'queued');
 
     let job = null;
+    try {
     for (const candidate of queuedJobs) {
         if (GATED_OPS.has(candidate.operation) && candidate.target_patch_version_id) {
             const required = REQUIRED_TYPES[candidate.operation] || [];
             // For DB_ONLY_MODE VMs (no old_gi_home), gi_base is not required even for gi_install
             const pvId = candidate.target_patch_version_id;
-            const allStaged = required.every(function(ft) {
+            // If no typed transfers exist at all (old runs before file_type column was added),
+            // skip the gate so legacy transfers don't block the job forever.
+            const totalForPatch = db.prepare(
+                "SELECT count(*) as n FROM patch_transfers WHERE patch_id=? AND target_host=?"
+            ).get(pvId, hostname);
+            const hasTypedTransfers = totalForPatch && totalForPatch.n > 0 &&
+                db.prepare("SELECT 1 FROM patch_transfers WHERE patch_id=? AND target_host=? AND file_type != ''").get(pvId, hostname);
+            const allStaged = !hasTypedTransfers || required.every(function(ft) {
                 return db.prepare(
                     "SELECT 1 FROM patch_transfers WHERE patch_id=? AND target_host=? AND file_type=? AND status='STAGED'"
                 ).get(pvId, hostname);
@@ -99,6 +107,10 @@ router.get('/poll', (req, res) => {
         }
         job = candidate;
         break;
+    }
+    } catch(gateErr) {
+        console.error('[poll] Gate check error for ' + hostname + ':', gateErr.message);
+        return res.status(500).json({ error: 'Poll gate error: ' + gateErr.message });
     }
 
     if (job === null) return res.json({ noJob: true });
