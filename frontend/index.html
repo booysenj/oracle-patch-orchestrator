@@ -436,10 +436,14 @@
         </div>
 <div id="opMeta" class="op-meta hidden"></div>
           </div>
-          <div class="form-group checkbox-group" style="display:flex;gap:20px;flex-wrap:wrap">
-            <label><input type="checkbox" id="dryRunCheck" checked /><span class="checkmark"></span> Dry Run (simulate only)</label>
-            <label title="Runs script with bash -x — prints every command as it executes. Recommended for precheck phases."><input type="checkbox" id="verboseCheck" /><span class="checkmark"></span> Verbose output (bash -x)</label>
-            <label id="ojvmCheckLabel" class="hidden" title="Apply OJVM one-off patch during install. Only enable if you staged the OJVM ZIP via Stage Software first."><input type="checkbox" id="ojvmCheck" /><span class="checkmark"></span> Apply OJVM</label>
+          <div class="form-group" style="display:flex;flex-direction:column;gap:8px">
+            <div class="checkbox-group" style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+              <label title="Simulates the operation — no changes are made to the Oracle home or OS."><input type="checkbox" id="dryRunCheck" /><span class="checkmark"></span> Dry Run <span style="font-size:11px;opacity:.7">(simulate only)</span></label>
+              <label title="Runs script with bash -x — prints every command as it executes. Recommended for precheck phases."><input type="checkbox" id="verboseCheck" /><span class="checkmark"></span> Verbose <span style="font-size:11px;opacity:.7">(bash -x)</span></label>
+            </div>
+            <div id="ojvmCheckLabel" class="hidden" style="border-top:1px solid var(--border);padding-top:8px">
+              <label title="Apply OJVM one-off patch during install. Only enable if you staged the OJVM ZIP via Stage Software first."><input type="checkbox" id="ojvmCheck" /><span class="checkmark"></span> Apply OJVM <span style="font-size:11px;opacity:.7">(one-off patch applied during install)</span></label>
+            </div>
           </div>
           <div id="resolvedConfigPanel" style="margin-bottom:12px;padding:10px;background:var(--surface2);border:1px solid var(--color-border-tertiary);border-radius:6px;"></div>
           <div id="preflightResult" class="preflight-box hidden"></div>
