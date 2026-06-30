@@ -79,8 +79,9 @@ router.get('/poll', (req, res) => {
     try {
     for (const candidate of queuedJobs) {
         if (GATED_OPS.has(candidate.operation) && candidate.target_patch_version_id) {
-            const required = REQUIRED_TYPES[candidate.operation] || [];
-            // For DB_ONLY_MODE VMs (no old_gi_home), gi_base is not required even for gi_install
+            var required = REQUIRED_TYPES[candidate.operation] || [];
+            // DB_ONLY VMs have no GI home — job-runner never queues gi_base for them, so exclude it from the gate
+            if (!vm.old_gi_home) required = required.filter(function(t) { return t !== 'gi_base'; });
             const pvId = candidate.target_patch_version_id;
             // If no typed transfers exist at all (old runs before file_type column was added),
             // skip the gate so legacy transfers don't block the job forever.
@@ -503,7 +504,7 @@ router.post('/:jobId/logs', (req, res) => {
     const db = getDB();
     const stmt = db.prepare('INSERT INTO job_logs (job_id, stream, line) VALUES (?, ?, ?)');
     const reportStmt = db.prepare(
-        'INSERT INTO patch_reports (id, job_id, hostname, operation, subject, result, html_content) VALUES (?, ?, ?, ?, ?, ?, ?)'
+        'INSERT INTO patch_reports (id, job_id, hostname, operation, subject, result, content) VALUES (?, ?, ?, ?, ?, ?, ?)'
     );
     const discoveryStmt = db.prepare(
         'INSERT INTO discoveries (id, job_id, hostname, type, payload) VALUES (?, ?, ?, ?, ?)'

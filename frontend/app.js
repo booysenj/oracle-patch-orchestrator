@@ -887,7 +887,7 @@ function connectLogWS(jobId) {
   ws.onmessage = function(evt) {
     try {
       var msg = JSON.parse(evt.data);
-      if (msg.type === 'log') { appendLogLine(msg); wsLogCount++; }
+      if (msg.type === 'log') { stopTransferPolling(); appendLogLine(msg); wsLogCount++; }
       else if (msg.type === 'done') {
         updateJobStatus(msg.status);
         if (msg.status === 'success') { showToast('Job completed successfully', 'success'); if (ws) ws.close(); }
