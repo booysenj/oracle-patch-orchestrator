@@ -71,9 +71,14 @@ function createJob({ vmId, operation, dryRun = false, verbose = false, applyOjvm
                     );
 
                     var pvVer = pv.version || '';
-                    var vmStage = vm.stage_path || '';
-                    var giStage = vmStage || '/grid/software';
-                    var dbStage = vmStage || '/app/software';
+                    function _stageRoot(home) {
+                        if (!home) return '';
+                        var p = home.split('/').filter(Boolean);
+                        return p.length ? '/' + p[0] + '/software' : '';
+                    }
+                    var vmStage = vm.stage_path || vm.preferred_staging_mount || '';
+                    var giStage = vmStage || _stageRoot(vm.old_gi_home) || '/grid/software';
+                    var dbStage = vmStage || _stageRoot(vm.old_db_home || vm.current_db_home) || '/app/software';
 
                     // GI base zip — unzipped into NEW_GI_HOME by the agent (X-Unzip-To header)
                     if (isGiOp && pv.gi_base_zip && vm.old_gi_home) {
