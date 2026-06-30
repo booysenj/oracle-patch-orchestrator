@@ -51,11 +51,48 @@ router.get('/poll', (req, res) => {
         });
     }
 
-    const job = db.prepare(
-        'SELECT j.*, v.script_path, v.node_role, v.rollback_gi_home, v.rollback_db_home FROM jobs j JOIN vms v ON j.vm_id = v.id WHERE j.vm_id = ? AND j.status = ? ORDER BY j.created_at ASC LIMIT 1'
-    ).get(vm.id, 'queued');
+    // Find the next queued job — but gate install ops until all required transfers are STAGED.
+    // Without the gate, the agent picks up a db_install/gi_install immediately after job creation
+    // and fails because the base zip and RU haven't arrived on the VM yet.
+    const GATED_OPS = new Set(['gi_install','db_install','gi_upgrade_install','db_upgrade_install']);
+    const REQUIRED_TYPES = {
+        gi_install:         ['gi_base','ru_patch','opatch'],
+        db_install:         ['db_base','ru_patch','opatch'],
+        gi_upgrade_install: ['gi_base','ru_patch','opatch'],
+        db_upgrade_install: ['db_base','ru_patch','opatch'],
+    };
 
-    if (job === undefined) return res.json({ noJob: true });
+    const queuedJobs = db.prepare(
+        'SELECT j.*, v.script_path, v.node_role, v.rollback_gi_home, v.rollback_db_home FROM jobs j JOIN vms v ON j.vm_id = v.id WHERE j.vm_id = ? AND j.status = ? ORDER BY j.created_at ASC'
+    ).all(vm.id, 'queued');
+
+    let job = null;
+    for (const candidate of queuedJobs) {
+        if (GATED_OPS.has(candidate.operation) && candidate.target_patch_version_id) {
+            const required = REQUIRED_TYPES[candidate.operation] || [];
+            // For DB_ONLY_MODE VMs (no old_gi_home), gi_base is not required even for gi_install
+            const pvId = candidate.target_patch_version_id;
+            const allStaged = required.every(function(ft) {
+                return db.prepare(
+                    "SELECT 1 FROM patch_transfers WHERE patch_id=? AND target_host=? AND file_type=? AND status='STAGED'"
+                ).get(pvId, hostname);
+            });
+            if (!allStaged) {
+                // Log once per job (not every 5s poll) to avoid noise
+                const pendingCount = db.prepare(
+                    "SELECT count(*) as n FROM patch_transfers WHERE patch_id=? AND target_host=? AND status IN ('PENDING','TRANSFERRING')"
+                ).get(pvId, hostname);
+                if (pendingCount && pendingCount.n > 0) {
+                    console.log('[poll] Job ' + candidate.id + ' (' + candidate.operation + ') waiting for ' + pendingCount.n + ' transfer(s) to STAGE on ' + hostname);
+                }
+                continue; // skip this job, check next
+            }
+        }
+        job = candidate;
+        break;
+    }
+
+    if (job === null) return res.json({ noJob: true });
 
     db.prepare(
         'UPDATE jobs SET status = ?, started_at = datetime(?) WHERE id = ?'
