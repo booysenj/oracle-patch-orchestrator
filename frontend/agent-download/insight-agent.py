@@ -605,8 +605,9 @@ def execute_transfer(t):
                 actual_filename = '[depot:' + depot_type + ']'
                 print('[agent] Transfer %s: depot extract complete (%d bytes streamed)' % (tid, bytes_received))
             else:
-                # Normal mode: download zip to dest_path
+                # Normal mode: download zip to dest_path, then unzip if X-Unzip-To is set
                 server_filename = resp.headers.get('X-Filename') or ''
+                unzip_to = resp.headers.get('X-Unzip-To') or ''
                 if server_filename:
                     actual_filename = server_filename
                 if total_bytes == 0:
@@ -635,6 +636,20 @@ def execute_transfer(t):
                                     )
                                 except Exception:
                                     pass
+
+                if unzip_to:
+                    import subprocess as _sp
+                    os.makedirs(unzip_to, exist_ok=True)
+                    print('[agent] Transfer %s: unzipping %s -> %s' % (tid, dest_file, unzip_to))
+                    result = _sp.run(['unzip', '-q', '-o', dest_file, '-d', unzip_to],
+                                     capture_output=True, timeout=1800)
+                    if result.returncode != 0:
+                        raise Exception('unzip failed (rc=%d): %s' % (
+                            result.returncode,
+                            result.stderr.decode(errors='replace').strip()))
+                    os.remove(dest_file)
+                    print('[agent] Transfer %s: unzip complete, zip removed' % tid)
+                    actual_filename = '[unzipped:%s]' % os.path.basename(unzip_to)
 
         requests.post(
             API_URL + '/api/agent/transfer/' + tid + '/complete',

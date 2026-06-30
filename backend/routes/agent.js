@@ -163,29 +163,15 @@ router.get('/poll', (req, res) => {
 
     // Re-inject staging path AFTER patch version config — pv.patch_search_root at line 144
     // overwrites PATCH_SEARCH_ROOTS_ENV and drops the staging path added earlier.
-    // Also override GI_BASE_ZIP / DB_BASE_ZIP to the staged location when depot transfers
-    // have already copied the zip to stagingPath/<filename> on the VM.
     if (stagingPath) {
         if (!env.PATCH_SEARCH_ROOTS_ENV) {
             env.PATCH_SEARCH_ROOTS_ENV = stagingPath;
         } else if (env.PATCH_SEARCH_ROOTS_ENV.indexOf(stagingPath) < 0) {
             env.PATCH_SEARCH_ROOTS_ENV = stagingPath + ':' + env.PATCH_SEARCH_ROOTS_ENV;
         }
-        if (job.target_patch_version_id) {
-            var _npath = require('path');
-            var _stagedGi = db.prepare(
-                "SELECT 1 FROM patch_transfers WHERE patch_id=? AND target_host=? AND file_type='gi_base' AND status='STAGED'"
-            ).get(job.target_patch_version_id, vm.hostname);
-            if (_stagedGi && env.GI_BASE_ZIP) {
-                env.GI_BASE_ZIP = stagingPath + '/' + _npath.basename(env.GI_BASE_ZIP);
-            }
-            var _stagedDb = db.prepare(
-                "SELECT 1 FROM patch_transfers WHERE patch_id=? AND target_host=? AND file_type='db_base' AND status='STAGED'"
-            ).get(job.target_patch_version_id, vm.hostname);
-            if (_stagedDb && env.DB_BASE_ZIP) {
-                env.DB_BASE_ZIP = stagingPath + '/' + _npath.basename(env.DB_BASE_ZIP);
-            }
-        }
+        // GI_BASE_ZIP / DB_BASE_ZIP no longer need staging-path overrides:
+        // the new zip-transfer approach unzips directly into NEW_GI_HOME / NEW_DB_HOME,
+        // so the bash script finds gridSetup.sh / runInstaller there and skips the zip.
     }
 
     // Derive NEW_GI_HOME / NEW_DB_HOME: explicit stored > patch version explicit > base + version
@@ -621,60 +607,56 @@ router.get('/transfer/:id', (req, res) => {
     const t = db.prepare('SELECT * FROM patch_transfers WHERE id = ?').get(req.params.id);
     if (!t) return res.status(404).json({ error: 'Transfer not found' });
 
-    // Check if depot has a ready extracted copy for this file_type
-    var depotTypeMap = { gi_base: 'gi', db_base: 'db', ru_patch: 'ru', opatch: 'opatch' };
-    var depotType = depotTypeMap[t.file_type || 'ru_patch'];
-    if (depotType && t.patch_id) {
-        try {
-            var depotRow = db.prepare("SELECT * FROM depot WHERE patch_id=? AND status IN ('ready','partial')").get(t.patch_id);
-            if (depotRow && depotRow.depot_path) {
-                var depotStatusField = depotType + '_status';
-                if (depotRow[depotStatusField] === 'ready') {
-                    var depotSubDir = path.join(depotRow.depot_path, depotType);
-                    if (fs.existsSync(depotSubDir) && fs.statSync(depotSubDir).isDirectory()) {
-                        // Stream tar of pre-extracted directory
-                        res.setHeader('Content-Type', 'application/x-tar');
-                        res.setHeader('X-Transfer-Type', 'tar');
-                        res.setHeader('X-Depot-Type', depotType);
-                        // Tell agent where to extract:
-                        // gi/db base → directly into the Oracle home (NEW_GI_HOME / NEW_DB_HOME)
-                        // opatch     → also into the Oracle home so it overwrites the bundled OPatch
-                        if (depotType === 'db' || depotType === 'gi' || depotType === 'opatch') {
-                            var vmRow = db.prepare('SELECT * FROM vms WHERE hostname=? OR ip=?').get(t.target_host, t.target_host);
-                            if (vmRow) {
-                                // Prefer explicit override; fall back to deriving from base + version
-                                var _installPath = depotType === 'db' ? vmRow.new_db_home : vmRow.new_gi_home;
-                                if (!_installPath && t.patch_id) {
-                                    var _pv2 = db.prepare('SELECT version, new_gi_home, new_db_home FROM patch_versions WHERE id=?').get(t.patch_id);
-                                    var _pvVer = _pv2 && _pv2.version;
-                                    var _pvExplicit = _pv2 && (depotType === 'db' ? _pv2.new_db_home : _pv2.new_gi_home);
-                                    if (_pvExplicit) {
-                                        _installPath = _pvExplicit;
-                                    } else if (_pvVer) {
-                                        var _cfgBase = '';
-                                        try {
-                                            var _bKey = depotType === 'db' ? 'db_home_base' : 'gi_home_base';
-                                            var _bs = db.prepare("SELECT value FROM app_settings WHERE key=?").get(_bKey);
-                                            if (_bs && _bs.value) _cfgBase = _bs.value.replace(/\/$/, '');
-                                        } catch(_) {}
-                                        var _oldHome = depotType === 'db' ? (vmRow.old_db_home || vmRow.current_db_home) : vmRow.old_gi_home;
-                                        var _base = _cfgBase || (_oldHome ? _oldHome.replace(/\/[^/]+$/, '') : '');
-                                        if (_base && _pvVer) _installPath = _base + '/' + _pvVer;
-                                    }
-                                }
-                                if (_installPath) res.setHeader('X-Depot-Install-Path', _installPath);
-                            }
+    // gi_base and db_base: serve zip directly — agent downloads then unzips on the VM.
+    // This halves network traffic (zip is ~7 GB vs ~14 GB extracted) and avoids the
+    // orchestrator needing pre-extracted depot copies for large base installers.
+    // Pass X-Unzip-To so the agent knows where to unzip (NEW_GI_HOME / NEW_DB_HOME).
+    var fileType = t.file_type || 'ru_patch';
+    if (fileType === 'gi_base' || fileType === 'db_base') {
+        var _vmRow2 = db.prepare('SELECT * FROM vms WHERE hostname=? OR ip=?').get(t.target_host, t.target_host);
+        if (_vmRow2 && t.patch_id) {
+            var _pv3 = db.prepare('SELECT version, new_gi_home, new_db_home FROM patch_versions WHERE id=?').get(t.patch_id);
+            var _pvVer3 = _pv3 && _pv3.version;
+            var _explicit3 = _pv3 && (fileType === 'db_base' ? _pv3.new_db_home : _pv3.new_gi_home);
+            var _vmExplicit3 = fileType === 'db_base' ? _vmRow2.new_db_home : _vmRow2.new_gi_home;
+            var _unzipTo = _vmExplicit3 || _explicit3 || '';
+            if (!_unzipTo && _pvVer3) {
+                var _cfgKey3 = fileType === 'db_base' ? 'db_home_base' : 'gi_home_base';
+                var _cfgBase3 = '';
+                try { var _bs3 = db.prepare('SELECT value FROM app_settings WHERE key=?').get(_cfgKey3); if (_bs3 && _bs3.value) _cfgBase3 = _bs3.value.replace(/\/$/, ''); } catch(_) {}
+                var _oldH3 = fileType === 'db_base' ? (_vmRow2.old_db_home || _vmRow2.current_db_home) : _vmRow2.old_gi_home;
+                var _base3 = _cfgBase3 || (_oldH3 ? _oldH3.replace(/\/[^/]+$/, '') : '');
+                if (_base3 && _pvVer3) _unzipTo = _base3 + '/' + _pvVer3;
+            }
+            if (_unzipTo) res.setHeader('X-Unzip-To', _unzipTo);
+        }
+        // Fall through to raw zip serving below
+    } else {
+        // RU / OPatch: use depot tar stream if available (small files, pre-extraction saves VM unzip time)
+        var depotTypeMap = { ru_patch: 'ru', opatch: 'opatch' };
+        var depotType = depotTypeMap[fileType];
+        if (depotType && t.patch_id) {
+            try {
+                var depotRow = db.prepare("SELECT * FROM depot WHERE patch_id=? AND status IN ('ready','partial')").get(t.patch_id);
+                if (depotRow && depotRow.depot_path) {
+                    var depotStatusField = depotType + '_status';
+                    if (depotRow[depotStatusField] === 'ready') {
+                        var depotSubDir = path.join(depotRow.depot_path, depotType);
+                        if (fs.existsSync(depotSubDir) && fs.statSync(depotSubDir).isDirectory()) {
+                            res.setHeader('Content-Type', 'application/x-tar');
+                            res.setHeader('X-Transfer-Type', 'tar');
+                            res.setHeader('X-Depot-Type', depotType);
+                            db.prepare("UPDATE patch_transfers SET file_name=? WHERE id=?").run('[depot:' + depotType + ']', t.id);
+                            var tar = spawn('tar', ['-C', depotSubDir, '-cf', '-', '.']);
+                            tar.stdout.pipe(res);
+                            tar.on('error', function(e) { if (!res.headersSent) res.status(500).json({ error: String(e) }); });
+                            req.on('close', function() { try { tar.kill(); } catch(_) {} });
+                            return;
                         }
-                        db.prepare("UPDATE patch_transfers SET file_name=? WHERE id=?").run('[depot:' + depotType + ']', t.id);
-                        var tar = spawn('tar', ['-C', depotSubDir, '-cf', '-', '.']);
-                        tar.stdout.pipe(res);
-                        tar.on('error', function(e) { if (!res.headersSent) res.status(500).json({ error: String(e) }); });
-                        req.on('close', function() { try { tar.kill(); } catch(_) {} });
-                        return;
                     }
                 }
-            }
-        } catch(_) {}
+            } catch(_) {}
+        }
     }
     var src = t.source_path;
     if (!src || !fs.existsSync(src)) return res.status(404).json({ error: 'Source file not found: ' + src });
