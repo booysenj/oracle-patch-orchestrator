@@ -73,8 +73,20 @@ function initPatchTables() {
         CREATE INDEX IF NOT EXISTS idx_transfer_status ON patch_transfers(status);
         CREATE INDEX IF NOT EXISTS idx_transfer_run ON patch_transfers(run_id);
         CREATE INDEX IF NOT EXISTS idx_transfer_host ON patch_transfers(target_host);
-        CREATE UNIQUE INDEX IF NOT EXISTS idx_transfer_unique ON patch_transfers(patch_id, target_host, file_type) WHERE file_type != '';
     `);
+    // Add unique index on (patch_id, target_host, file_type) — deduplicate first so the
+    // index creation doesn't fail on existing rows that violate the constraint.
+    try {
+        db.exec(`
+            DELETE FROM patch_transfers WHERE rowid NOT IN (
+                SELECT MIN(rowid) FROM patch_transfers
+                WHERE file_type != ''
+                GROUP BY patch_id, target_host, file_type
+            ) AND file_type != '';
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_transfer_unique
+                ON patch_transfers(patch_id, target_host, file_type) WHERE file_type != '';
+        `);
+    } catch(_) {}
     console.log('[db] Patch catalog extensions + transfer tables initialised');
     _autoPopulateOjvmZip(db);
     _resumePendingTransfers(db);
