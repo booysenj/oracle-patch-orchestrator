@@ -119,7 +119,7 @@ function toggleSchedPatchVersion() {
     if (rollbackNote) rollbackNote.classList.toggle('hidden', !isRollback);
 
     // Show DB Unique Name field for any op that targets a specific database
-    var needsDbUniq = /db_oh_switch|db_rollback|gi_oh_switch|gi_rollback/i.test(op);
+    var needsDbUniq = /^db_oh_switch|^db_rollback|^db_upgrade_upgrade|^db_upgrade_rollback/i.test(op);
     var dbUniqGroup = document.getElementById('schedDbUniqueNameGroup');
     if (dbUniqGroup) {
         dbUniqGroup.style.display = needsDbUniq ? '' : 'none';
