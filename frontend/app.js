@@ -524,6 +524,19 @@ document.getElementById('opSelect').addEventListener('change', function() {
       document.getElementById('patchVersionInfo').textContent = '';
     }
   }
+  // Warn if stage path not configured for ops that transfer files to the VM
+  var stageWarnEl = document.getElementById('stagePathWarn');
+  if (stageWarnEl) stageWarnEl.remove();
+  var STAGE_OPS = ['stage_software','gi_install','db_install','gi_upgrade_install','db_upgrade_install'];
+  if (STAGE_OPS.indexOf(op) >= 0 && selectedVm && !selectedVm.stage_path && !selectedVm.preferred_staging_mount) {
+    var warn = document.createElement('div');
+    warn.id = 'stagePathWarn';
+    warn.style.cssText = 'margin:8px 0 0;padding:8px 12px;background:rgba(251,191,36,.12);border:1px solid rgba(251,191,36,.4);border-radius:6px;font-size:12px;color:#fbbf24';
+    warn.innerHTML = '&#9888; Stage path not configured for this VM. Transfers will use the default path which may be wrong. ' +
+      '<strong>Set it in VM Config (Stage Path field) before running this operation.</strong>';
+    var rcEl = document.getElementById('resolvedConfigPanel');
+    if (rcEl) rcEl.parentNode.insertBefore(warn, rcEl);
+  }
 });
 
 // Populate patch version dropdown in Run modal and wire change → derived home preview
