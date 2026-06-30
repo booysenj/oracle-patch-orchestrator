@@ -3354,6 +3354,7 @@ collect_lspatches() {
     if [[ -x "$old_home/OPatch/opatch" ]]; then
         local old_out="${LOG_DIR}/lspatches_old_${label}_$(date +%F_%H%M%S).log"
         run_cmd "sudo -u ${GRID_USER} ORACLE_HOME=\"$old_home\" PATH=\"$old_home/OPatch:$old_home/bin:\$PATH\" \"$old_home/OPatch/opatch\" lspatches > \"$old_out\" 2>&1 || true"
+        add_attachment "$old_out"
         add_report_step "lspatches OLD_GI_HOME ($label)" "INFO" "$old_out"
     else
         add_report_step "lspatches OLD_GI_HOME ($label)" "WARN" "opatch not found in $old_home"
@@ -3361,6 +3362,7 @@ collect_lspatches() {
     if [[ -x "$new_home/OPatch/opatch" ]]; then
         local new_out="${LOG_DIR}/lspatches_new_${label}_$(date +%F_%H%M%S).log"
         run_cmd "sudo -u ${GRID_USER} ORACLE_HOME=\"$new_home\" PATH=\"$new_home/OPatch:$new_home/bin:\$PATH\" \"$new_home/OPatch/opatch\" lspatches > \"$new_out\" 2>&1 || true"
+        add_attachment "$new_out"
         add_report_step "lspatches NEW_GI_HOME ($label)" "INFO" "$new_out"
     else
         add_report_step "lspatches NEW_GI_HOME ($label)" "WARN" "opatch not found in $new_home"
@@ -5557,6 +5559,7 @@ phase_switch_home() {
     reset_report
     reset_html_report
     LOG_FILE="${GI_LOG_DIR}/gi_switch_$(date +%F_%H%M%S).log"
+    add_attachment "$LOG_FILE"
     log "GI SWITCH (19c OOP)"
 
     if [[ ! -f "$PRECHECK_MARKER" ]]; then
@@ -5646,6 +5649,7 @@ phase_rollback() {
     reset_report
     reset_html_report
     LOG_FILE="${GI_LOG_DIR}/gi_rollback_$(date +%F_%H%M%S).log"
+    add_attachment "$LOG_FILE"
     log "GI ROLLBACK (19c OOP)"
 
     # After a switch, OLD_GI_HOME is now the patched (active) home and ROLLBACK_GI_HOME
