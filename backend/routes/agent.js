@@ -697,16 +697,21 @@ router.get('/transfer/:id', (req, res) => {
         // which the bash script finds via PATCH_SEARCH_ROOTS_ENV
         if (t.target_stage_path) res.setHeader('X-Unzip-To', t.target_stage_path);
     } else if (fileType === 'opatch') {
-        // OPatch: unzip directly into NEW_GI_HOME / NEW_DB_HOME to replace the bundled OPatch
+        // OPatch: unzip directly into NEW_GI_HOME or NEW_DB_HOME to replace the bundled OPatch.
+        // Try GI home first, fall back to DB home — one of the two will be set depending on the operation.
         var _vmRowOp = db.prepare('SELECT * FROM vms WHERE hostname=? OR ip=?').get(t.target_host, t.target_host);
         if (_vmRowOp && t.patch_id) {
             var _pvOp = db.prepare('SELECT version, new_gi_home, new_db_home FROM patch_versions WHERE id=?').get(t.patch_id);
             var _pvVerOp = _pvOp && _pvOp.version;
-            var _unzipToOp = (_vmRowOp.new_gi_home || (_pvOp && _pvOp.new_gi_home)) || '';
+            var _unzipToOp = (_vmRowOp.new_gi_home || (_pvOp && _pvOp.new_gi_home))
+                          || (_vmRowOp.new_db_home  || (_pvOp && _pvOp.new_db_home)) || '';
             if (!_unzipToOp && _pvVerOp) {
+                // Derive from the old GI home base first, then DB home base
+                var _oldHOp = _vmRowOp.old_gi_home || _vmRowOp.old_db_home || _vmRowOp.current_db_home;
+                var _isGiOp = !!_vmRowOp.old_gi_home;
+                var _cfgKeyOp = _isGiOp ? 'gi_home_base' : 'db_home_base';
                 var _cfgBaseOp = '';
-                try { var _bsOp = db.prepare("SELECT value FROM app_settings WHERE key='gi_home_base'").get(); if (_bsOp && _bsOp.value) _cfgBaseOp = _bsOp.value.replace(/\/$/, ''); } catch(_) {}
-                var _oldHOp = _vmRowOp.old_gi_home;
+                try { var _bsOp = db.prepare('SELECT value FROM app_settings WHERE key=?').get(_cfgKeyOp); if (_bsOp && _bsOp.value) _cfgBaseOp = _bsOp.value.replace(/\/$/, ''); } catch(_) {}
                 var _baseOp = _cfgBaseOp || (_oldHOp ? _oldHOp.replace(/\/[^/]+$/, '') : '');
                 if (_baseOp && _pvVerOp) _unzipToOp = _baseOp + '/' + _pvVerOp;
             }
