@@ -2089,6 +2089,11 @@ function startTransferPolling(jobId) {
           detail = fname + ' — ' + (hasPct ? pct + '%' : 'starting…');
           barHtml = '<div style="height:4px;background:var(--surface3,#2a2f3a);border-radius:2px;margin:3px 0 2px;overflow:hidden">' +
             '<div style="height:100%;width:' + (hasPct ? pct : 4) + '%;background:' + color + ';transition:width .3s"></div></div>';
+        } else if (t.status === 'FAILED') {
+          // Was silently lumped into the same "(queued)" bucket as genuinely-pending
+          // transfers, hiding a real failure (and its error) behind a harmless-looking label.
+          icon = '✗'; color = 'var(--color-danger,#ef4444)';
+          detail = fname + ' — failed' + (t.error_message ? ': ' + t.error_message : '') + ' (will retry when this job is re-run)';
         } else {
           icon = '○'; color = 'var(--text-muted)';
           detail = fname + ' (queued)';
