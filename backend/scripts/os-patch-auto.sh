@@ -870,15 +870,10 @@ attach_latest_oui_logs_since_marker() {
     if [[ -n "$best_log" && -f "$best_log" && -s "$best_log" ]]; then
         add_attachment "$best_log"
         attached=1
-        # Embed the log contents directly in the HTML report (collapsible) so it's
-        # readable at a glance instead of only being a raw .log MIME attachment.
-        local _oui_html
-        _oui_html=$(tail -c 100000 "$best_log" | escape_html | sed 's/$/<br\/>/')
+        # Attachment only — embedding the full log inline (even collapsed) made the
+        # email body too long. Keep the report row to a short pointer at the attachment.
         add_html_row "${label} (details)" "INFO" \
-            "Attached OUI installer log: $(basename "$best_log")<br/>\
-<details style=\"margin-top:6px\"><summary style=\"cursor:pointer;color:#0d6efd\">View log contents</summary>\
-<div style=\"max-height:400px;overflow:auto;background:#f8f9fa;border:1px solid #dee2e6;padding:8px;margin-top:4px;font-family:monospace;font-size:11px;white-space:normal\">${_oui_html}</div>\
-</details>"
+            "Attached OUI installer log: $(basename "$best_log")"
     else
         add_html_row "${label} (details)" "INFO" \
             "No relevant OUI installer logs found newer than marker."
