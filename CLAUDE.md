@@ -27,6 +27,17 @@ cd /opt/insight-patch-ui && git pull && systemctl restart insight-patch-ui
 
 Agent (`insight-agent.py`) auto-updates within ~5 min after server restart via SHA256 check — **only if the agent already has the self-update mechanism** (the version in `frontend/agent-download/insight-agent.py`). The legacy simple agent in `agent/insight-agent.py` has no self-update; it requires a manual SSH redeploy via the Deploy Agent button in the admin UI.
 
+### SSL (nginx reverse proxy)
+
+The app itself only serves plain HTTP on :4000. TLS is terminated by nginx (`/etc/nginx/conf.d/insight-patch-ui.conf`, installed via `setup-ssl.sh` — one-time setup, not part of the regular deploy). Cert/key live outside the repo at `/etc/ssl/insight-patch/server.{crt,key}`.
+
+When the wildcard cert (`*.4cgroup.co.za`) is renewed, swap the files and reload — no app restart needed:
+```bash
+openssl x509 -in /path/to/new.pem -out /etc/ssl/insight-patch/server.crt
+openssl pkey -in /path/to/new.pem -out /etc/ssl/insight-patch/server.key
+nginx -t && systemctl reload nginx
+```
+
 ## Architecture
 
 ### Components
