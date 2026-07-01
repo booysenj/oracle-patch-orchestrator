@@ -1017,9 +1017,10 @@ async function loadJobs() {
       return;
     }
     tbody.innerHTML = filtered.map(function(j) {
+      var dryRunBadge = j.dry_run ? ' <span style="display:inline-block;padding:1px 6px;border-radius:3px;font-size:10px;font-weight:700;background:rgba(99,179,237,.15);color:#63b3ed;border:1px solid rgba(99,179,237,.4);vertical-align:middle">DRY RUN</span>' : '';
       return '<tr>' +
         '<td><span class="mono">' + esc(j.hostname || '\u2014') + '</span></td>' +
-        '<td>' + esc(j.operation) + '</td>' +
+        '<td>' + esc(j.operation) + dryRunBadge + '</td>' +
         '<td>' + statusBadge(j.status) + '</td>' +
         '<td>' + formatDate(j.started_at) + '</td>' +
         '<td>' + duration(j.started_at, j.finished_at) + '</td>' +
