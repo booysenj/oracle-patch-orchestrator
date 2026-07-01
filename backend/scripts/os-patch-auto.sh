@@ -826,8 +826,15 @@ attach_latest_oui_logs_since_marker() {
     if [[ -n "$best_log" && -f "$best_log" && -s "$best_log" ]]; then
         add_attachment "$best_log"
         attached=1
+        # Embed the log contents directly in the HTML report (collapsible) so it's
+        # readable at a glance instead of only being a raw .log MIME attachment.
+        local _oui_html
+        _oui_html=$(tail -c 100000 "$best_log" | escape_html | sed 's/$/<br\/>/')
         add_html_row "${label} (details)" "INFO" \
-            "Attached OUI installer log: $(basename "$best_log")"
+            "Attached OUI installer log: $(basename "$best_log")<br/>\
+<details style=\"margin-top:6px\"><summary style=\"cursor:pointer;color:#0d6efd\">View log contents</summary>\
+<div style=\"max-height:400px;overflow:auto;background:#f8f9fa;border:1px solid #dee2e6;padding:8px;margin-top:4px;font-family:monospace;font-size:11px;white-space:normal\">${_oui_html}</div>\
+</details>"
     else
         add_html_row "${label} (details)" "INFO" \
             "No relevant OUI installer logs found newer than marker."
@@ -2120,7 +2127,11 @@ send_db_open_notification() {
 # ORATAB HELPERS
 # ------------------------------------------------------------
 escape_html() {
-    sed 's/&/\&/g; s/</\</g; s/>/\>/g'
+    # NOTE: `\&` in a sed replacement means "the whole match" (a backreference), not a
+    # literal ampersand — the previous version (`s/&/\&/g; s/</\</g; s/>/\>/g`) was a
+    # complete no-op that replaced each character with itself. Literal & < > require
+    # `\&amp;` / `\&lt;` / `\&gt;` so sed emits an actual "&" before the entity text.
+    sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g'
 }
 
 format_oratab_html() {
