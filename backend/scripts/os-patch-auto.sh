@@ -913,10 +913,17 @@ validate_staged_software_html() {
         local ru_patch_id
         ru_patch_id=$(basename "$RU_DIR")
         add_html_row "RU Directory" "PASS" "$RU_DIR (patch ID: ${ru_patch_id})"
-    else
+    elif [[ "$which" == "all" ]]; then
+        # stage_software validates the full install-ready set — RU is required here.
         add_html_row "RU Directory" "FAIL" \
             "RU directory missing: ${RU_DIR:-<not discovered>} — drop the RU ZIP into $STAGING_DROP_DIR and run stage_software"
         has_failures=true
+    else
+        # gi_precheck / db_precheck only validate readiness for -executePrereqs, which
+        # doesn't touch the RU — it's applied later during the actual install. Missing
+        # RU here is informational, not a precheck blocker.
+        add_html_row "RU Directory" "INFO" \
+            "RU directory not yet staged: ${RU_DIR:-<not discovered>} — only required at install time, not for this precheck."
     fi
 
     if [[ -f "${RU_README:-}" ]]; then
