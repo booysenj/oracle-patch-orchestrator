@@ -82,10 +82,16 @@ function createJob({ vmId, operation, dryRun = false, verbose = false, applyOjvm
                     // never got retried because a row already existed for that key).
                     // The WHERE clause on the DO UPDATE only fires for FAILED rows, so an
                     // already PENDING/TRANSFERRING/STAGED transfer is left untouched.
+                    // The unique index this targets (idx_transfer_unique) is a PARTIAL index
+                    // (WHERE file_type != ''), so the ON CONFLICT conflict-target must repeat
+                    // that exact condition or SQLite can't resolve it to that index -- it then
+                    // throws at runtime ("ON CONFLICT clause does not match any PRIMARY KEY or
+                    // UNIQUE constraint"), which the outer try/catch below silently swallowed,
+                    // so this upsert never actually fired despite looking correct.
                     const stmtTransfer = db.prepare(`INSERT INTO patch_transfers
                         (id, patch_id, source_path, target_host, target_stage_path, status, file_type, transfer_method)
                         VALUES (?, ?, ?, ?, ?, 'PENDING', ?, 'API')
-                        ON CONFLICT(patch_id, target_host, file_type) DO UPDATE SET
+                        ON CONFLICT(patch_id, target_host, file_type) WHERE file_type != '' DO UPDATE SET
                             status='PENDING', bytes_transferred=0, started_at=NULL, completed_at=NULL, error_message=NULL
                         WHERE patch_transfers.status='FAILED'`);
                     const stmtStaged = db.prepare(
