@@ -155,8 +155,21 @@ router.get('/poll', (req, res) => {
                     return !hasActive && hasFailed;
                 });
                 if (stuckTypes.length) {
-                    db.prepare("UPDATE jobs SET status='failed', exit_code=-1, finished_at=datetime('now') WHERE id=?").run(candidate.id);
-                    console.log('[poll] Job ' + candidate.id + ' (' + candidate.operation + ') failed: required transfer(s) permanently failed with no retry in flight: ' + stuckTypes.join(', '));
+                    // Pull the actual error for each stuck type so the reason is visible
+                    // in the UI, not just the server console — this job never gets
+                    // dispatched to the agent, so no job_logs rows would otherwise exist
+                    // at all and the Logs/Report modal would show nothing.
+                    const reasons = stuckTypes.map(function(ft) {
+                        const failedRow = db.prepare(
+                            "SELECT error_message FROM patch_transfers WHERE patch_id=? AND target_host=? AND file_type=? AND status='FAILED' ORDER BY completed_at DESC LIMIT 1"
+                        ).get(pvId, hostname, ft);
+                        return ft + (failedRow && failedRow.error_message ? ': ' + failedRow.error_message : '');
+                    });
+                    const failMsg = 'Required transfer(s) permanently failed with no retry in flight — ' + reasons.join(' | ') +
+                        '. Re-run this operation to retry (the failed transfer(s) reset automatically for a new job).';
+                    db.prepare("UPDATE jobs SET status='failed', exit_code=-1, started_at=datetime('now'), finished_at=datetime('now') WHERE id=?").run(candidate.id);
+                    db.prepare("INSERT INTO job_logs (job_id, stream, line) VALUES (?, 'system', ?)").run(candidate.id, failMsg);
+                    console.log('[poll] Job ' + candidate.id + ' (' + candidate.operation + ') failed: ' + failMsg);
                     continue;
                 }
                 // Log once per job (not every 5s poll) to avoid noise
