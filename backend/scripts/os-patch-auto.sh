@@ -742,6 +742,48 @@ autoconfigure_patches() {
         OPATCH_ZIP="$(_discover_opatch_zip "$OPATCH_ZIP_DIR" "${OPATCH_ZIP_PATTERN}")" || true
     fi
 
+    # FIX: Auto-discover GI_BASE_ZIP / DB_BASE_ZIP if the configured path doesn't exist.
+    # Centralized here (rather than in each individual caller — gi_install, db_install,
+    # gi_precheck, db_precheck, validate_staged_software_html all consume these vars) so
+    # every one of them sees the corrected path once, instead of needing the same
+    # fallback search duplicated at each call site.
+    _autodiscover_base_zip() {
+        local _var_name="$1" _pattern="$2" _extra_dir="$3"
+        local _cur="${!_var_name:-}"
+        [[ -n "$_cur" && -f "$_cur" ]] && return 0
+        local _search_dirs=(
+            "/staging" "${STAGING_DROP_DIR:-/home/oracle/staging}"
+            "$(dirname "${_cur:-/nonexistent}")" "$_extra_dir"
+        )
+        local _bname="" _d
+        [[ -n "$_cur" ]] && _bname=$(basename "$_cur")
+        for _d in "${_search_dirs[@]}"; do
+            [[ -n "$_d" && -d "$_d" ]] || continue
+            if [[ -n "$_bname" && -f "$_d/$_bname" ]]; then
+                log "INFO: autoconfigure_patches: $_var_name found at $_d/$_bname (configured path was ${_cur:-<unset>})"
+                printf -v "$_var_name" '%s' "$_d/$_bname"
+                return 0
+            fi
+            shopt -s nullglob
+            local _candidates=( "$_d"/${_pattern} )
+            shopt -u nullglob
+            if (( ${#_candidates[@]} > 0 )); then
+                log "INFO: autoconfigure_patches: $_var_name found at ${_candidates[0]} (configured path was ${_cur:-<unset>})"
+                printf -v "$_var_name" '%s' "${_candidates[0]}"
+                return 0
+            fi
+        done
+        return 1
+    }
+    # `|| true` is required: _autodiscover_base_zip legitimately returns 1 when nothing
+    # is found (a normal outcome, not an error), and under `set -e` an unguarded non-zero
+    # return here would silently abort the entire script — same class of bug fixed
+    # earlier in send_db_open_notification's listener-service check.
+    if [[ "${DB_ONLY_MODE:-false}" != true ]]; then
+        _autodiscover_base_zip GI_BASE_ZIP 'V982068*.zip' '/grid/software' || true
+    fi
+    _autodiscover_base_zip DB_BASE_ZIP 'V982063*.zip' '/app/software' || true
+
     if [[ -n "${OJVM_ZIP_DIR:-}" && -d "$OJVM_ZIP_DIR" ]]; then
         shopt -s nullglob
         local ojvm_zips=( "$OJVM_ZIP_DIR"/${OJVM_ZIP_PATTERN} )
@@ -762,6 +804,8 @@ autoconfigure_patches() {
 
     echo "PATCH AUTO-CONFIG:" >&2
     echo "  PATCH_TARGET_VERSION = ${PATCH_TARGET_VERSION:-<not set — will pick latest>}" >&2
+    echo "  GI_BASE_ZIP    = ${GI_BASE_ZIP:-<not found>}" >&2
+    echo "  DB_BASE_ZIP    = ${DB_BASE_ZIP:-<not found>}" >&2
     echo "  OPATCH_ZIP_DIR = ${OPATCH_ZIP_DIR:-<not found>}" >&2
     echo "  RU_DIR         = ${RU_DIR:-<not found>}" >&2
     echo "  RU_README      = ${RU_README:-<not found>}" >&2
