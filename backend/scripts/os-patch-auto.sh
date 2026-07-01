@@ -5126,7 +5126,11 @@ gi_install() {
         log "INFO: Depot mode — $NEW_GI_HOME already extracted, skipping unzip"
     elif [[ ! -f "$GI_BASE_ZIP" ]]; then
         add_html_row "GI Base ZIP" "FAIL" \
-            "GI base ZIP missing: $GI_BASE_ZIP. Either upload the zip or run 'Extract to Depot' from the Patches UI and re-stage."
+            "GI base ZIP missing: $GI_BASE_ZIP. Neither the extracted depot home nor the source zip exist on this VM (the agent deletes the zip after a successful extract to save disk, so this happens if the extracted home is later removed manually). Requesting a fresh transfer — re-run this operation once it's staged."
+        # [TRANSFER_RESET] tells the orchestrator to reset the matching STAGED
+        # transfer back to PENDING so the next job creation re-fetches it, instead
+        # of requiring someone to hand-edit patch_transfers via SQL.
+        log "[TRANSFER_RESET] gi_base"
         die "GI Base ZIP missing: $GI_BASE_ZIP"
     else
         add_html_row "GI Base ZIP" "PASS" "$GI_BASE_ZIP"
@@ -7513,14 +7517,19 @@ Run db_rollback first to return the database to $OLD_DB_HOME, then retry db_inst
         run_cmd "chown -R $ORACLE_USER:$OINSTALL_GROUP \"$NEW_DB_HOME\""
         if [[ ! -f "$DB_BASE_ZIP" ]]; then
             add_html_row "DB Base ZIP" "FAIL" \
-                "DB base ZIP missing after stale-home cleanup: $DB_BASE_ZIP. Re-stage the software before retrying."
+                "DB base ZIP missing after stale-home cleanup: $DB_BASE_ZIP. Requesting a fresh transfer — re-run this operation once it's staged."
+            log "[TRANSFER_RESET] db_base"
             send_html_report "DB Install FAILED - $HOST" "DB Install Report (FAILED)"
             die "DB Base ZIP missing after stale-home cleanup: $DB_BASE_ZIP"
         fi
         run_cmd "unzip -oq \"$DB_BASE_ZIP\" -d \"$NEW_DB_HOME\""
     elif [[ ! -f "$DB_BASE_ZIP" ]]; then
         add_html_row "DB Base ZIP" "FAIL" \
-            "DB base ZIP missing: $DB_BASE_ZIP. Searched: /staging/DB_BASE_SOFT, /staging, $STAGING_DROP_DIR, $(dirname "$DB_BASE_ZIP"). Either upload the zip or run 'Extract to Depot' from the Patches UI and re-stage."
+            "DB base ZIP missing: $DB_BASE_ZIP. Neither the extracted depot home nor the source zip exist on this VM (the agent deletes the zip after a successful extract to save disk, so this happens if the extracted home is later removed manually). Requesting a fresh transfer — re-run this operation once it's staged."
+        # [TRANSFER_RESET] tells the orchestrator to reset the matching STAGED
+        # transfer back to PENDING so the next job creation re-fetches it, instead
+        # of requiring someone to hand-edit patch_transfers via SQL.
+        log "[TRANSFER_RESET] db_base"
         send_html_report "DB Install FAILED - $HOST" "DB Install Report (FAILED)"
         die "DB Base ZIP missing: $DB_BASE_ZIP"
     else

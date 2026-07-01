@@ -645,6 +645,34 @@ router.post('/:jobId/logs', (req, res) => {
                 continue; // don't add to job_logs
             }
 
+            // Intercept [TRANSFER_RESET] lines — the bash script hits this when a depot
+            // home is missing AND the source zip is also missing (e.g. someone manually
+            // deleted an extracted home after the agent already cleaned up its zip copy
+            // post-extract). Reset the matching STAGED transfer back to PENDING so the
+            // next job creation for this patch/host automatically re-fetches it, instead
+            // of requiring manual SQL every time this happens.
+            var _trIdx = line.indexOf('[TRANSFER_RESET] ');
+            if (_trIdx >= 0) {
+                try {
+                    var fileType = line.slice(_trIdx + '[TRANSFER_RESET] '.length).trim();
+                    var trJob = db.prepare('SELECT j.*, v.hostname FROM jobs j LEFT JOIN vms v ON j.vm_id = v.id WHERE j.id = ?').get(jobId);
+                    if (trJob && trJob.target_patch_version_id && trJob.hostname && fileType) {
+                        var reset = db.prepare(
+                            "UPDATE patch_transfers SET status='PENDING', bytes_transferred=0, started_at=NULL, completed_at=NULL, phase='' " +
+                            "WHERE patch_id=? AND target_host=? AND file_type=? AND status='STAGED'"
+                        ).run(trJob.target_patch_version_id, trJob.hostname, fileType);
+                        if (reset.changes) {
+                            console.log('[agent] [TRANSFER_RESET] reset ' + fileType + ' transfer to PENDING for ' + trJob.hostname + ' (job ' + jobId + ')');
+                        }
+                    }
+                } catch(e) {
+                    console.error('[agent] Failed to process TRANSFER_RESET:', e.message);
+                }
+                // fall through — still record this as a normal log line too, since it's
+                // useful context in the job's own Logs tab, unlike HTML_REPORT/DISCOVERY_JSON
+                // which are pure noise there.
+            }
+
             // Intercept [DISCOVERY_JSON] lines — store in discoveries table AND update vm inventory
             var _djIdx = line.indexOf('[DISCOVERY_JSON] ');
             if (_djIdx >= 0) {
