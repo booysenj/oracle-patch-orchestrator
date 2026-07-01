@@ -120,23 +120,34 @@ function checkDueSchedules(wsBroadcast) {
 function timeoutStaleJobs() {
     const db = getDB();
 
+    // Select-then-update (rather than a bulk UPDATE) so each timed-out job gets a
+    // system-stream job_logs row explaining why -- the previous bulk UPDATE left zero
+    // logs for a timed-out job, identical to the silent-failure gap found and fixed
+    // for the transfer-gate fast-fail path (see agent.js). Without this, a job that
+    // times out here shows 'Failed' in the UI with completely empty Logs and Report
+    // tabs, no indication of what actually happened.
     const stuckRunning = db.prepare(`
-        UPDATE jobs SET status = 'failed', exit_code = -1,
-            finished_at = datetime('now')
-        WHERE status = 'running'
-          AND started_at < datetime('now', '-180 minutes')
-    `).run();
-
+        SELECT id FROM jobs WHERE status = 'running' AND started_at < datetime('now', '-180 minutes')
+    `).all();
     const stuckQueued = db.prepare(`
-        UPDATE jobs SET status = 'failed', exit_code = -1,
-            finished_at = datetime('now')
-        WHERE status = 'queued'
-          AND created_at < datetime('now', '-30 minutes')
-    `).run();
+        SELECT id FROM jobs WHERE status = 'queued' AND created_at < datetime('now', '-30 minutes')
+    `).all();
 
-    const total = stuckRunning.changes + stuckQueued.changes;
+    const updStmt = db.prepare("UPDATE jobs SET status='failed', exit_code=-1, finished_at=datetime('now') WHERE id=?");
+    const logStmt = db.prepare("INSERT INTO job_logs (job_id, stream, line) VALUES (?, 'system', ?)");
+
+    stuckRunning.forEach((j) => {
+        updStmt.run(j.id);
+        logStmt.run(j.id, 'Job timed out after running for over 180 minutes with no completion signal from the agent.');
+    });
+    stuckQueued.forEach((j) => {
+        updStmt.run(j.id);
+        logStmt.run(j.id, 'Job timed out after sitting queued for over 30 minutes — the agent never picked it up, or required transfers never staged in time.');
+    });
+
+    const total = stuckRunning.length + stuckQueued.length;
     if (total > 0) {
-        console.log(`[SCHEDULER] Timed out ${stuckRunning.changes} running + ${stuckQueued.changes} queued stale job(s)`);
+        console.log(`[SCHEDULER] Timed out ${stuckRunning.length} running + ${stuckQueued.length} queued stale job(s)`);
     }
     return total;
 }
