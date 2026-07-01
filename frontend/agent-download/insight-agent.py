@@ -141,6 +141,10 @@ def _detect_oracle_os_identity(grid_home, db_homes):
     return oracle_user, grid_user, oinstall_group
 
 
+# Homes the orchestrator asked us to verify still exist on disk — populated from the
+# previous discover() response, checked and reported back on the following cycle.
+_HOMES_TO_VERIFY = []
+
 def discover():
     """Collect lightweight system inventory and return a dict."""
     result = {
@@ -474,9 +478,27 @@ def discover():
     if gu: result['grid_user'] = gu
     if oi: result['oinstall_group'] = oi
 
+    # Check existence of any homes the orchestrator asked us to verify last cycle.
+    # A home is considered present if it's a directory containing an install marker
+    # (sqlplus for DB homes, crsctl for GI homes) — matches how the rest of the app
+    # already treats "does this home exist" (-x checks in os-patch-auto.sh).
+    home_checks = []
+    for h in _HOMES_TO_VERIFY:
+        _path = h.get('path')
+        if not _path:
+            continue
+        _exists = os.path.isdir(_path) and (
+            os.path.isfile(os.path.join(_path, 'bin', 'sqlplus')) or
+            os.path.isfile(os.path.join(_path, 'bin', 'crsctl'))
+        )
+        home_checks.append({'id': h.get('id'), 'exists': _exists})
+    if home_checks:
+        result['home_checks'] = home_checks
+
     return result
 
 def post_discovery(payload):
+    global _HOMES_TO_VERIFY
     try:
         r = requests.post(
             API_URL + '/api/agent/discover',
@@ -484,6 +506,12 @@ def post_discovery(payload):
         )
         if r.status_code != 200:
             print('[agent] Discovery POST error: HTTP %d' % r.status_code)
+            return
+        try:
+            _resp = r.json()
+            _HOMES_TO_VERIFY = _resp.get('homesToVerify', []) or []
+        except Exception:
+            pass
     except Exception as e:
         print('[agent] Discovery POST failed: %s' % e)
 

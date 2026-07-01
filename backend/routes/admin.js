@@ -182,7 +182,7 @@ router.put('/change-password', (req, res) => {
 router.get('/settings', (req, res) => {
     const db = getDB();
     try { db.exec("CREATE TABLE IF NOT EXISTS app_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT DEFAULT (datetime('now')))"); } catch(_) {}
-    const keys = ['orchestrator_url','gi_base_zip_path','db_base_zip_path','gi_home_base','db_home_base','patches_base_path','mail_to','mail_from','depot_base_path'];
+    const keys = ['orchestrator_url','gi_base_zip_path','db_base_zip_path','gi_home_base','db_home_base','patches_base_path','mail_to','mail_from','depot_base_path','stale_home_cleanup_days'];
     const result = {};
     for (const key of keys) {
         const row = db.prepare('SELECT value FROM app_settings WHERE key = ?').get(key);
@@ -194,7 +194,7 @@ router.get('/settings', (req, res) => {
 router.put('/settings', (req, res) => {
     const db = getDB();
     try { db.exec("CREATE TABLE IF NOT EXISTS app_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT DEFAULT (datetime('now')))"); } catch(_) {}
-    const allowed = ['orchestrator_url','gi_base_zip_path','db_base_zip_path','gi_home_base','db_home_base','patches_base_path','mail_to','mail_from','depot_base_path'];
+    const allowed = ['orchestrator_url','gi_base_zip_path','db_base_zip_path','gi_home_base','db_home_base','patches_base_path','mail_to','mail_from','depot_base_path','stale_home_cleanup_days'];
     const stmt = db.prepare("INSERT OR REPLACE INTO app_settings (key, value, updated_at) VALUES (?, ?, datetime('now'))");
     const tx = db.transaction(() => {
         for (const key of allowed) {

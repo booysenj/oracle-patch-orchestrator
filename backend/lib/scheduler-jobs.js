@@ -173,4 +173,33 @@ function checkPreDowntimeNotifications() {
     }
 }
 
-module.exports = { fireScheduleAsJob, checkDueSchedules, timeoutStaleJobs, checkPreDowntimeNotifications };
+// Auto-clear installed_homes rows that have been confirmed missing (deinstalled outside
+// the app) for longer than the configured threshold. Opt-in: stale_home_cleanup_days
+// unset/blank/0 means disabled — never auto-clear without an explicit setting.
+function cleanupStaleHomes() {
+    const db = getDB();
+    let days;
+    try { days = parseInt(getSetting(db, 'stale_home_cleanup_days'), 10); } catch(_) { return 0; }
+    if (!days || days <= 0) return 0;
+
+    let stale;
+    try {
+        stale = db.prepare(`
+            SELECT * FROM installed_homes
+            WHERE status = 'active' AND first_seen_missing_at IS NOT NULL
+              AND first_seen_missing_at < datetime('now', '-' || ? || ' days')
+        `).all(days);
+    } catch(_) { return 0; }
+
+    for (const home of stale) {
+        db.prepare("UPDATE installed_homes SET status='cleared', cleared_at=datetime('now') WHERE id=?").run(home.id);
+        // Clear the matching stale reference so the patch-version picker stops offering
+        // a home that no longer exists (the bug this whole feature exists to fix).
+        const field = home.home_type === 'gi' ? 'new_gi_home' : 'new_db_home';
+        db.prepare(`UPDATE vms SET ${field} = '' WHERE id = ? AND ${field} = ?`).run(home.vm_id, home.home_path);
+    }
+    if (stale.length) console.log('[SCHEDULER] Cleared ' + stale.length + ' stale installed_homes row(s)');
+    return stale.length;
+}
+
+module.exports = { fireScheduleAsJob, checkDueSchedules, timeoutStaleJobs, checkPreDowntimeNotifications, cleanupStaleHomes };

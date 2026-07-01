@@ -178,13 +178,70 @@ async function loadOrcSettings() {
       patches_base_path: 'settingPatchesBase',
       mail_to: 'settingMailTo',
       mail_from: 'settingMailFrom',
-      depot_base_path: 'settingDepotBasePath'
+      depot_base_path: 'settingDepotBasePath',
+      stale_home_cleanup_days: 'settingStaleHomeDays'
     };
     Object.keys(fields).forEach(function(key) {
       var el = document.getElementById(fields[key]);
       if (el && orchSettings[key]) el.value = orchSettings[key];
     });
   } catch(e) { /* settings optional */ }
+}
+
+async function loadInstalledHomes() {
+  var tbody = document.getElementById('installedHomesBody');
+  if (!tbody) return;
+  tbody.innerHTML = '<tr><td colspan="8" class="loading">Loading…</td></tr>';
+  try {
+    var rows = await api('/vms/installed-homes/all');
+    if (!rows.length) {
+      tbody.innerHTML = '<tr><td colspan="8" class="loading">No installed homes tracked yet — this fills in as gi_install/db_install/switch jobs succeed.</td></tr>';
+      return;
+    }
+    tbody.innerHTML = rows.map(function(h) {
+      var statusBadgeHtml;
+      if (h.status === 'cleared') {
+        statusBadgeHtml = '<span class="status-badge" style="background:var(--surface3)">Cleared</span>';
+      } else if (h.first_seen_missing_at) {
+        statusBadgeHtml = '<span class="status-badge status-failed">Missing since ' + formatDate(h.first_seen_missing_at) + '</span>';
+      } else if (h.last_verified_at) {
+        statusBadgeHtml = '<span class="status-badge status-success">Active</span>';
+      } else {
+        statusBadgeHtml = '<span class="status-badge status-running">Not yet verified</span>';
+      }
+      var actions = h.status === 'active' ?
+        '<button class="btn btn-sm btn-secondary" onclick="verifyInstalledHomeNow(\'' + h.id + '\')">Verify now</button> ' +
+        '<button class="btn btn-sm btn-danger" onclick="clearInstalledHomeNow(\'' + h.id + '\')">Clear</button>' : '—';
+      return '<tr>' +
+        '<td><span class="mono">' + esc(h.hostname || '') + '</span></td>' +
+        '<td>' + esc((h.home_type || '').toUpperCase()) + '</td>' +
+        '<td><span class="mono">' + esc(h.home_path || '') + '</span></td>' +
+        '<td>' + esc(h.patch_version || '—') + '</td>' +
+        '<td>' + formatDate(h.installed_at) + '</td>' +
+        '<td>' + (h.last_verified_at ? formatDate(h.last_verified_at) : '—') + '</td>' +
+        '<td>' + statusBadgeHtml + '</td>' +
+        '<td>' + actions + '</td></tr>';
+    }).join('');
+  } catch(e) {
+    tbody.innerHTML = '<tr><td colspan="8" class="loading">Failed to load: ' + esc(e.message) + '</td></tr>';
+  }
+}
+
+async function verifyInstalledHomeNow(id) {
+  try {
+    await api('/vms/installed-homes/' + id + '/verify-now', { method: 'POST' });
+    showToast('Queued for verification on this VM\'s next discovery cycle (~60s)', 'info');
+    loadInstalledHomes();
+  } catch(e) { showToast('Failed: ' + e.message, 'error'); }
+}
+
+async function clearInstalledHomeNow(id) {
+  if (!confirm('Clear this tracked home now? This only stops the app from tracking it (and clears a matching stale VM home reference) — it does not touch anything on the VM itself.')) return;
+  try {
+    await api('/vms/installed-homes/' + id + '/clear', { method: 'POST' });
+    showToast('Cleared', 'success');
+    loadInstalledHomes();
+  } catch(e) { showToast('Failed: ' + e.message, 'error'); }
 }
 
 async function selfUpdate() {
@@ -216,7 +273,8 @@ async function saveOrcSettings() {
     patches_base_path: (document.getElementById('settingPatchesBase') || {}).value || '',
     mail_to: (document.getElementById('settingMailTo') || {}).value || '',
     mail_from: (document.getElementById('settingMailFrom') || {}).value || '',
-    depot_base_path: (document.getElementById('settingDepotBasePath') || {}).value || ''
+    depot_base_path: (document.getElementById('settingDepotBasePath') || {}).value || '',
+    stale_home_cleanup_days: (document.getElementById('settingStaleHomeDays') || {}).value || ''
   };
   try {
     await api('/admin/settings', { method: 'PUT', body: JSON.stringify(body) });
@@ -267,7 +325,7 @@ document.querySelectorAll('.nav-btn').forEach(function(btn) {
     document.querySelectorAll('.tab-content').forEach(function(t) { t.classList.remove('active'); });
     btn.classList.add('active');
     document.getElementById('tab-' + btn.dataset.tab).classList.add('active');
-    if (btn.dataset.tab === 'jobs') loadJobs(); if (btn.dataset.tab === 'admin') { loadUsers(); loadOrcSettings(); loadOrcSshKey(); } if (btn.dataset.tab === 'patches') loadPatches();
+    if (btn.dataset.tab === 'jobs') loadJobs(); if (btn.dataset.tab === 'admin') { loadUsers(); loadOrcSettings(); loadOrcSshKey(); loadInstalledHomes(); } if (btn.dataset.tab === 'patches') loadPatches();
   });
 });
 

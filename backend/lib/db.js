@@ -125,6 +125,29 @@ function initDB() {
         CREATE INDEX IF NOT EXISTS idx_discoveries_host ON discoveries(hostname);
         CREATE INDEX IF NOT EXISTS idx_discoveries_type ON discoveries(type);
     `);
+    // installed_homes: tracks every Oracle home this app has installed, so a manually
+    // deinstalled home (freeing disk space outside the app) can be detected and its
+    // stale vms.new_db_home/new_gi_home reference auto-cleared instead of lingering
+    // forever and misleading the patch-version picker.
+    d.exec(`
+        CREATE TABLE IF NOT EXISTS installed_homes (
+            id                    TEXT PRIMARY KEY,
+            vm_id                 TEXT NOT NULL REFERENCES vms(id),
+            home_type             TEXT NOT NULL,
+            home_path             TEXT NOT NULL,
+            patch_version_id      TEXT,
+            installed_at          TEXT DEFAULT (datetime('now')),
+            installed_by_job_id   TEXT,
+            last_verified_at      TEXT,
+            last_verified_exists  INTEGER,
+            first_seen_missing_at TEXT,
+            status                TEXT DEFAULT 'active',
+            cleared_at            TEXT,
+            UNIQUE(vm_id, home_path)
+        );
+        CREATE INDEX IF NOT EXISTS idx_installed_homes_vm ON installed_homes(vm_id);
+        CREATE INDEX IF NOT EXISTS idx_installed_homes_status ON installed_homes(status);
+    `);
     console.log('[db] Initialised at', DB_PATH);
 }
 

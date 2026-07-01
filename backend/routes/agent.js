@@ -15,6 +15,43 @@ function deriveStageFromHome(home) {
     return parts.length ? '/' + parts[0] + '/software' : '';
 }
 
+// Resolve the target home path the same way the X-Unzip-To logic does (vm override →
+// patch_versions override → configured home_base + version). Used to record which home
+// a successful gi_install/db_install/*_oh_switch actually targeted.
+function deriveTargetHome(db, vm, patchVersionId, homeType) {
+    var vmExplicit = homeType === 'db' ? vm.new_db_home : vm.new_gi_home;
+    if (vmExplicit) return vmExplicit;
+    var pv = patchVersionId ? db.prepare('SELECT version, new_gi_home, new_db_home FROM patch_versions WHERE id=?').get(patchVersionId) : null;
+    var pvExplicit = pv && (homeType === 'db' ? pv.new_db_home : pv.new_gi_home);
+    if (pvExplicit) return pvExplicit;
+    if (!pv || !pv.version) return '';
+    var cfgKey = homeType === 'db' ? 'db_home_base' : 'gi_home_base';
+    var cfgBase = '';
+    try { var bs = db.prepare('SELECT value FROM app_settings WHERE key=?').get(cfgKey); if (bs && bs.value) cfgBase = bs.value.replace(/\/$/, ''); } catch(_) {}
+    var oldHome = homeType === 'db' ? (vm.old_db_home || vm.current_db_home) : vm.old_gi_home;
+    var base = cfgBase || (oldHome ? oldHome.replace(/\/[^/]+$/, '') : '');
+    return (base && pv.version) ? base + '/' + pv.version : '';
+}
+
+// Record (or refresh) an installed_homes row after a successful install/switch job.
+function recordInstalledHome(db, job) {
+    var homeType = /^gi_/.test(job.operation) ? 'gi' : 'db';
+    var vm = db.prepare('SELECT * FROM vms WHERE id=?').get(job.vm_id);
+    if (!vm) return;
+    var homePath = deriveTargetHome(db, vm, job.target_patch_version_id, homeType);
+    if (!homePath) return;
+    try {
+        db.prepare(`
+            INSERT INTO installed_homes (id, vm_id, home_type, home_path, patch_version_id, installed_by_job_id, status, first_seen_missing_at, cleared_at)
+            VALUES (?, ?, ?, ?, ?, ?, 'active', NULL, NULL)
+            ON CONFLICT(vm_id, home_path) DO UPDATE SET
+                patch_version_id = excluded.patch_version_id,
+                installed_by_job_id = excluded.installed_by_job_id,
+                status = 'active', first_seen_missing_at = NULL, cleared_at = NULL
+        `).run(uuidv4(), job.vm_id, homeType, homePath, job.target_patch_version_id || null, job.id);
+    } catch(e) { console.error('[installed_homes] record error:', e.message); }
+}
+
 function authenticateAgent(req, res, next) {
     const auth = req.headers.authorization;
     var expected = 'Bearer ' + AGENT_SECRET;
@@ -380,7 +417,40 @@ router.post('/discover', (req, res) => {
     vals.push(vm.id);
     db.prepare('UPDATE vms SET ' + cols + ' WHERE id = ?').run(...vals);
 
-    res.json({ ok: true, preferred_staging: preferredStaging, auto_populated: Object.keys(updates) });
+    // Apply any home-existence results the agent reported from the previous cycle's
+    // homesToVerify list (see below). first_seen_missing_at is only set the first time a
+    // home is reported missing — it's not reset on every check — so cleanupStaleHomes()
+    // can measure how long it's been gone. A later exists=true clears it (self-healing).
+    var homeChecks = payload.home_checks || [];
+    if (homeChecks.length) {
+        var updStmt = db.prepare(`
+            UPDATE installed_homes SET
+                last_verified_at = datetime('now'),
+                last_verified_exists = ?,
+                first_seen_missing_at = CASE
+                    WHEN ? = 1 THEN NULL
+                    WHEN first_seen_missing_at IS NULL THEN datetime('now')
+                    ELSE first_seen_missing_at
+                END
+            WHERE id = ? AND status = 'active'
+        `);
+        homeChecks.forEach(function(c) {
+            if (!c || !c.id) return;
+            var existsFlag = c.exists ? 1 : 0;
+            updStmt.run(existsFlag, existsFlag, c.id);
+        });
+    }
+
+    // Tell the agent which tracked homes to check existence for next cycle — capped so a
+    // VM with many homes doesn't turn every discovery into a filesystem-stat storm.
+    var homesToVerify = db.prepare(`
+        SELECT id, home_path AS path FROM installed_homes
+        WHERE vm_id = ? AND status = 'active'
+          AND (last_verified_at IS NULL OR last_verified_at < datetime('now', '-24 hours'))
+        LIMIT 5
+    `).all(vm.id);
+
+    res.json({ ok: true, preferred_staging: preferredStaging, auto_populated: Object.keys(updates), homesToVerify: homesToVerify });
 });
 
 // Runtime config — returns shell-sourceable conf for a specific job
@@ -661,6 +731,17 @@ router.post('/:jobId/complete', (req, res) => {
     db.prepare(
         'UPDATE jobs SET status = ?, exit_code = ?, finished_at = datetime(?) WHERE id = ?'
     ).run(status, exitCode, 'now', jobId);
+
+    // Track the home this job installed/switched to, so it can later be verified to
+    // still exist on disk and auto-cleared if manually deinstalled (see installed_homes).
+    if (status === 'success') {
+        var INSTALL_OPS = ['gi_install', 'db_install', 'gi_oh_switch', 'db_oh_switch', 'gi_upgrade_install', 'db_upgrade_install'];
+        var completedJob = db.prepare('SELECT * FROM jobs WHERE id=?').get(jobId);
+        if (completedJob && INSTALL_OPS.indexOf(completedJob.operation) >= 0 && !completedJob.dry_run) {
+            recordInstalledHome(db, completedJob);
+        }
+    }
+
     jobEvents.emit('done:' + jobId, { status: status, exitCode: exitCode });
     res.json({ ok: true, status: status, exitCode: exitCode });
 });

@@ -18,7 +18,7 @@ const { initDB } = require('./lib/db');
 const { initAuditTable } = require('./lib/audit');
 const { attachWSS } = require('./lib/ws-relay');
 const { setupTransferRoutes } = require('./lib/transfer-api');
-const { checkDueSchedules, timeoutStaleJobs, checkPreDowntimeNotifications } = require('./lib/scheduler-jobs');
+const { checkDueSchedules, timeoutStaleJobs, checkPreDowntimeNotifications, cleanupStaleHomes } = require('./lib/scheduler-jobs');
 
 const app = express();
 const server = http.createServer(app);
@@ -75,6 +75,11 @@ server.listen(PORT, '0.0.0.0', () => {
     // Run immediately on startup to clear any stale jobs, then every 5 minutes
     timeoutStaleJobs();
     setInterval(timeoutStaleJobs, 5 * 60 * 1000);
+
+    // Auto-clear installed_homes confirmed missing longer than the configured threshold
+    // (opt-in — see stale_home_cleanup_days in Admin Settings). Daily cadence is enough.
+    cleanupStaleHomes();
+    setInterval(cleanupStaleHomes, 24 * 60 * 60 * 1000);
 
     const _schedulerTick = () => {
         try {

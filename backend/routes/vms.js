@@ -167,6 +167,52 @@ router.patch('/:id/config', (req, res) => {
     res.json({ ok: true, updated: Object.keys(updates) });
 });
 
+// Installed homes this app has tracked for a VM (or all VMs if :id is 'all') — see
+// installed_homes table / cleanupStaleHomes in lib/scheduler-jobs.js.
+router.get('/:id/installed-homes', (req, res) => {
+    const db = getDB();
+    const rows = db.prepare(`
+        SELECT h.*, v.hostname, p.version AS patch_version
+        FROM installed_homes h
+        JOIN vms v ON v.id = h.vm_id
+        LEFT JOIN patch_versions p ON p.id = h.patch_version_id
+        WHERE h.vm_id = ?
+        ORDER BY h.installed_at DESC
+    `).all(req.params.id);
+    res.json(rows);
+});
+
+router.get('/installed-homes/all', (req, res) => {
+    const db = getDB();
+    const rows = db.prepare(`
+        SELECT h.*, v.hostname, p.version AS patch_version
+        FROM installed_homes h
+        JOIN vms v ON v.id = h.vm_id
+        LEFT JOIN patch_versions p ON p.id = h.patch_version_id
+        ORDER BY h.installed_at DESC
+    `).all();
+    res.json(rows);
+});
+
+// Immediately clear a home — same effect as the automated stale-home sweep, on demand.
+router.post('/installed-homes/:homeId/clear', (req, res) => {
+    const db = getDB();
+    const home = db.prepare('SELECT * FROM installed_homes WHERE id = ?').get(req.params.homeId);
+    if (!home) return res.status(404).json({ error: 'Home not found' });
+    db.prepare("UPDATE installed_homes SET status='cleared', cleared_at=datetime('now') WHERE id=?").run(home.id);
+    const field = home.home_type === 'gi' ? 'new_gi_home' : 'new_db_home';
+    db.prepare(`UPDATE vms SET ${field} = '' WHERE id = ? AND ${field} = ?`).run(home.vm_id, home.home_path);
+    res.json({ ok: true });
+});
+
+// Force this home into the VM's next discover() cycle regardless of the 24h staleness window
+router.post('/installed-homes/:homeId/verify-now', (req, res) => {
+    const db = getDB();
+    const result = db.prepare("UPDATE installed_homes SET last_verified_at = NULL WHERE id = ? AND status = 'active'").run(req.params.homeId);
+    if (!result.changes) return res.status(404).json({ error: 'Home not found or not active' });
+    res.json({ ok: true });
+});
+
 router.delete('/:id', (req, res) => {
     const result = getDB().prepare('DELETE FROM vms WHERE id = ?').run(req.params.id);
     if (result.changes === 0) return res.status(404).json({ error: 'VM not found' });
