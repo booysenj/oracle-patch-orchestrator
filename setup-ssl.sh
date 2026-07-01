@@ -71,14 +71,14 @@ cat > "$NGINX_CONF" <<'NGINXEOF'
 # insight-patch-ui — SSL reverse proxy
 server {
     listen 80;
-    server_name _;
+    server_name zacptuatrn01.4cgroup.co.za;
     # Redirect HTTP to HTTPS
     return 301 https://$host$request_uri;
 }
 
 server {
     listen 443 ssl;
-    server_name _;
+    server_name zacptuatrn01.4cgroup.co.za;
 
     ssl_certificate     /etc/ssl/insight-patch/server.crt;
     ssl_certificate_key /etc/ssl/insight-patch/server.key;
