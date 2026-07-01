@@ -7314,18 +7314,36 @@ EOF
                     run_cmd "java -jar \"$_au_jar\" -config \"$_au_cfg\" -mode analyze > \"$_au_analyze_log\" 2>&1 || true"
                     add_attachment "$_au_analyze_log"
 
-                    local _au_html=""
-                    [[ -d "$_au_logdir" ]] && _au_html=$(find "$_au_logdir" -type f -iname '*html*' 2>/dev/null | head -n1 || true)
+                    # AutoUpgrade writes its preupgrade report at a fixed, documented path —
+                    # <log_dir>/cfgtoollogs/autoupgrade/<dbname>/prechecks/preupgrade.html —
+                    # check that first before falling back to a broad search, since a stale
+                    # unrelated HTML file elsewhere under logdir could otherwise be picked up.
+                    local _au_html="${_au_logdir}/cfgtoollogs/autoupgrade/${_disc_db}/prechecks/preupgrade.html"
+                    if [[ ! -f "$_au_html" ]]; then
+                        _au_html=$([[ -d "$_au_logdir" ]] && find "$_au_logdir" -type f -iname 'preupgrade*.html' 2>/dev/null | head -n1 || true)
+                    fi
+
                     if [[ -n "$_au_html" && -f "$_au_html" ]]; then
                         add_attachment "$_au_html"
-                        add_html_row "AutoUpgrade Analyze ($_disc_db)" "PASS" \
-                            "HTML analysis attached: $(basename "$_au_html")."
+                        # The report categorizes findings as ERROR / WARNING / INFORMATION —
+                        # per Oracle docs, only ERROR actually blocks the upgrade/switch.
+                        local _au_err_count
+                        _au_err_count=$(grep -oci '>ERROR<\|"ERROR"' "$_au_html" 2>/dev/null || echo 0)
+                        if [[ "${_au_err_count:-0}" -gt 0 ]]; then
+                            add_html_row "AutoUpgrade Analyze ($_disc_db)" "FAIL" \
+                                "preupgrade.html reports ${_au_err_count} ERROR-level finding(s) that block the switch — review the attached report, then apply fixes with:<br/>\
+<code>java -jar $_au_jar -config $_au_cfg -mode fixups</code><br/>\
+(fixups mode makes real changes — run manually and deliberately, not part of any automated job.)"
+                        else
+                            add_html_row "AutoUpgrade Analyze ($_disc_db)" "PASS" \
+                                "No ERROR-level findings. HTML analysis attached: $(basename "$_au_html")."
+                        fi
                     elif grep -qi "FATAL ERROR\|AutoUpgrade failed" "$_au_analyze_log" 2>/dev/null; then
                         add_html_row "AutoUpgrade Analyze ($_disc_db)" "FAIL" \
                             "AutoUpgrade analyze reported failures. See $_au_analyze_log"
                     else
                         add_html_row "AutoUpgrade Analyze ($_disc_db)" "WARN" \
-                            "Could not locate HTML analysis under $_au_logdir. Check $_au_analyze_log"
+                            "Could not locate preupgrade.html under $_au_logdir. Check $_au_analyze_log"
                     fi
                 fi
             fi
