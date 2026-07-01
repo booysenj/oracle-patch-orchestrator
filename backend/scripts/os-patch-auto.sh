@@ -5223,6 +5223,23 @@ gi_install() {
     fi
 
     add_html_row "GI Software Install" "FAIL" "$failure_reason. See installer log: $grid_log"
+
+    # Clean up the failed partial home so a retry starts clean, but ONLY if it never
+    # got far enough to register in the central inventory (safe_rm_rf refuses non-
+    # -precheck paths on purpose -- a home that IS registered needs a proper OUI
+    # detachHome/deinstall first, not a blind rm -rf, since that would leave a stale
+    # inventory entry pointing at a now-deleted path and corrupt future installs).
+    if [[ -d "$NEW_GI_HOME" ]]; then
+        if ! is_home_in_inventory "$NEW_GI_HOME"; then
+            add_html_row "GI Install cleanup" "INFO" \
+                "$NEW_GI_HOME was not registered in the central inventory — removing the failed partial install so a retry starts clean."
+            run_cmd "sudo rm -rf \"$NEW_GI_HOME\""
+        else
+            add_html_row "GI Install cleanup" "WARN" \
+                "$NEW_GI_HOME is already registered in the central inventory — NOT auto-removed. Run gridSetup.sh -deinstall (or detachHome) manually before retrying into this same path."
+        fi
+    fi
+
     send_html_report "GI Install FAILED - $HOST" "GI Install Report (FAILED)"
     log "GI installer failed: $failure_reason"
     die "$failure_reason"
@@ -7633,6 +7650,21 @@ Run db_rollback first to return the database to $OLD_DB_HOME, then retry db_inst
     # Failure path
     add_attachment "$db_log"
     add_html_row "DB Software Install" "FAIL" "$failure_reason. Log: $db_log"
+
+    # Same reasoning as gi_install's failure cleanup: only auto-remove the partial
+    # home if it never made it into the central inventory -- otherwise a proper
+    # runInstaller -deinstall/detachHome is needed first, not a blind rm -rf.
+    if [[ -d "$NEW_DB_HOME" ]]; then
+        if ! is_home_in_inventory "$NEW_DB_HOME"; then
+            add_html_row "DB Install cleanup" "INFO" \
+                "$NEW_DB_HOME was not registered in the central inventory — removing the failed partial install so a retry starts clean."
+            run_cmd "sudo rm -rf \"$NEW_DB_HOME\""
+        else
+            add_html_row "DB Install cleanup" "WARN" \
+                "$NEW_DB_HOME is already registered in the central inventory — NOT auto-removed. Run runInstaller -deinstall (or detachHome) manually before retrying into this same path."
+        fi
+    fi
+
     send_html_report "DB Install FAILED - $HOST" "DB Install Report (FAILED)"
     log "DB installer failed: $failure_reason"
     die "$failure_reason"
