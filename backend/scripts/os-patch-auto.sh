@@ -7139,6 +7139,13 @@ EOF
             "Could not stage DB software for precheck"
     fi
 
+    # Cleanup of temporary DB precheck home
+    if [[ -d "$PRECHECK_DB_HOME" ]]; then
+        add_html_row "DB precheck software cleanup" "INFO" \
+            "Removing precheck DB home $PRECHECK_DB_HOME to free space."
+        safe_rm_rf "$PRECHECK_DB_HOME" true
+    fi
+
     # ------------------------------------------------------------
     # SQL-based discovery (runs per running DB instance)
     # ------------------------------------------------------------
