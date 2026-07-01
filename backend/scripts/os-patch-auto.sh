@@ -7290,6 +7290,45 @@ EOF
             fi
             db_sql_discovery_html "$_disc_db" "$_pmon_home"
             db_listener_html "$_pmon_home"
+
+            # AutoUpgrade ANALYZE preview for DB_ONLY_MODE — db_oh_switch prefers AutoUpgrade
+            # deploy over plain SQL*Plus when NEW_DB_HOME/rdbms/admin/autoupgrade.jar exists
+            # (see db_switch_core), so precheck should validate that same path ahead of time,
+            # the same way OUI's executePrereqs previews a real install.
+            if [[ "${DB_ONLY_MODE:-false}" == true && -n "${NEW_DB_HOME:-}" && -f "$NEW_DB_HOME/rdbms/admin/autoupgrade.jar" ]]; then
+                local _au_jar="$NEW_DB_HOME/rdbms/admin/autoupgrade.jar"
+                local _au_cfg_out _au_logdir _au_cfg
+                _au_cfg_out=$(write_db_switch_autoupgrade_cfg "$_disc_db" "$_pmon_home" "$NEW_DB_HOME")
+                # write_db_switch_autoupgrade_cfg's log() calls also print to stdout, so the
+                # actual "echo logdir; echo cfg_file" return values are always the LAST two
+                # lines of output, not the first two.
+                _au_logdir=$(echo "$_au_cfg_out" | tail -n2 | head -n1)
+                _au_cfg=$(echo "$_au_cfg_out" | tail -n1)
+                add_html_row "AutoUpgrade config ($_disc_db)" "INFO" "$_au_cfg"
+
+                if [[ "$DRYRUN" == true ]]; then
+                    add_html_row "AutoUpgrade Analyze ($_disc_db) (dry-run)" "INFO" \
+                        "Would run: java -jar $_au_jar -config $_au_cfg -mode analyze"
+                else
+                    local _au_analyze_log="${DB_LOG_DIR}/autoupgrade_analyze_switch_${_disc_db}_$(date +%F_%H%M%S).log"
+                    run_cmd "java -jar \"$_au_jar\" -config \"$_au_cfg\" -mode analyze > \"$_au_analyze_log\" 2>&1 || true"
+                    add_attachment "$_au_analyze_log"
+
+                    local _au_html=""
+                    [[ -d "$_au_logdir" ]] && _au_html=$(find "$_au_logdir" -type f -iname '*html*' 2>/dev/null | head -n1 || true)
+                    if [[ -n "$_au_html" && -f "$_au_html" ]]; then
+                        add_attachment "$_au_html"
+                        add_html_row "AutoUpgrade Analyze ($_disc_db)" "PASS" \
+                            "HTML analysis attached: $(basename "$_au_html")."
+                    elif grep -qi "FATAL ERROR\|AutoUpgrade failed" "$_au_analyze_log" 2>/dev/null; then
+                        add_html_row "AutoUpgrade Analyze ($_disc_db)" "FAIL" \
+                            "AutoUpgrade analyze reported failures. See $_au_analyze_log"
+                    else
+                        add_html_row "AutoUpgrade Analyze ($_disc_db)" "WARN" \
+                            "Could not locate HTML analysis under $_au_logdir. Check $_au_analyze_log"
+                    fi
+                fi
+            fi
         done
     else
         # DB not running — still check listener using OLD_DB_HOME
