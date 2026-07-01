@@ -689,8 +689,12 @@ def execute_transfer(t):
                     import subprocess as _sp
                     _ensure_dir_writable(unzip_to)
                     print('[agent] Transfer %s: unzipping %s -> %s' % (tid, dest_file, unzip_to))
+                    # capture_output= is Python 3.7+ only -- this agent needs to run on
+                    # whatever python3 ships with the target VM's OS (some are still on
+                    # 3.6, e.g. older OL/RHEL 7/8), so use the equivalent stdout/stderr=
+                    # PIPE form instead, which has worked since Python 3.
                     result = _sp.run(['unzip', '-q', '-o', dest_file, '-d', unzip_to],
-                                     capture_output=True, timeout=1800)
+                                     stdout=_sp.PIPE, stderr=_sp.PIPE, timeout=1800)
                     if result.returncode != 0:
                         raise Exception('unzip failed (rc=%d): %s' % (
                             result.returncode,
