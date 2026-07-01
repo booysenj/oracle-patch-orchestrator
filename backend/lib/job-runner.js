@@ -92,7 +92,7 @@ function createJob({ vmId, operation, dryRun = false, verbose = false, applyOjvm
                         (id, patch_id, source_path, target_host, target_stage_path, status, file_type, transfer_method)
                         VALUES (?, ?, ?, ?, ?, 'PENDING', ?, 'API')
                         ON CONFLICT(patch_id, target_host, file_type) WHERE file_type != '' DO UPDATE SET
-                            status='PENDING', bytes_transferred=0, started_at=NULL, completed_at=NULL, error_message=NULL
+                            status='PENDING', bytes_transferred=0, started_at=NULL, completed_at=NULL, error_message=NULL, phase=''
                         WHERE patch_transfers.status='FAILED'`);
                     const stmtStaged = db.prepare(
                         "SELECT 1 FROM patch_transfers WHERE patch_id=? AND target_host=? AND file_type=? AND status='STAGED'"

@@ -5142,6 +5142,15 @@ gi_install() {
 
     ensure_cvu_config_ol7 "$NEW_GI_HOME"
 
+    # FIX: Validate RU_DIR before constructing -applyRU
+    if [[ -z "${RU_DIR:-}" || ! -d "${RU_DIR:-}" ]]; then
+        add_html_row "RU Directory" "FAIL" \
+            "RU_DIR is empty or does not exist: '${RU_DIR:-<not set>}'. The RU patch may be missing on this VM (the agent deletes the source zip after a successful extract). Requesting a fresh transfer — re-run this operation once it's staged."
+        log "[TRANSFER_RESET] ru_patch"
+        send_html_report "GI Install FAILED - $HOST" "GI Install Report (FAILED)"
+        die "RU_DIR is empty or missing ('${RU_DIR:-}'). Cannot pass -applyRU to gridSetup.sh. Run: $0 stage_software"
+    fi
+
     local grid_log="${GI_LOG_DIR}/gridSetup_$(date +%F_%H%M%S).log"
     add_attachment "$grid_log"
 
@@ -7557,7 +7566,8 @@ Run db_rollback first to return the database to $OLD_DB_HOME, then retry db_inst
     # FIX: Validate RU_DIR before constructing -applyRU
     if [[ -z "${RU_DIR:-}" || ! -d "${RU_DIR:-}" ]]; then
         add_html_row "RU Directory" "FAIL" \
-            "RU_DIR is empty or does not exist: '${RU_DIR:-<not set>}'. Run stage_software first to extract the RU ZIP."
+            "RU_DIR is empty or does not exist: '${RU_DIR:-<not set>}'. The RU patch may be missing on this VM (the agent deletes the source zip after a successful extract). Requesting a fresh transfer — re-run this operation once it's staged."
+        log "[TRANSFER_RESET] ru_patch"
         send_html_report "DB Install FAILED - $HOST" "DB Install Report (FAILED)"
         die "RU_DIR is empty or missing ('${RU_DIR:-}'). Cannot pass -applyRU to runInstaller. Run: $0 stage_software"
     fi
