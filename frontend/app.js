@@ -2078,20 +2078,23 @@ function startTransferPolling(jobId) {
       r.transfers.forEach(function(t) {
         var label = _fileLabels[t.file_type] || t.file_type || 'File';
         var fname = (t.source_path || '').split('/').pop() || t.file_type;
-        var icon, color, detail;
+        var icon, color, detail, barHtml = '';
         if (t.status === 'STAGED') {
           icon = '✓'; color = 'var(--color-success,#22c55e)';
           detail = fname;
         } else if (t.status === 'TRANSFERRING') {
-          var pct = t.total_bytes > 0 ? Math.round(t.bytes_transferred / t.total_bytes * 100) : '…';
+          var hasPct = t.total_bytes > 0;
+          var pct = hasPct ? Math.round(t.bytes_transferred / t.total_bytes * 100) : 0;
           icon = '⬇'; color = 'var(--color-warning,#fbbf24)';
-          detail = fname + ' — ' + pct + (typeof pct === 'number' ? '%' : '');
+          detail = fname + ' — ' + (hasPct ? pct + '%' : 'starting…');
+          barHtml = '<div style="height:4px;background:var(--surface3,#2a2f3a);border-radius:2px;margin:3px 0 2px;overflow:hidden">' +
+            '<div style="height:100%;width:' + (hasPct ? pct : 4) + '%;background:' + color + ';transition:width .3s"></div></div>';
         } else {
           icon = '○'; color = 'var(--text-muted)';
           detail = fname + ' (queued)';
         }
         html += '<div style="padding:2px 0"><span style="color:' + color + ';margin-right:6px">' + icon + '</span>' +
-          '<span style="color:var(--color-text-primary)">' + label + '</span> <span style="color:var(--text-muted)">' + esc(detail) + '</span></div>';
+          '<span style="color:var(--color-text-primary)">' + label + '</span> <span style="color:var(--text-muted)">' + esc(detail) + '</span>' + barHtml + '</div>';
       });
       el.innerHTML = html;
       if (r.jobStatus === 'running' || r.jobStatus === 'success' || r.jobStatus === 'failed') {
