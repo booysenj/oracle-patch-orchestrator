@@ -2082,6 +2082,14 @@ function startTransferPolling(jobId) {
         if (t.status === 'STAGED') {
           icon = '✓'; color = 'var(--color-success,#22c55e)';
           detail = fname;
+        } else if (t.status === 'TRANSFERRING' && t.phase === 'extracting') {
+          // Download finished (100%) but the agent is now unzipping — a multi-GB base
+          // zip can take a while here, and without this the UI just sits at a static
+          // "100%" indistinguishable from a stall.
+          icon = '📦'; color = 'var(--color-warning,#fbbf24)';
+          detail = fname + ' — extracting…';
+          barHtml = '<div style="height:4px;background:var(--surface3,#2a2f3a);border-radius:2px;margin:3px 0 2px;overflow:hidden">' +
+            '<div style="height:100%;width:100%;background:' + color + ';opacity:.6;animation:pulse 1.2s ease-in-out infinite"></div></div>';
         } else if (t.status === 'TRANSFERRING') {
           var hasPct = t.total_bytes > 0;
           var pct = hasPct ? Math.round(t.bytes_transferred / t.total_bytes * 100) : 0;

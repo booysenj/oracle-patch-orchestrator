@@ -86,7 +86,7 @@ router.get('/poll', (req, res) => {
         "SELECT * FROM patch_transfers WHERE target_host = ? AND status = 'PENDING' ORDER BY created_at ASC LIMIT 1"
     ).get(hostname);
     if (pendingTransfer) {
-        db.prepare("UPDATE patch_transfers SET status='TRANSFERRING', started_at=datetime('now') WHERE id=?").run(pendingTransfer.id);
+        db.prepare("UPDATE patch_transfers SET status='TRANSFERRING', started_at=datetime('now'), phase='' WHERE id=?").run(pendingTransfer.id);
         return res.json({
             transfer: {
                 id: pendingTransfer.id,
@@ -893,9 +893,15 @@ router.post('/transfer/:id/complete', (req, res) => {
 // POST /api/agent/transfer/:id/progress — agent reports bytes received so far
 router.post('/transfer/:id/progress', (req, res) => {
     const db = getDB();
-    const { bytesReceived, totalBytes } = req.body || {};
-    db.prepare("UPDATE patch_transfers SET bytes_transferred=?, total_bytes=? WHERE id=?")
-        .run(bytesReceived || 0, totalBytes || 0, req.params.id);
+    const { bytesReceived, totalBytes, phase } = req.body || {};
+    if (phase) {
+        // Phase-only ping (e.g. "extracting") — don't stomp bytes_transferred/total_bytes
+        // with zeros if the agent didn't also send them on this particular call.
+        db.prepare("UPDATE patch_transfers SET phase=? WHERE id=?").run(phase, req.params.id);
+    } else {
+        db.prepare("UPDATE patch_transfers SET bytes_transferred=?, total_bytes=? WHERE id=?")
+            .run(bytesReceived || 0, totalBytes || 0, req.params.id);
+    }
     res.json({ ok: true });
 });
 

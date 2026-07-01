@@ -92,6 +92,9 @@ function initDB() {
     try { d.exec(`ALTER TABLE vms ADD COLUMN scan_port INTEGER`); } catch(_) {}
     try { d.exec(`ALTER TABLE vms ADD COLUMN mail_to TEXT`); } catch(_) {}
     try { d.exec(`ALTER TABLE vms ADD COLUMN mail_from TEXT`); } catch(_) {}
+    // 'downloading' | 'extracting' — lets the UI distinguish "download done, now
+    // unzipping" from a stalled 100%, since bytes_transferred alone can't show that.
+    try { d.exec(`ALTER TABLE patch_transfers ADD COLUMN phase TEXT DEFAULT ''`); } catch(_) {}
     // patch_reports migrations — run before CREATE TABLE so existing DBs get the columns
     try { d.exec(`ALTER TABLE patch_reports ADD COLUMN subject TEXT`); } catch(_) {}
     try { d.exec(`ALTER TABLE patch_reports ADD COLUMN html_content TEXT NOT NULL DEFAULT ''`); } catch(_) {}

@@ -691,6 +691,12 @@ footer {
   border: 1px solid rgba(91,154,255,0.2);
 }
 
+/* Transfer staging panel — "extracting" phase bar (download 100%, agent unzipping) */
+@keyframes pulse {
+  0%, 100% { opacity: .35; }
+  50%      { opacity: .8; }
+}
+
 /* Admin Panel */
 .env-admin { background: #e74c3c; color: #fff; }
 .env-operator { background: #3498db; color: #fff; }

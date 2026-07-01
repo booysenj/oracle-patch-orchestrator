@@ -178,7 +178,7 @@ router.get('/:id/transfer-status', (req, res) => {
     if (!job) return res.status(404).json({ error: 'Job not found' });
     if (!job.target_patch_version_id) return res.json({ transfers: [] });
     const transfers = db.prepare(
-        'SELECT id, file_type, status, bytes_transferred, total_bytes, started_at, completed_at, source_path, error_message FROM patch_transfers WHERE patch_id = ? AND target_host = ? ORDER BY created_at ASC'
+        'SELECT id, file_type, status, bytes_transferred, total_bytes, started_at, completed_at, source_path, error_message, phase FROM patch_transfers WHERE patch_id = ? AND target_host = ? ORDER BY created_at ASC'
     ).all(job.target_patch_version_id, job.hostname);
     res.json({ jobStatus: job.status, transfers });
 });

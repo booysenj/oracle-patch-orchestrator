@@ -636,6 +636,11 @@ def execute_transfer(t):
                 install_path = resp.headers.get('X-Depot-Install-Path') or ''
                 extract_to = install_path if install_path else dest_path
                 _ensure_dir_writable(extract_to)
+                try:
+                    requests.post(API_URL + '/api/agent/transfer/' + tid + '/progress',
+                                  json={'phase': 'extracting'}, headers=HEADERS, timeout=5)
+                except Exception:
+                    pass
                 print('[agent] Transfer %s: depot tar stream (%s) → extracting to %s' % (tid, depot_type, extract_to))
                 import subprocess as _sp
                 tar_proc = _sp.Popen(['tar', '-xf', '-', '-C', extract_to],
@@ -688,6 +693,11 @@ def execute_transfer(t):
                 if unzip_to:
                     import subprocess as _sp
                     _ensure_dir_writable(unzip_to)
+                    try:
+                        requests.post(API_URL + '/api/agent/transfer/' + tid + '/progress',
+                                      json={'phase': 'extracting'}, headers=HEADERS, timeout=5)
+                    except Exception:
+                        pass
                     print('[agent] Transfer %s: unzipping %s -> %s' % (tid, dest_file, unzip_to))
                     # capture_output= is Python 3.7+ only -- this agent needs to run on
                     # whatever python3 ships with the target VM's OS (some are still on
