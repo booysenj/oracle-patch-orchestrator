@@ -7508,12 +7508,26 @@ SQEOF
         fi
 
         local new_net="$NEW_DB_HOME/network/admin"
+        local old_net="$current_home/network/admin"
         if [[ -f "$new_net/tnsnames.ora" ]]; then
             add_html_row "Network files check" "PASS" \
                 "tnsnames.ora found in $new_net."
         else
-            add_html_row "Network files check" "WARN" \
-                "tnsnames.ora not found in $new_net. TNS resolution may fail."
+            local _net_copied=()
+            sudo -u "$ORACLE_USER" mkdir -p "$new_net" 2>/dev/null
+            for _f in tnsnames.ora sqlnet.ora listener.ora; do
+                if [[ -f "$old_net/$_f" ]]; then
+                    sudo -u "$ORACLE_USER" cp -p "$old_net/$_f" "$new_net/$_f" 2>/dev/null && \
+                        _net_copied+=("$_f")
+                fi
+            done
+            if [[ " ${_net_copied[*]} " == *" tnsnames.ora "* ]]; then
+                add_html_row "Network files check" "PASS" \
+                    "Copied from $old_net: ${_net_copied[*]}."
+            else
+                add_html_row "Network files check" "WARN" \
+                    "tnsnames.ora not found in $new_net or $old_net. TNS resolution may fail."
+            fi
         fi
 
         # -------------------------------------------------------
