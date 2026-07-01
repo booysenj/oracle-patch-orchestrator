@@ -552,16 +552,28 @@ async function _populateRunModalPatchVersions() {
   try {
     var patches = await api('/patches');
 
-    // Only offer versions actually staged (STAGED transfer) on this VM — a switch/install
-    // can't target a version that was never transferred here, so listing every catalog
-    // entry (e.g. 19.26/19.29) alongside the one that's really on disk (19.30) is misleading.
+    // Only offer versions relevant to this VM: either actually staged (STAGED transfer,
+    // covers versions queued for a future install) or already present on disk per the
+    // VM's own discovery data (covers homes extracted/copied outside the transfer
+    // pipeline — STAGED alone misses these, and STAGED rows never expire so a stale
+    // test transfer for a version no longer on disk would otherwise linger forever).
     var op = document.getElementById('opSelect') ? document.getElementById('opSelect').value : '';
     var isRollback = /rollback/i.test(op || '');
     if (!isRollback && selectedVm && selectedVm.hostname) {
       try {
         var staged = await api('/patches/transfers/all?target_host=' + encodeURIComponent(selectedVm.hostname) + '&status=STAGED');
         var stagedIds = new Set(staged.map(function(r) { return r.patch_id; }));
-        patches = patches.filter(function(p) { return stagedIds.has(p.id); });
+
+        var diskVersions = new Set();
+        [selectedVm.old_gi_home, selectedVm.new_gi_home, selectedVm.old_db_home,
+         selectedVm.new_db_home, selectedVm.current_db_home].forEach(function(h) {
+          var m = h && h.match(/(\d+\.\d+)/);
+          if (m) diskVersions.add(m[1]);
+        });
+
+        patches = patches.filter(function(p) {
+          return stagedIds.has(p.id) || diskVersions.has(p.version);
+        });
       } catch(e) {}
     }
 

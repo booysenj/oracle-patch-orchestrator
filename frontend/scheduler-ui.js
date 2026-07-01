@@ -105,17 +105,36 @@ async function loadPatchVersionsForScheduler() {
     try {
         var patches = await api('/patches?is_downloaded=true');
 
-        // Once VM(s) are selected, only offer patch versions actually staged (STAGED status)
-        // on ALL selected hosts — a switch/install can't target a version that was never
-        // transferred to that VM, so showing every catalog entry here is misleading.
+        // Once VM(s) are selected, only offer patch versions relevant to ALL selected
+        // hosts: either actually staged (STAGED transfer) or already present on disk per
+        // the VM's own discovery data (old_gi_home/new_gi_home/old_db_home/etc). STAGED
+        // alone misses homes extracted/copied outside the transfer pipeline, and STAGED
+        // rows never expire so a stale test transfer would otherwise linger forever.
         if (!isRollback && hostnames.length) {
+            var vmIds = checked.map(function(c) { return c.value; });
+            var perHostAllowed = vmIds.map(function(vmId) {
+                var vm = allVmsList.find(function(v) { return v.id === vmId; });
+                var allowed = new Set();
+                if (vm) {
+                    [vm.old_gi_home, vm.new_gi_home, vm.old_db_home, vm.new_db_home, vm.current_db_home]
+                        .forEach(function(h) {
+                            var m = h && h.match(/(\d+\.\d+)/);
+                            if (m) allowed.add(m[1]);
+                        });
+                }
+                return allowed;
+            });
+
             var stagedIdSets = await Promise.all(hostnames.map(function(h) {
                 return api('/patches/transfers/all?target_host=' + encodeURIComponent(h) + '&status=STAGED')
                     .then(function(rows) { return new Set(rows.map(function(r) { return r.patch_id; })); })
                     .catch(function() { return new Set(); });
             }));
+
             patches = patches.filter(function(p) {
-                return stagedIdSets.every(function(s) { return s.has(p.id); });
+                return stagedIdSets.every(function(s, i) {
+                    return s.has(p.id) || perHostAllowed[i].has(p.version);
+                });
             });
         }
 
