@@ -887,7 +887,12 @@ function appendLogLine(log) {
   span.className = cls;
   span.dataset.filter = filter;
   span.style.display = _logFilters[filter] ? '' : 'none';
-  span.textContent = (log.ts || '') + ' ' + line + '\n';
+  // Most lines already carry the script's own embedded timestamp (from its log()
+  // function's `date '+%F %T'` prefix) — prepending the UI's own log.ts (a different
+  // clock/timezone: server time vs. the VM's local time) produced two different-looking
+  // timestamps on the same line. Only prepend when the line doesn't already have one.
+  var hasOwnTimestamp = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\s/.test(line);
+  span.textContent = (hasOwnTimestamp ? '' : (log.ts || '') + ' ') + line + '\n';
   pre.appendChild(span);
   if (_logFilters[filter]) {
     var container = document.getElementById('logContainer');
