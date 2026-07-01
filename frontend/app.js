@@ -551,6 +551,20 @@ async function _populateRunModalPatchVersions() {
   sel.innerHTML = '<option value="">-- Select RU Version --</option>';
   try {
     var patches = await api('/patches');
+
+    // Only offer versions actually staged (STAGED transfer) on this VM — a switch/install
+    // can't target a version that was never transferred here, so listing every catalog
+    // entry (e.g. 19.26/19.29) alongside the one that's really on disk (19.30) is misleading.
+    var op = document.getElementById('opSelect') ? document.getElementById('opSelect').value : '';
+    var isRollback = /rollback/i.test(op || '');
+    if (!isRollback && selectedVm && selectedVm.hostname) {
+      try {
+        var staged = await api('/patches/transfers/all?target_host=' + encodeURIComponent(selectedVm.hostname) + '&status=STAGED');
+        var stagedIds = new Set(staged.map(function(r) { return r.patch_id; }));
+        patches = patches.filter(function(p) { return stagedIds.has(p.id); });
+      } catch(e) {}
+    }
+
     patches.forEach(function(p) {
       var opt = document.createElement('option');
       opt.value = p.id;
