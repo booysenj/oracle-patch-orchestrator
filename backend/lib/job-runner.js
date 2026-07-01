@@ -67,7 +67,11 @@ function createJob({ vmId, operation, dryRun = false, verbose = false, applyOjvm
         const isGiPrecheck = operation === 'gi_precheck';
         const isDbPrecheck = operation === 'db_precheck';
         const isPrecheckOp = isGiPrecheck || isDbPrecheck;
-        if (pvId && (isInstallOp || isPrecheckOp)) {
+        // Dry-run must never trigger real multi-GB downloads or unzip into the live
+        // home — the whole point of DRYRUN is that nothing actually happens. The bash
+        // script's own DRYRUN early-exit blocks report a plan without needing any of
+        // this software physically present.
+        if (pvId && (isInstallOp || isPrecheckOp) && !dryRun) {
             try {
                 const pv = db.prepare('SELECT * FROM patch_versions WHERE id = ?').get(pvId);
                 if (pv) {

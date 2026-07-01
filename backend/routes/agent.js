@@ -84,7 +84,9 @@ router.get('/poll', (req, res) => {
     let job = null;
     try {
     for (const candidate of queuedJobs) {
-        if (GATED_OPS.has(candidate.operation) && candidate.target_patch_version_id) {
+        // Dry-run jobs never have real transfers queued for them (see job-runner.js) and
+        // must never be held waiting for software that will never arrive — run immediately.
+        if (GATED_OPS.has(candidate.operation) && candidate.target_patch_version_id && !candidate.dry_run) {
             var required = REQUIRED_TYPES[candidate.operation] || [];
             // DB_ONLY VMs have no GI home — job-runner never queues gi_base for them, so exclude it from the gate
             if (!vm.old_gi_home) required = required.filter(function(t) { return t !== 'gi_base'; });
