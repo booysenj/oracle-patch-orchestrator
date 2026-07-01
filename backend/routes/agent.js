@@ -63,12 +63,18 @@ router.get('/poll', (req, res) => {
     // Find the next queued job — but gate install ops until all required transfers are STAGED.
     // Without the gate, the agent picks up a db_install/gi_install immediately after job creation
     // and fails because the base zip and RU haven't arrived on the VM yet.
-    const GATED_OPS = new Set(['gi_install','db_install','gi_upgrade_install','db_upgrade_install']);
+    // Prechecks are gated on the RU only — it stages to a safe directory (not the live
+    // home), so it's fetched automatically instead of just reporting "RU missing".
+    // gi_base/db_base/opatch are NOT staged for prechecks (see job-runner.js) since
+    // those unzip straight into the live home.
+    const GATED_OPS = new Set(['gi_install','db_install','gi_upgrade_install','db_upgrade_install','gi_precheck','db_precheck']);
     const REQUIRED_TYPES = {
         gi_install:         ['gi_base','ru_patch','opatch'],
         db_install:         ['db_base','ru_patch','opatch'],
         gi_upgrade_install: ['gi_base','ru_patch','opatch'],
         db_upgrade_install: ['db_base','ru_patch','opatch'],
+        gi_precheck:        ['ru_patch'],
+        db_precheck:        ['ru_patch'],
     };
 
     const queuedJobs = db.prepare(

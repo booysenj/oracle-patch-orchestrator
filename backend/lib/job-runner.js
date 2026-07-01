@@ -59,7 +59,15 @@ function createJob({ vmId, operation, dryRun = false, verbose = false, applyOjvm
         const isInstallOp = operation === 'gi_install' || operation === 'db_install' ||
                             operation === 'gi_upgrade_install' || operation === 'db_upgrade_install' ||
                             operation === 'stage_software';
-        if (pvId && isInstallOp) {
+        // Prechecks only auto-fetch the RU — it unzips to a safe staging directory
+        // (not the live home), unlike gi_base/db_base/opatch which unzip straight into
+        // NEW_GI_HOME/NEW_DB_HOME and would be unsafe to pre-populate before an install
+        // is actually decided on. This lets `RU Directory` resolve to PASS during
+        // gi_precheck/db_precheck instead of just reporting it missing.
+        const isGiPrecheck = operation === 'gi_precheck';
+        const isDbPrecheck = operation === 'db_precheck';
+        const isPrecheckOp = isGiPrecheck || isDbPrecheck;
+        if (pvId && (isInstallOp || isPrecheckOp)) {
             try {
                 const pv = db.prepare('SELECT * FROM patch_versions WHERE id = ?').get(pvId);
                 if (pv) {
@@ -92,18 +100,23 @@ function createJob({ vmId, operation, dryRun = false, verbose = false, applyOjvm
                             stmtTransfer.run(uuidv4(), pvId, pv.db_base_zip, vm.hostname, dbStage, 'db_base');
                     }
 
-                    // RU patch zip — unzipped to staging so patch-number subdir is findable via PATCH_SEARCH_ROOTS
+                    // RU patch zip — unzipped to staging so patch-number subdir is findable via PATCH_SEARCH_ROOTS.
+                    // Queued for prechecks too (RU stages safely, unlike gi_base/db_base/opatch).
                     if (pv.patch_search_root || pv.opatch_zip) {
                         var ruSrc = pv.patch_search_root || '';
-                        var ruStage = (isGiOp ? giStage : dbStage) + (pvVer ? '/p' + pvVer : '/patches');
+                        var ruStage = ((isGiOp || isGiPrecheck) ? giStage : dbStage) + (pvVer ? '/p' + pvVer : '/patches');
                         if (ruSrc && !stmtStaged.get(pvId, vm.hostname, 'ru_patch'))
                             stmtTransfer.run(uuidv4(), pvId, ruSrc, vm.hostname, ruStage, 'ru_patch');
 
-                        // OPatch zip — unzipped into NEW_GI_HOME or NEW_DB_HOME to replace the bundled OPatch
-                        var opSrc = pv.opatch_zip || '';
-                        var opStage = isGiOp ? giStage : dbStage;
-                        if (opSrc && !stmtStaged.get(pvId, vm.hostname, 'opatch'))
-                            stmtTransfer.run(uuidv4(), pvId, opSrc, vm.hostname, opStage, 'opatch');
+                        // OPatch zip — unzipped into NEW_GI_HOME or NEW_DB_HOME to replace the bundled OPatch.
+                        // Not queued for prechecks: it unzips straight into the live home, which shouldn't
+                        // be pre-populated before an install is actually decided on.
+                        if (!isPrecheckOp) {
+                            var opSrc = pv.opatch_zip || '';
+                            var opStage = isGiOp ? giStage : dbStage;
+                            if (opSrc && !stmtStaged.get(pvId, vm.hostname, 'opatch'))
+                                stmtTransfer.run(uuidv4(), pvId, opSrc, vm.hostname, opStage, 'opatch');
+                        }
                     }
                 }
             } catch(_e) { console.error('[job-runner] transfer queue error:', _e.message); }
