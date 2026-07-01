@@ -4913,11 +4913,12 @@ gi_precheck() {
         if [[ "$GI_CLUSTER_MODE" == "HAS" ]]; then
             run_cmd "\"$OLD_GI_HOME/bin/crsctl\" check has > \"$crs_log\" 2>&1 || true"
             add_html_row "HAS status" "INFO" \
-                "<pre style='margin:0;font-size:12px'>$(cat "$crs_log" 2>/dev/null | escape_html)</pre>"
+                "See attached $(basename "$crs_log")."
         else
             run_cmd "\"$OLD_GI_HOME/bin/crsctl\" stat res -t > \"$crs_log\" 2>&1 || true"
+            # Attachment only — the full resource table made the email body too long.
             add_html_row "CRS resource status" "INFO" \
-                "$(format_crs_stat_html "$crs_log")"
+                "See attached $(basename "$crs_log")."
         fi
         add_html_attachment "$crs_log" "CRS Resource Status"
         log_file_content "$crs_log" "GI: CRS/HAS resource status"
