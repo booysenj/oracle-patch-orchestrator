@@ -75,9 +75,19 @@ function createJob({ vmId, operation, dryRun = false, verbose = false, applyOjvm
             try {
                 const pv = db.prepare('SELECT * FROM patch_versions WHERE id = ?').get(pvId);
                 if (pv) {
-                    const stmtTransfer = db.prepare(`INSERT OR IGNORE INTO patch_transfers
+                    // ON CONFLICT resets a previously-FAILED transfer back to PENDING so a new
+                    // job targeting the same (patch_id, target_host, file_type) automatically
+                    // retries it -- plain INSERT OR IGNORE left failed rows stuck forever
+                    // (e.g. a permission-denied transfer that's since been fixed on the VM
+                    // never got retried because a row already existed for that key).
+                    // The WHERE clause on the DO UPDATE only fires for FAILED rows, so an
+                    // already PENDING/TRANSFERRING/STAGED transfer is left untouched.
+                    const stmtTransfer = db.prepare(`INSERT INTO patch_transfers
                         (id, patch_id, source_path, target_host, target_stage_path, status, file_type, transfer_method)
-                        VALUES (?, ?, ?, ?, ?, 'PENDING', ?, 'API')`);
+                        VALUES (?, ?, ?, ?, ?, 'PENDING', ?, 'API')
+                        ON CONFLICT(patch_id, target_host, file_type) DO UPDATE SET
+                            status='PENDING', bytes_transferred=0, started_at=NULL, completed_at=NULL, error_message=NULL
+                        WHERE patch_transfers.status='FAILED'`);
                     const stmtStaged = db.prepare(
                         "SELECT 1 FROM patch_transfers WHERE patch_id=? AND target_host=? AND file_type=? AND status='STAGED'"
                     );
