@@ -581,6 +581,26 @@ def poll():
         print('[agent] Poll failed: %s' % e)
         return None
 
+def _ensure_dir_writable(path):
+    """Create path (mkdir -p) and make sure the agent's own user can write into it.
+
+    Mirrors the bash script's stage_gi/db_software_for_precheck, which always wraps
+    its mkdir/chown in sudo rather than assuming the parent directory is already
+    group-writable for the oracle user. Plain os.makedirs() has no such fallback,
+    which is what caused repeated 'Permission denied' failures extracting into
+    /grid/oracle/product/<version> when that parent dir was root-owned 755 -- every
+    NEW top-level Oracle home under it needs this, not just ones that happen to
+    already have the right permissions.
+    """
+    try:
+        os.makedirs(path, exist_ok=True)
+        return
+    except PermissionError:
+        pass
+    import subprocess as _sp
+    _sp.run(['sudo', 'mkdir', '-p', path], check=True, timeout=30)
+    _sp.run(['sudo', 'chown', '-R', 'oracle:oinstall', path], check=True, timeout=30)
+
 def execute_transfer(t):
     """Pull a file from the orchestrator and write it to the target staging path."""
     tid = t['id']
@@ -615,7 +635,7 @@ def execute_transfer(t):
                 # For db/gi base, X-Depot-Install-Path tells us to extract directly into NEW_DB_HOME/NEW_GI_HOME.
                 install_path = resp.headers.get('X-Depot-Install-Path') or ''
                 extract_to = install_path if install_path else dest_path
-                os.makedirs(extract_to, exist_ok=True)
+                _ensure_dir_writable(extract_to)
                 print('[agent] Transfer %s: depot tar stream (%s) → extracting to %s' % (tid, depot_type, extract_to))
                 import subprocess as _sp
                 tar_proc = _sp.Popen(['tar', '-xf', '-', '-C', extract_to],
@@ -667,7 +687,7 @@ def execute_transfer(t):
 
                 if unzip_to:
                     import subprocess as _sp
-                    os.makedirs(unzip_to, exist_ok=True)
+                    _ensure_dir_writable(unzip_to)
                     print('[agent] Transfer %s: unzipping %s -> %s' % (tid, dest_file, unzip_to))
                     result = _sp.run(['unzip', '-q', '-o', dest_file, '-d', unzip_to],
                                      capture_output=True, timeout=1800)
