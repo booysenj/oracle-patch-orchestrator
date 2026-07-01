@@ -47,7 +47,7 @@ async function openScheduleModal(presetOp, presetVmIds) {
             (pre ? ' checked' : '') +
             ' data-hostname="' + esc(vm.hostname) + '"' +
             ' data-dbnames="' + esc(JSON.stringify(dbNames)) + '"' +
-            ' onchange="schedAutoFillDbName()"> ' + esc(vm.hostname) +
+            ' onchange="schedAutoFillDbName();loadPatchVersionsForScheduler()"> ' + esc(vm.hostname) +
             (dbNames.length ? ' <span style="font-size:11px;color:var(--text-dim)">(' + dbNames.map(esc).join(', ') + ')</span>' : '') +
             '</label>';
     }).join('');
@@ -94,9 +94,35 @@ function closeScheduleModal() {
 async function loadPatchVersionsForScheduler() {
     var sel = document.getElementById('schedPatchVersion');
     if (!sel) return;
+
+    var checked = Array.from(document.querySelectorAll('#schedVmList input[type="checkbox"]:checked'));
+    var hostnames = checked.map(function(c) { return c.getAttribute('data-hostname'); }).filter(Boolean);
+
+    // Rollback ops target whatever is currently installed — no forward patch version to pick.
+    var op = document.getElementById('schedOperation') ? document.getElementById('schedOperation').value : '';
+    var isRollback = /rollback/i.test(op || '');
+
     try {
         var patches = await api('/patches?is_downloaded=true');
+
+        // Once VM(s) are selected, only offer patch versions actually staged (STAGED status)
+        // on ALL selected hosts — a switch/install can't target a version that was never
+        // transferred to that VM, so showing every catalog entry here is misleading.
+        if (!isRollback && hostnames.length) {
+            var stagedIdSets = await Promise.all(hostnames.map(function(h) {
+                return api('/patches/transfers/all?target_host=' + encodeURIComponent(h) + '&status=STAGED')
+                    .then(function(rows) { return new Set(rows.map(function(r) { return r.patch_id; })); })
+                    .catch(function() { return new Set(); });
+            }));
+            patches = patches.filter(function(p) {
+                return stagedIdSets.every(function(s) { return s.has(p.id); });
+            });
+        }
+
         sel.innerHTML = '<option value="">-- No patch version --</option>';
+        if (!isRollback && hostnames.length && !patches.length) {
+            sel.innerHTML = '<option value="">-- No patch staged on selected VM(s) --</option>';
+        }
         patches.forEach(function(p) {
             var opt = document.createElement('option');
             opt.value = p.id;
@@ -125,6 +151,8 @@ function toggleSchedPatchVersion() {
         dbUniqGroup.style.display = needsDbUniq ? '' : 'none';
         if (needsDbUniq) schedAutoFillDbName();
     }
+
+    loadPatchVersionsForScheduler();
 }
 
 
