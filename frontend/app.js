@@ -1986,6 +1986,7 @@ function loadOpsForCategory() {
 var logPollTimer = null;
 var logPollJobId = null;
 var logPollOffset = 0;
+var logPollInFlight = false;
 var transferPollTimer = null;
 
 function startTransferPolling(jobId) {
@@ -2060,6 +2061,12 @@ async function fetchLogsIncremental() {
   // WS is the authoritative real-time source; only poll REST when WS is gone.
   // Guard on CONNECTING too — first poll fires before WS is OPEN and would duplicate all [CHECK] rows.
   if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) return;
+  // Prevent overlapping calls: if a fetch is slow (network latency) and the 2s interval
+  // fires again before it resolves, both calls read the same stale logPollOffset and
+  // re-append the same lines — this is what caused duplicated [CHECK] rows on fast/dry-run
+  // jobs that complete before the first fetch even returns.
+  if (logPollInFlight) return;
+  logPollInFlight = true;
   try {
     var logs = await api('/logs/' + logPollJobId + '?offset=' + logPollOffset);
     if (Array.isArray(logs) && logs.length) {
@@ -2073,6 +2080,7 @@ async function fetchLogsIncremental() {
       checkJobReport(logPollJobId);
     }
   } catch(e) { /* silent */ }
+  finally { logPollInFlight = false; }
 }
 
 var _jobReportId = null;
