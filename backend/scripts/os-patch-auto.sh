@@ -4161,6 +4161,41 @@ stage_db_software_for_precheck() {
     if [[ -x "$home/runInstaller" ]]; then
         return 0
     fi
+
+    # Same auto-discovery fallback used by db_install: the configured DB_BASE_ZIP path
+    # may not exist on this VM (e.g. only /app/software has the depot-staged copy), so
+    # search common staging locations before giving up.
+    if [[ ! -f "$DB_BASE_ZIP" ]]; then
+        local _search_dirs=(
+            "/staging/DB_BASE_SOFT"
+            "/staging"
+            "${STAGING_DROP_DIR:-/home/oracle/staging}"
+            "$(dirname "$DB_BASE_ZIP")"
+            "/app/software/db_software"
+            "/app/software"
+        )
+        local _found_zip="" _bname _d
+        _bname=$(basename "$DB_BASE_ZIP")
+        for _d in "${_search_dirs[@]}"; do
+            [[ -d "$_d" ]] || continue
+            if [[ -n "$_bname" && -f "$_d/$_bname" ]]; then
+                _found_zip="$_d/$_bname"
+                break
+            fi
+            shopt -s nullglob
+            local _candidates=( "$_d"/V982063*.zip )
+            shopt -u nullglob
+            if (( ${#_candidates[@]} > 0 )); then
+                _found_zip="${_candidates[0]}"
+                break
+            fi
+        done
+        if [[ -n "$_found_zip" ]]; then
+            log "INFO: Found DB base ZIP for precheck staging at: $_found_zip (configured path was $DB_BASE_ZIP)"
+            DB_BASE_ZIP="$_found_zip"
+        fi
+    fi
+
     if [[ ! -f "$DB_BASE_ZIP" ]]; then
         add_html_row "DB precheck software staging" "WARN" \
             "DB_BASE_ZIP ($DB_BASE_ZIP) not found; cannot stage DB software into $home for executePrereqs."
