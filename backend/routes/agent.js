@@ -141,6 +141,24 @@ router.get('/poll', (req, res) => {
                 ).get(pvId, hostname, ft);
             });
             if (!allStaged) {
+                // If a required transfer has permanently FAILED with nothing PENDING/
+                // TRANSFERRING/STAGED backing it, this job can never proceed on its own —
+                // it would otherwise sit as 'queued' looking stuck until the 30-min
+                // stale-job timeout eventually caught it. Fail fast with a clear reason.
+                const stuckTypes = required.filter(function(ft) {
+                    const hasActive = db.prepare(
+                        "SELECT 1 FROM patch_transfers WHERE patch_id=? AND target_host=? AND file_type=? AND status IN ('PENDING','TRANSFERRING','STAGED')"
+                    ).get(pvId, hostname, ft);
+                    const hasFailed = db.prepare(
+                        "SELECT 1 FROM patch_transfers WHERE patch_id=? AND target_host=? AND file_type=? AND status='FAILED'"
+                    ).get(pvId, hostname, ft);
+                    return !hasActive && hasFailed;
+                });
+                if (stuckTypes.length) {
+                    db.prepare("UPDATE jobs SET status='failed', exit_code=-1, finished_at=datetime('now') WHERE id=?").run(candidate.id);
+                    console.log('[poll] Job ' + candidate.id + ' (' + candidate.operation + ') failed: required transfer(s) permanently failed with no retry in flight: ' + stuckTypes.join(', '));
+                    continue;
+                }
                 // Log once per job (not every 5s poll) to avoid noise
                 const pendingCount = db.prepare(
                     "SELECT count(*) as n FROM patch_transfers WHERE patch_id=? AND target_host=? AND status IN ('PENDING','TRANSFERRING')"
