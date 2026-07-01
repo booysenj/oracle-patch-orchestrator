@@ -748,12 +748,15 @@ autoconfigure_patches() {
     # every one of them sees the corrected path once, instead of needing the same
     # fallback search duplicated at each call site.
     _autodiscover_base_zip() {
-        local _var_name="$1" _pattern="$2" _extra_dir="$3"
+        local _var_name="$1" _pattern="$2" _extra_dir="$3" _staging_subdir="$4"
         local _cur="${!_var_name:-}"
         [[ -n "$_cur" && -f "$_cur" ]] && return 0
+        # Kept as a superset of the fallback lists used by stage_gi/db_software_for_precheck
+        # so a dry-run preview (which resolves via this function) and a real run (which
+        # also calls those functions directly) never disagree on whether the zip exists.
         local _search_dirs=(
-            "/staging" "${STAGING_DROP_DIR:-/home/oracle/staging}"
-            "$(dirname "${_cur:-/nonexistent}")" "$_extra_dir"
+            "/staging/${_staging_subdir}" "/staging" "${STAGING_DROP_DIR:-/home/oracle/staging}"
+            "$(dirname "${_cur:-/nonexistent}")" "$_extra_dir" "${_extra_dir}/db_software"
         )
         local _bname="" _d
         [[ -n "$_cur" ]] && _bname=$(basename "$_cur")
@@ -780,9 +783,9 @@ autoconfigure_patches() {
     # return here would silently abort the entire script — same class of bug fixed
     # earlier in send_db_open_notification's listener-service check.
     if [[ "${DB_ONLY_MODE:-false}" != true ]]; then
-        _autodiscover_base_zip GI_BASE_ZIP 'V982068*.zip' '/grid/software' || true
+        _autodiscover_base_zip GI_BASE_ZIP 'V982068*.zip' '/grid/software' 'GI_BASE_SOFT' || true
     fi
-    _autodiscover_base_zip DB_BASE_ZIP 'V982063*.zip' '/app/software' || true
+    _autodiscover_base_zip DB_BASE_ZIP 'V982063*.zip' '/app/software' 'DB_BASE_SOFT' || true
 
     if [[ -n "${OJVM_ZIP_DIR:-}" && -d "$OJVM_ZIP_DIR" ]]; then
         shopt -s nullglob
