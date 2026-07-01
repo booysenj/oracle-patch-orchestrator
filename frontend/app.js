@@ -559,7 +559,11 @@ async function _populateRunModalPatchVersions() {
     // test transfer for a version no longer on disk would otherwise linger forever).
     var op = document.getElementById('opSelect') ? document.getElementById('opSelect').value : '';
     var isRollback = /rollback/i.test(op || '');
-    if (!isRollback && selectedVm && selectedVm.hostname) {
+    // Prechecks validate readiness for installing a version that isn't staged/on-disk
+    // yet — that's the whole point of running one before staging/installing it. Only
+    // install/switch ops actually require the version to already be present.
+    var isPrecheck = /precheck/i.test(op || '');
+    if (!isRollback && !isPrecheck && selectedVm && selectedVm.hostname) {
       try {
         var staged = await api('/patches/transfers/all?target_host=' + encodeURIComponent(selectedVm.hostname) + '&status=STAGED');
         var stagedIds = new Set(staged.map(function(r) { return r.patch_id; }));

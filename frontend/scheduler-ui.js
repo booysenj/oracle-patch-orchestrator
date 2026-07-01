@@ -101,6 +101,9 @@ async function loadPatchVersionsForScheduler() {
     // Rollback ops target whatever is currently installed — no forward patch version to pick.
     var op = document.getElementById('schedOperation') ? document.getElementById('schedOperation').value : '';
     var isRollback = /rollback/i.test(op || '');
+    // Prechecks validate readiness for installing a version that isn't staged/on-disk
+    // yet — that's the whole point of running one before staging/installing it.
+    var isPrecheck = /precheck/i.test(op || '');
 
     try {
         var patches = await api('/patches?is_downloaded=true');
@@ -110,7 +113,7 @@ async function loadPatchVersionsForScheduler() {
         // the VM's own discovery data (old_gi_home/new_gi_home/old_db_home/etc). STAGED
         // alone misses homes extracted/copied outside the transfer pipeline, and STAGED
         // rows never expire so a stale test transfer would otherwise linger forever.
-        if (!isRollback && hostnames.length) {
+        if (!isRollback && !isPrecheck && hostnames.length) {
             var vmIds = checked.map(function(c) { return c.value; });
             var perHostAllowed = vmIds.map(function(vmId) {
                 var vm = allVmsList.find(function(v) { return v.id === vmId; });
@@ -139,7 +142,7 @@ async function loadPatchVersionsForScheduler() {
         }
 
         sel.innerHTML = '<option value="">-- No patch version --</option>';
-        if (!isRollback && hostnames.length && !patches.length) {
+        if (!isRollback && !isPrecheck && hostnames.length && !patches.length) {
             sel.innerHTML = '<option value="">-- No patch staged on selected VM(s) --</option>';
         }
         patches.forEach(function(p) {
