@@ -4935,7 +4935,24 @@ gi_precheck() {
     local gi_prereq_log="${GI_LOG_DIR}/gi_executePrereqs_$(date +%F_%H%M%S).log"
     local gi_prereq_home="$PRECHECK_GI_HOME"
 
-    if stage_gi_software_for_precheck "$gi_prereq_home"; then
+    if [[ "$DRYRUN" == true ]]; then
+        # Explicit dry-run branch rather than relying on run_cmd's no-op + a missing
+        # log file to fall through correctly — that fragile path can report a false
+        # "PASS: executePrereqs completed" if a stale -precheck home from an earlier
+        # real run is still present (gridSetup.sh would already exist there).
+        if [[ -x "$gi_prereq_home/gridSetup.sh" ]]; then
+            add_html_row "GI executePrereqs (dry-run)" "INFO" \
+                "$gi_prereq_home already staged from a previous run. Would run: sudo -u $GRID_USER $gi_prereq_home/gridSetup.sh -silent -executePrereqs -responseFile $GI_RSP"
+        elif [[ -f "$GI_BASE_ZIP" ]]; then
+            add_html_row "GI executePrereqs (dry-run)" "INFO" \
+                "Would stage GI base software from $GI_BASE_ZIP into $gi_prereq_home, then run: sudo -u $GRID_USER $gi_prereq_home/gridSetup.sh -silent -executePrereqs -responseFile $GI_RSP"
+        else
+            add_html_row "GI executePrereqs (dry-run)" "INFO" \
+                "GI_BASE_ZIP not found (${GI_BASE_ZIP:-<not found>}) — executePrereqs would be skipped even on a real run."
+        fi
+        add_html_row "GI precheck software cleanup (dry-run)" "INFO" \
+            "No changes applied — no files extracted, nothing to clean up."
+    elif stage_gi_software_for_precheck "$gi_prereq_home"; then
         if [[ -x "$gi_prereq_home/gridSetup.sh" ]]; then
 
             # Marker so we can attach OUI logs created during this executePrereqs run
@@ -7185,7 +7202,24 @@ EOF
     local db_prereq_log="${DB_LOG_DIR}/db_executePrereqs_$(date +%F_%H%M%S).log"
     local db_prereq_home="$PRECHECK_DB_HOME"
 
-    if stage_db_software_for_precheck "$db_prereq_home"; then
+    if [[ "$DRYRUN" == true ]]; then
+        # Explicit dry-run branch rather than relying on run_cmd's no-op + a missing
+        # log file to fall through correctly — that fragile path can report a false
+        # "PASS: executePrereqs completed" if a stale -precheck home from an earlier
+        # real run is still present (runInstaller would already exist there).
+        if [[ -x "$db_prereq_home/runInstaller" ]]; then
+            add_html_row "DB executePrereqs (dry-run)" "INFO" \
+                "$db_prereq_home already staged from a previous run. Would run: sudo -u $ORACLE_USER $db_prereq_home/runInstaller -silent -executePrereqs -responseFile $DB_RSP"
+        elif [[ -f "$DB_BASE_ZIP" ]]; then
+            add_html_row "DB executePrereqs (dry-run)" "INFO" \
+                "Would stage DB base software from $DB_BASE_ZIP into $db_prereq_home, then run: sudo -u $ORACLE_USER $db_prereq_home/runInstaller -silent -executePrereqs -responseFile $DB_RSP"
+        else
+            add_html_row "DB executePrereqs (dry-run)" "INFO" \
+                "DB_BASE_ZIP not found (${DB_BASE_ZIP:-<not found>}) — executePrereqs would be skipped even on a real run."
+        fi
+        add_html_row "DB precheck software cleanup (dry-run)" "INFO" \
+            "No changes applied — no files extracted, nothing to clean up."
+    elif stage_db_software_for_precheck "$db_prereq_home"; then
         if [[ -x "$db_prereq_home/runInstaller" ]]; then
 
             # Marker so we can find all OUI logs created during this executePrereqs run
