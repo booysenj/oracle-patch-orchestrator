@@ -2095,7 +2095,7 @@ send_db_open_notification() {
         done
         if echo "$_lsnr_out" | grep -qi "The command completed successfully"; then
             local _lsnr_svc
-            _lsnr_svc=$(echo "$_lsnr_out" | grep -i "^Service" | grep -v "has 0" | head -5 | tr '\n' ' ')
+            _lsnr_svc=$( (echo "$_lsnr_out" | grep -i "^Service" | grep -v "has 0" | head -5 | tr '\n' ' ') || true )
             _html_row "Listener" "INFO" "Listener UP from ${_lsnr_home}. Services: ${_lsnr_svc:-The listener supports no services}"
         else
             _html_row "Listener" "WARN" \
