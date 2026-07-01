@@ -7530,6 +7530,48 @@ SQEOF
 
         if [[ "$DRYRUN" == true ]]; then
             log "[DRYRUN] Would switch $DB_UNIQUE_NAME from $current_home to $NEW_DB_HOME"
+
+            # Read-only preview of what the real run would find/do — same checks the
+            # real switch performs, without copying or touching anything.
+            local _dr_new_dbs="$NEW_DB_HOME/dbs" _dr_old_dbs="$current_home/dbs"
+            local _dr_f _dr_dbs_found=false
+            for _dr_f in "spfile${sid_for_switch}.ora" "init${sid_for_switch}.ora" \
+                          "spfile${DB_UNIQUE_NAME}.ora" "init${DB_UNIQUE_NAME}.ora"; do
+                [[ -f "$_dr_new_dbs/$_dr_f" ]] && { _dr_dbs_found=true; break; }
+            done
+            if [[ "$_dr_dbs_found" == true ]]; then
+                add_html_row "DRYRUN: DBS files check" "INFO" \
+                    "init/spfile already present in $_dr_new_dbs — no copy needed."
+            else
+                add_html_row "DRYRUN: DBS files check" "INFO" \
+                    "init/spfile NOT found in $_dr_new_dbs — would copy from $_dr_old_dbs."
+            fi
+
+            local _dr_new_net="$NEW_DB_HOME/network/admin"
+            if [[ -f "$_dr_new_net/tnsnames.ora" ]]; then
+                add_html_row "DRYRUN: Network files check" "INFO" \
+                    "tnsnames.ora already present in $_dr_new_net — no copy needed."
+            else
+                add_html_row "DRYRUN: Network files check" "INFO" \
+                    "tnsnames.ora NOT found in $_dr_new_net — would copy tnsnames.ora/sqlnet.ora/listener.ora from $current_home/network/admin."
+            fi
+
+            local _dr_pdbs
+            _dr_pdbs=$(list_open_pdbs "$DB_UNIQUE_NAME" "$current_home" 2>/dev/null || echo "")
+            if [[ -n "$_dr_pdbs" ]]; then
+                add_html_row "DRYRUN: Open PDBs" "INFO" \
+                    "$(echo "$_dr_pdbs" | tr '\n' ' ') — would be reopened and datapatch'd after switch."
+            fi
+
+            add_html_row "DRYRUN: Planned steps" "INFO" \
+                "1) Shutdown $DB_UNIQUE_NAME from $current_home<br/>\
+2) Update /etc/oratab: $sid_for_switch &rarr; $NEW_DB_HOME<br/>\
+3) Startup $DB_UNIQUE_NAME from $NEW_DB_HOME<br/>\
+4) Wait for PRIMARY/OPEN READ WRITE or STANDBY/MOUNTED state (up to 600s)<br/>\
+5) Manage listener (DB_ONLY_MODE: stop from old home, start from new home)<br/>\
+6) Run datapatch if role is PRIMARY and open READ WRITE<br/>\
+7) Send DB Open notification email"
+
             add_html_row "DB Switch (dry-run)" "INFO" "DRYRUN: no changes applied."
             send_phase_html_report "DB Switch" "DB Switch (Dry-run) - $HOST" "INFO"
             return 0
@@ -8070,6 +8112,33 @@ db_rollback() {
         fi
 
         if [[ "$DRYRUN" == true ]]; then
+            log "[DRYRUN] Would roll back $DB_UNIQUE_NAME from $current_home to $OLD_DB_HOME"
+
+            local _dr_new_net="$OLD_DB_HOME/network/admin"
+            if [[ -f "$_dr_new_net/tnsnames.ora" ]]; then
+                add_html_row "DRYRUN: Network files check" "INFO" \
+                    "tnsnames.ora already present in $_dr_new_net — no copy needed."
+            else
+                add_html_row "DRYRUN: Network files check" "INFO" \
+                    "tnsnames.ora NOT found in $_dr_new_net — would copy listener.ora/tnsnames.ora/sqlnet.ora from $current_home/network/admin."
+            fi
+
+            local _dr_pdbs
+            _dr_pdbs=$(list_open_pdbs "$DB_UNIQUE_NAME" "$current_home" 2>/dev/null || echo "")
+            if [[ -n "$_dr_pdbs" ]]; then
+                add_html_row "DRYRUN: Open PDBs" "INFO" \
+                    "$(echo "$_dr_pdbs" | tr '\n' ' ') — would be reopened and datapatch'd after rollback (if role is PRIMARY)."
+            fi
+
+            add_html_row "DRYRUN: Planned steps" "INFO" \
+                "1) Shutdown $DB_UNIQUE_NAME from $current_home<br/>\
+2) Update /etc/oratab: $sid_for_rb &rarr; $OLD_DB_HOME<br/>\
+3) Startup $DB_UNIQUE_NAME from $OLD_DB_HOME<br/>\
+4) Wait for PRIMARY/OPEN READ WRITE or STANDBY/MOUNTED state (up to 600s)<br/>\
+5) Manage listener (DB_ONLY_MODE: stop from $current_home, start from $OLD_DB_HOME)<br/>\
+6) Run datapatch if role is PRIMARY and open READ WRITE<br/>\
+7) Send DB Open notification email"
+
             add_html_row "DB Rollback (dry-run)" "INFO" "DRYRUN: no changes applied."
             send_phase_html_report "DB Rollback" "DB Rollback (Dry-run) - $HOST" "INFO"
             return 0
