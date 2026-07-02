@@ -2211,8 +2211,10 @@ if (TOKEN) {
   showLogin();
 }
 
-document.getElementById('launchModal').addEventListener('click', function(e) { if (e.target === e.currentTarget) closeModal(); });
-document.getElementById('logModal').addEventListener('click', function(e) { if (e.target === e.currentTarget) closeLogModal(); });
+// Backdrop-click-to-close removed: closing a modal by an accidental click
+// outside it (e.g. while reading a Run Operation form) was destroying
+// in-progress work. Escape and the explicit × button remain as the only
+// ways to close.
 document.addEventListener('keydown', function(e) {
   if (e.key === 'Escape') { closeModal(); closeLogModal(); }
   if (e.key === 'Enter' && !document.getElementById('loginScreen').classList.contains('hidden')) doLogin();
