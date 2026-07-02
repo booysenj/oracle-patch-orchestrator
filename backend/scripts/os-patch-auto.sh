@@ -877,6 +877,9 @@ attach_latest_oui_logs_since_marker() {
         # email body too long. Keep the report row to a short pointer at the attachment.
         add_html_row "${label} (details)" "INFO" \
             "Attached OUI installer log: $(basename "$best_log")"
+        # UI-only excerpt (doesn't touch HTML_ROWS/email) so the actual error is
+        # visible in the Report tab without needing SSH access to the VM.
+        add_log_excerpt_row "$label" "$best_log"
     else
         add_html_row "${label} (details)" "INFO" \
             "No relevant OUI installer logs found newer than marker."
@@ -1868,6 +1871,38 @@ _html_row() {
         <td style=\"padding:4px 8px;\">${details}</td>
     </tr>"
     { set -x; } 2>/dev/null
+}
+
+# Inverse of _html_row: emits ONLY the [CHECK] log line (UI Report tab) without
+# touching HTML_ROWS/email. Used for large diagnostic excerpts (e.g. an installer
+# log tail) that are useful live in the UI but would bloat the emailed HTML report
+# if embedded there too (see commit 3686c84 — email got too long once already).
+_check_only_row() {
+    local label="$1"
+    local status="$2"
+    local details="$3"
+    case "$status" in
+        FAIL) PHASE_STATUS="FAIL" ;;
+        WARN) [[ "$PHASE_STATUS" != "FAIL" ]] && PHASE_STATUS="WARN" ;;
+    esac
+    log "[CHECK] ${label}|${status}|${details}"
+}
+
+# Tail/grep an installer log into a UI-only [CHECK] row so the actual error is visible
+# in the Report tab without needing SSH access to the VM. Prefers FATAL/ERROR/INS-nnnnn
+# lines (the actual failure signal); falls back to a plain tail if none match.
+add_log_excerpt_row() {
+    local label="$1"
+    local logfile="$2"
+    [[ -f "$logfile" && -s "$logfile" ]] || return 0
+    local excerpt
+    excerpt=$(grep -E '\[FATAL\]|FATAL ERROR|INS-[0-9]{5}|ERROR' "$logfile" 2>/dev/null | tail -n 40)
+    [[ -z "$excerpt" ]] && excerpt=$(tail -n 40 "$logfile" 2>/dev/null)
+    [[ -z "$excerpt" ]] && return 0
+    local excerpt_html
+    excerpt_html=$(printf '%s' "$excerpt" | escape_html | sed 's/$/<br\/>/')
+    _check_only_row "${label} (log excerpt)" "FAIL" \
+        "$(basename "$logfile"):<br/><div style=\"max-height:400px;overflow:auto;background:#f8f9fa;border:1px solid #dee2e6;padding:8px;margin-top:4px;font-family:monospace;font-size:11px;white-space:normal;color:#000\">${excerpt_html}</div>"
 }
 
 # Insert a full-width section header row to visually separate blocks in the report
@@ -5236,6 +5271,7 @@ gi_install() {
     fi
 
     add_html_row "GI Software Install" "FAIL" "$failure_reason. See installer log: $grid_log"
+    add_log_excerpt_row "GI Software Install" "$grid_log"
 
     # Clean up the failed partial home so a retry starts clean, but ONLY if it never
     # got far enough to register in the central inventory (safe_rm_rf refuses non-
@@ -7669,6 +7705,7 @@ Run db_rollback first to return the database to $OLD_DB_HOME, then retry db_inst
     # Failure path
     add_attachment "$db_log"
     add_html_row "DB Software Install" "FAIL" "$failure_reason. Log: $db_log"
+    add_log_excerpt_row "DB Software Install" "$db_log"
 
     # Same reasoning as gi_install's failure cleanup: only auto-remove the partial
     # home if it never made it into the central inventory -- otherwise a proper
