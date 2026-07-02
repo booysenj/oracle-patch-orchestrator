@@ -128,9 +128,16 @@ async function loadPatchVersionsForScheduler() {
                 return allowed;
             });
 
+            // Include PENDING/TRANSFERRING alongside STAGED so a version mid-restage
+            // (e.g. after a [TRANSFER_RESET] self-heal) doesn't vanish from this list —
+            // see the matching fix in app.js's _populateRunModalPatchVersions.
             var stagedIdSets = await Promise.all(hostnames.map(function(h) {
-                return api('/patches/transfers/all?target_host=' + encodeURIComponent(h) + '&status=STAGED')
-                    .then(function(rows) { return new Set(rows.map(function(r) { return r.patch_id; })); })
+                return api('/patches/transfers/all?target_host=' + encodeURIComponent(h))
+                    .then(function(rows) {
+                        return new Set(rows
+                            .filter(function(r) { return r.status === 'STAGED' || r.status === 'PENDING' || r.status === 'TRANSFERRING'; })
+                            .map(function(r) { return r.patch_id; }));
+                    })
                     .catch(function() { return new Set(); });
             }));
 

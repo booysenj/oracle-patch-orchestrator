@@ -623,8 +623,15 @@ async function _populateRunModalPatchVersions() {
     var isPrecheck = /precheck/i.test(op || '');
     if (!isRollback && !isPrecheck && selectedVm && selectedVm.hostname) {
       try {
-        var staged = await api('/patches/transfers/all?target_host=' + encodeURIComponent(selectedVm.hostname) + '&status=STAGED');
-        var stagedIds = new Set(staged.map(function(r) { return r.patch_id; }));
+        // Include STAGED (ready) and PENDING/TRANSFERRING (actively re-staging, e.g.
+        // after a [TRANSFER_RESET] self-heal) — without the latter, a version mid-restage
+        // vanishes from this dropdown entirely and whatever version happens to remain
+        // visible (an older one still referenced on disk) becomes the easy-to-miss
+        // default, letting an install accidentally target the wrong RU.
+        var allXfers = await api('/patches/transfers/all?target_host=' + encodeURIComponent(selectedVm.hostname));
+        var stagedIds = new Set(allXfers
+          .filter(function(r) { return r.status === 'STAGED' || r.status === 'PENDING' || r.status === 'TRANSFERRING'; })
+          .map(function(r) { return r.patch_id; }));
 
         var diskVersions = new Set();
         [selectedVm.old_gi_home, selectedVm.new_gi_home, selectedVm.old_db_home,
