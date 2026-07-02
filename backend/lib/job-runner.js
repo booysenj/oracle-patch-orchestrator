@@ -23,10 +23,11 @@ const OPERATION_PHASES = {
     db_upgrade_upgrade: 'db_upgrade_upgrade', db_upgrade_rollback: 'db_upgrade_rollback',
     setup_patchuser: 'setup_patchuser',
     remote_shutdown_apps_then_db: 'remote_shutdown_apps_then_db',
-    batched_startup: 'batched_startup'
+    batched_startup: 'batched_startup',
+    gi_deinstall_home: 'gi_deinstall_home', db_deinstall_home: 'db_deinstall_home'
 };
 
-function createJob({ vmId, operation, dryRun = false, verbose = false, applyOjvm = false, createdBy = 'system', dbUniqueName = '', patchVersionId = '' }) {
+function createJob({ vmId, operation, dryRun = false, verbose = false, applyOjvm = false, createdBy = 'system', dbUniqueName = '', patchVersionId = '', targetHomePath = '' }) {
     const db = getDB();
     const vm = db.prepare('SELECT * FROM vms WHERE id = ?').get(vmId);
     if (!vm) throw new Error(`VM not found: ${vmId}`);
@@ -39,15 +40,16 @@ function createJob({ vmId, operation, dryRun = false, verbose = false, applyOjvm
     try { db.exec('ALTER TABLE jobs ADD COLUMN verbose INTEGER DEFAULT 0'); } catch(_) {}
     try { db.exec('ALTER TABLE jobs ADD COLUMN apply_ojvm INTEGER DEFAULT 0'); } catch(_) {}
     try { db.exec("ALTER TABLE jobs ADD COLUMN target_patch_version_id TEXT DEFAULT ''"); } catch(_) {}
+    try { db.exec('ALTER TABLE jobs ADD COLUMN target_home_path TEXT'); } catch(_) {}
 
     const pvId = patchVersionId || '';
 
     // Agent mode: insert as 'queued' — the Python agent polls and picks it up
     if ((vm.execution_mode || 'agent') === 'agent') {
         db.prepare(
-            `INSERT INTO jobs (id, vm_id, operation, phase, status, dry_run, verbose, apply_ojvm, created_by, db_unique_name, target_patch_version_id)
-             VALUES (?, ?, ?, ?, 'queued', ?, ?, ?, ?, ?, ?)`
-        ).run(jobId, vmId, operation, phase, dryRun ? 1 : 0, verbose ? 1 : 0, applyOjvm ? 1 : 0, createdBy, dbUniqueName || '', pvId);
+            `INSERT INTO jobs (id, vm_id, operation, phase, status, dry_run, verbose, apply_ojvm, created_by, db_unique_name, target_patch_version_id, target_home_path)
+             VALUES (?, ?, ?, ?, 'queued', ?, ?, ?, ?, ?, ?, ?)`
+        ).run(jobId, vmId, operation, phase, dryRun ? 1 : 0, verbose ? 1 : 0, applyOjvm ? 1 : 0, createdBy, dbUniqueName || '', pvId, targetHomePath || null);
 
         // Queue file transfers for install and stage_software operations.
         // For install ops: job stays 'queued' and the poll endpoint gates release

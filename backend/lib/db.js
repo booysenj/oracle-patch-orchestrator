@@ -99,6 +99,9 @@ function initDB() {
     // and a [TRANSFER_RESET] fired to re-stage it in the background. Lets Job History
     // show "auto re-staging" instead of a plain Failed badge for these self-heal cases.
     try { d.exec(`ALTER TABLE jobs ADD COLUMN retry_reset_file_type TEXT`); } catch(_) {}
+    // Explicit home path for gi_deinstall_home/db_deinstall_home — these target a
+    // specific tracked installed_homes row, not the VM's usual NEW_GI_HOME/NEW_DB_HOME.
+    try { d.exec(`ALTER TABLE jobs ADD COLUMN target_home_path TEXT`); } catch(_) {}
     // patch_reports migrations — run before CREATE TABLE so existing DBs get the columns
     try { d.exec(`ALTER TABLE patch_reports ADD COLUMN subject TEXT`); } catch(_) {}
     try { d.exec(`ALTER TABLE patch_reports ADD COLUMN html_content TEXT NOT NULL DEFAULT ''`); } catch(_) {}

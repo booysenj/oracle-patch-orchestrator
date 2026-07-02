@@ -5293,6 +5293,47 @@ gi_install() {
     log "GI installer failed: $failure_reason"
     die "$failure_reason"
 }
+
+# ------------------------------------------------------------
+# GI DEINSTALL HOME — removes a specific tracked home (Admin > Installed Homes >
+# Deinstall). Targets TARGET_DEINSTALL_HOME, NOT NEW_GI_HOME, since the home being
+# deinstalled is often a stuck/stale install, not the VM's currently-targeted one.
+# ------------------------------------------------------------
+gi_deinstall_home() {
+    add_html_section "GI DEINSTALL HOME"
+    local home="${TARGET_DEINSTALL_HOME:-}"
+    if [[ -z "$home" ]]; then
+        add_html_row "GI Deinstall" "FAIL" "TARGET_DEINSTALL_HOME not set."
+        die "TARGET_DEINSTALL_HOME not set."
+    fi
+    if [[ ! -d "$home" ]]; then
+        add_html_row "GI Deinstall" "WARN" "Home does not exist on disk: $home — nothing to deinstall on this VM. If it's still tracked, use Clear in Installed Homes to drop the stale reference."
+        send_html_report "GI Deinstall - $HOST" "GI Deinstall Report"
+        return 0
+    fi
+    if [[ "$DRYRUN" == true ]]; then
+        add_html_row "GI Deinstall" "INFO" "[DRYRUN] Would run: $home/gridSetup.sh -silent -deinstall -local -responseFile <generated>"
+        send_html_report "GI Deinstall - $HOST (DRYRUN)" "GI Deinstall Report (DRYRUN)"
+        return 0
+    fi
+    if [[ ! -f "$home/gridSetup.sh" ]]; then
+        add_html_row "GI Deinstall" "FAIL" "gridSetup.sh not found under $home — cannot run installer-driven deinstall. Remove manually if this is orphaned software."
+        send_html_report "GI Deinstall FAILED - $HOST" "GI Deinstall Report (FAILED)"
+        die "gridSetup.sh not found under $home"
+    fi
+    add_html_row "GI Deinstall" "INFO" "Deinstalling GI home: $home"
+    local deinstall_log="${GI_LOG_DIR}/gi_deinstall_$(date +%F_%H%M%S).log"
+    add_attachment "$deinstall_log"
+    if sudo -u "$GRID_USER" bash -c "\"$home/gridSetup.sh\" -silent -deinstall -local" &> "$deinstall_log"; then
+        add_html_row "GI Deinstall" "PASS" "Deinstall completed. Log: $deinstall_log"
+        send_html_report "GI Deinstall Completed - $HOST" "GI Deinstall Report"
+    else
+        add_html_row "GI Deinstall" "FAIL" "Deinstall failed. See $deinstall_log"
+        add_log_excerpt_row "GI Deinstall" "$deinstall_log"
+        send_html_report "GI Deinstall FAILED - $HOST" "GI Deinstall Report (FAILED)"
+        die "GI deinstall failed for $home"
+    fi
+}
 # ------------------------------------------------------------
 # GI DATAPATCH + ASM STATUS
 # ------------------------------------------------------------
@@ -7724,6 +7765,47 @@ Run db_rollback first to return the database to $OLD_DB_HOME, then retry db_inst
     send_html_report "DB Install FAILED - $HOST" "DB Install Report (FAILED)"
     log "DB installer failed: $failure_reason"
     die "$failure_reason"
+}
+
+# ------------------------------------------------------------
+# DB DEINSTALL HOME — removes a specific tracked home (Admin > Installed Homes >
+# Deinstall). Targets TARGET_DEINSTALL_HOME, NOT NEW_DB_HOME, since the home being
+# deinstalled is often a stuck/stale install, not the VM's currently-targeted one.
+# ------------------------------------------------------------
+db_deinstall_home() {
+    add_html_section "DB DEINSTALL HOME"
+    local home="${TARGET_DEINSTALL_HOME:-}"
+    if [[ -z "$home" ]]; then
+        add_html_row "DB Deinstall" "FAIL" "TARGET_DEINSTALL_HOME not set."
+        die "TARGET_DEINSTALL_HOME not set."
+    fi
+    if [[ ! -d "$home" ]]; then
+        add_html_row "DB Deinstall" "WARN" "Home does not exist on disk: $home — nothing to deinstall on this VM. If it's still tracked, use Clear in Installed Homes to drop the stale reference."
+        send_html_report "DB Deinstall - $HOST" "DB Deinstall Report"
+        return 0
+    fi
+    if [[ "$DRYRUN" == true ]]; then
+        add_html_row "DB Deinstall" "INFO" "[DRYRUN] Would run: $home/deinstall/deinstall -silent -local"
+        send_html_report "DB Deinstall - $HOST (DRYRUN)" "DB Deinstall Report (DRYRUN)"
+        return 0
+    fi
+    if [[ ! -f "$home/deinstall/deinstall" ]]; then
+        add_html_row "DB Deinstall" "FAIL" "deinstall tool not found under $home/deinstall — cannot run installer-driven deinstall. Remove manually if this is orphaned software."
+        send_html_report "DB Deinstall FAILED - $HOST" "DB Deinstall Report (FAILED)"
+        die "deinstall tool not found under $home/deinstall"
+    fi
+    add_html_row "DB Deinstall" "INFO" "Deinstalling DB home: $home"
+    local deinstall_log="${DB_LOG_DIR}/db_deinstall_$(date +%F_%H%M%S).log"
+    add_attachment "$deinstall_log"
+    if sudo -u "$ORACLE_USER" bash -c "ORACLE_HOME=\"$home\" \"$home/deinstall/deinstall\" -silent -local" &> "$deinstall_log"; then
+        add_html_row "DB Deinstall" "PASS" "Deinstall completed. Log: $deinstall_log"
+        send_html_report "DB Deinstall Completed - $HOST" "DB Deinstall Report"
+    else
+        add_html_row "DB Deinstall" "FAIL" "Deinstall failed. See $deinstall_log"
+        add_log_excerpt_row "DB Deinstall" "$deinstall_log"
+        send_html_report "DB Deinstall FAILED - $HOST" "DB Deinstall Report (FAILED)"
+        die "DB deinstall failed for $home"
+    fi
 }
 db_switch_core() {
     local DB_UNIQUE_NAME="$1"
@@ -11203,9 +11285,11 @@ if [[ $# -gt 0 ]]; then
         gi_install)               gi_install;               exit 0 ;;
         gi_oh_switch)             phase_switch_home;        exit 0 ;;
         gi_rollback)              phase_rollback;           exit 0 ;;
+        gi_deinstall_home)        gi_deinstall_home;        exit 0 ;;
 
         db_precheck)              db_precheck;              exit 0 ;;
         db_install)               db_install;               exit 0 ;;
+        db_deinstall_home)        db_deinstall_home;        exit 0 ;;
         db_oh_switch)
             shift
             if [[ $# -lt 1 ]]; then

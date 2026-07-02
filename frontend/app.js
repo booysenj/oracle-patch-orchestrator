@@ -211,6 +211,7 @@ async function loadInstalledHomes() {
       }
       var actions = h.status === 'active' ?
         '<button class="btn btn-sm btn-secondary" onclick="verifyInstalledHomeNow(\'' + h.id + '\')">Verify now</button> ' +
+        '<button class="btn btn-sm btn-secondary" onclick="deinstallInstalledHomeNow(\'' + h.id + '\',\'' + esc(h.hostname||'') + '\',\'' + esc(h.home_path||'') + '\')" title="Runs the real Oracle deinstall tool on this home via a job">Deinstall</button> ' +
         '<button class="btn btn-sm btn-danger" onclick="clearInstalledHomeNow(\'' + h.id + '\')">Clear</button>' : '—';
       return '<tr>' +
         '<td><span class="mono">' + esc(h.hostname || '') + '</span></td>' +
@@ -232,6 +233,23 @@ async function verifyInstalledHomeNow(id) {
     await api('/vms/installed-homes/' + id + '/verify-now', { method: 'POST' });
     showToast('Queued for verification on this VM\'s next discovery cycle (~60s)', 'info');
     loadInstalledHomes();
+  } catch(e) { showToast('Failed: ' + e.message, 'error'); }
+}
+
+async function deinstallInstalledHomeNow(id, hostname, homePath) {
+  var typedPath = prompt(
+    'This runs the real Oracle deinstall tool (gridSetup.sh/deinstall) against this home on ' + hostname + ':\n\n' +
+    homePath + '\n\nThis is destructive and cannot be undone. Type the home path exactly to confirm:'
+  );
+  if (typedPath !== homePath) {
+    if (typedPath !== null) showToast('Path did not match — deinstall cancelled', 'error');
+    return;
+  }
+  try {
+    var r = await api('/vms/installed-homes/' + id + '/deinstall', { method: 'POST', body: JSON.stringify({}) });
+    showToast('Deinstall job queued — opening logs', 'success');
+    loadInstalledHomes();
+    if (r && r.jobId) openLogViewer(r.jobId, hostname, 'deinstall_home');
   } catch(e) { showToast('Failed: ' + e.message, 'error'); }
 }
 

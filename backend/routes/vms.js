@@ -213,6 +213,26 @@ router.post('/installed-homes/:homeId/verify-now', (req, res) => {
     res.json({ ok: true });
 });
 
+// Run a real gridSetup.sh/deinstall against this specific tracked home (not the VM's
+// usual NEW_GI_HOME/NEW_DB_HOME — see gi_deinstall_home/db_deinstall_home in the bash
+// script). Kicks off a job the same way Run Operation does; caller should open its logs.
+router.post('/installed-homes/:homeId/deinstall', (req, res) => {
+    const db = getDB();
+    const home = db.prepare('SELECT * FROM installed_homes WHERE id = ?').get(req.params.homeId);
+    if (!home) return res.status(404).json({ error: 'Home not found' });
+    const { createJob } = require('../lib/job-runner');
+    try {
+        const job = createJob({
+            vmId: home.vm_id,
+            operation: home.home_type === 'gi' ? 'gi_deinstall_home' : 'db_deinstall_home',
+            dryRun: !!req.body.dryRun,
+            createdBy: req.user?.username || 'admin',
+            targetHomePath: home.home_path
+        });
+        res.json({ ok: true, jobId: job.jobId });
+    } catch (err) { res.status(400).json({ error: err.message }); }
+});
+
 router.delete('/:id', (req, res) => {
     const result = getDB().prepare('DELETE FROM vms WHERE id = ?').run(req.params.id);
     if (result.changes === 0) return res.status(404).json({ error: 'VM not found' });

@@ -257,6 +257,9 @@ router.get('/poll', (req, res) => {
     // discovery updates old_gi_home/old_db_home to the post-switch value.
     if (job.rollback_gi_home) env.ROLLBACK_GI_HOME = job.rollback_gi_home;
     if (job.rollback_db_home) env.ROLLBACK_DB_HOME = job.rollback_db_home;
+    // gi_deinstall_home/db_deinstall_home target a specific tracked installed_homes
+    // row, not the VM's usual NEW_GI_HOME/NEW_DB_HOME — see installed-homes/:id/deinstall.
+    if (job.target_home_path) env.TARGET_DEINSTALL_HOME = job.target_home_path;
 
     // Global admin settings — fallback when patch version doesn't override
     var globalGiZip = '', globalDbZip = '', globalPatchesBase = '';
