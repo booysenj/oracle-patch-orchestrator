@@ -878,11 +878,26 @@ router.get('/transfer/:id', (req, res) => {
         if (files.length === 0) return res.status(400).json({ error: 'No .zip files found in directory: ' + src });
         var ft = t.file_type || '';
         var chosen;
-        if (ft === 'opatch') {
+        // Prefer the exact filename the catalog entry was registered against — if this
+        // directory happens to hold more than one RU/OPatch zip (e.g. a leftover from a
+        // different patch number copied into the same version's folder by mistake), the
+        // "just pick one" heuristics below can silently grab the wrong patch. Confirmed
+        // live: a v19.29 RU transfer resolved to a completely different patch number
+        // (p38298204) than the one the catalog entry actually registered (p36233263),
+        // because both zips existed in /backup/patches/p19.29.
+        var pvForFile = t.patch_id ? db.prepare('SELECT file_name FROM patch_versions WHERE id=?').get(t.patch_id) : null;
+        if (pvForFile && pvForFile.file_name && files.indexOf(pvForFile.file_name) >= 0) {
+            chosen = pvForFile.file_name;
+        } else if (ft === 'opatch') {
             chosen = files.find(function(f) { return f.startsWith('p6880880'); }) || files[0];
         } else {
             // Pick largest zip (RU) — exclude OPatch
             var ruFiles = files.filter(function(f) { return !f.startsWith('p6880880'); });
+            if (ruFiles.length > 1) {
+                ruFiles = ruFiles.slice().sort(function(a, b) {
+                    return fs.statSync(path.join(src, b)).size - fs.statSync(path.join(src, a)).size;
+                });
+            }
             chosen = ruFiles.length > 0 ? ruFiles[0] : files[0];
         }
         src = path.join(src, chosen);
