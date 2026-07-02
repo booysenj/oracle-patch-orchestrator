@@ -95,6 +95,10 @@ function initDB() {
     // 'downloading' | 'extracting' — lets the UI distinguish "download done, now
     // unzipping" from a stalled 100%, since bytes_transferred alone can't show that.
     try { d.exec(`ALTER TABLE patch_transfers ADD COLUMN phase TEXT DEFAULT ''`); } catch(_) {}
+    // Set when a job fails specifically because a required staged file was missing
+    // and a [TRANSFER_RESET] fired to re-stage it in the background. Lets Job History
+    // show "auto re-staging" instead of a plain Failed badge for these self-heal cases.
+    try { d.exec(`ALTER TABLE jobs ADD COLUMN retry_reset_file_type TEXT`); } catch(_) {}
     // patch_reports migrations — run before CREATE TABLE so existing DBs get the columns
     try { d.exec(`ALTER TABLE patch_reports ADD COLUMN subject TEXT`); } catch(_) {}
     try { d.exec(`ALTER TABLE patch_reports ADD COLUMN html_content TEXT NOT NULL DEFAULT ''`); } catch(_) {}

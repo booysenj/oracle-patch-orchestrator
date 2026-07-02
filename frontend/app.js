@@ -854,8 +854,12 @@ async function openLogViewer(jobId, hostname, operation) {
       startLogPolling(jobId);
       return;
     }
-    // Show transfer progress panel while job is queued waiting for staged files
-    if (job && job.status === 'queued' && STAGED_OPS.indexOf(operation) >= 0) {
+    // Show transfer progress panel while job is queued waiting for staged files.
+    // Also start it for an already-failed job: a FAIL caused by a missing/stale
+    // staged file (gi_base/db_base/ru_patch) triggers a [TRANSFER_RESET] that kicks
+    // off a fresh background transfer — without this, opening the log for that
+    // failed job shows nothing happening even though a re-stage is in flight.
+    if (job && (job.status === 'queued' || job.status === 'failed') && STAGED_OPS.indexOf(operation) >= 0) {
       startTransferPolling(jobId);
     }
   } catch(e) { /* fall through to WS+poll for live jobs */ }
@@ -1080,10 +1084,13 @@ async function loadJobs() {
     }
     tbody.innerHTML = filtered.map(function(j) {
       var dryRunBadge = j.dry_run ? ' <span style="display:inline-block;padding:1px 6px;border-radius:3px;font-size:10px;font-weight:700;background:rgba(99,179,237,.15);color:#63b3ed;border:1px solid rgba(99,179,237,.4);vertical-align:middle">DRY RUN</span>' : '';
+      var statusHtml = (j.status === 'failed' && j.retry_reset_file_type)
+        ? '<span class="status-badge status-warn" title="A required staged file was missing \u2014 a fresh transfer was kicked off automatically. Re-run this operation once it finishes.">\u27f3 Auto Re-staging</span>'
+        : statusBadge(j.status);
       return '<tr>' +
         '<td><span class="mono">' + esc(j.hostname || '\u2014') + '</span></td>' +
         '<td>' + esc(j.operation) + dryRunBadge + '</td>' +
-        '<td>' + statusBadge(j.status) + '</td>' +
+        '<td>' + statusHtml + '</td>' +
         '<td>' + formatDate(j.started_at) + '</td>' +
         '<td>' + duration(j.started_at, j.finished_at) + '</td>' +
         '<td><button class="btn btn-sm btn-secondary" onclick="openLogViewer(\'' + j.id + '\',\'' + esc(j.hostname||'') + '\',\'' + j.operation + '\')">' +
@@ -2074,7 +2081,11 @@ function startTransferPolling(jobId) {
         out.parentNode.insertBefore(div, out);
         el = div;
       }
-      var html = '<div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:var(--text-muted);margin-bottom:4px">Staging Software — waiting for transfers before job starts</div>';
+      var anyActive = r.transfers.some(function(t) { return t.status === 'PENDING' || t.status === 'TRANSFERRING'; });
+      var headerText = (r.jobStatus === 'failed' && anyActive)
+        ? '⟳ Job failed — auto re-staging required file(s) in the background. Re-run this operation once staged.'
+        : 'Staging Software — waiting for transfers before job starts';
+      var html = '<div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:var(--text-muted);margin-bottom:4px">' + esc(headerText) + '</div>';
       r.transfers.forEach(function(t) {
         var label = _fileLabels[t.file_type] || t.file_type || 'File';
         var fname = (t.source_path || '').split('/').pop() || t.file_type;
@@ -2110,7 +2121,11 @@ function startTransferPolling(jobId) {
           '<span style="color:var(--color-text-primary)">' + label + '</span> <span style="color:var(--text-muted)">' + esc(detail) + '</span>' + barHtml + '</div>';
       });
       el.innerHTML = html;
-      if (r.jobStatus === 'running' || r.jobStatus === 'success' || r.jobStatus === 'failed') {
+      // Keep polling as long as a transfer is still actively re-staging in the
+      // background (self-heal in flight), even though the job itself already
+      // shows failed — otherwise the panel freezes/fades right when there's
+      // still something worth watching.
+      if (!anyActive && (r.jobStatus === 'running' || r.jobStatus === 'success' || r.jobStatus === 'failed')) {
         stopTransferPolling();
         if (el) { el.style.opacity = '0.5'; }
       }

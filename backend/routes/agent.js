@@ -664,6 +664,9 @@ router.post('/:jobId/logs', (req, res) => {
                         if (reset.changes) {
                             console.log('[agent] [TRANSFER_RESET] reset ' + fileType + ' transfer to PENDING for ' + trJob.hostname + ' (job ' + jobId + ')');
                         }
+                        // Flag the job itself so Job History can show "auto re-staging" instead
+                        // of a plain Failed badge, whether or not a STAGED row existed to reset.
+                        db.prepare('UPDATE jobs SET retry_reset_file_type=? WHERE id=?').run(fileType, jobId);
                     }
                 } catch(e) {
                     console.error('[agent] Failed to process TRANSFER_RESET:', e.message);
