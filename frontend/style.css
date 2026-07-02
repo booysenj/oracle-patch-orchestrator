@@ -246,6 +246,27 @@ main { padding: 28px; max-width: 1440px; margin: 0 auto; }
 
 .section-header { display: flex; align-items: center; gap: 12px; margin-bottom: 20px; }
 .section-header h2 { font-size: 20px; font-weight: 600; }
+
+.admin-section {
+  border: 1px solid var(--border); border-radius: 10px; background: var(--surface);
+  margin-bottom: 14px; overflow: hidden;
+}
+.admin-section > summary {
+  list-style: none; cursor: pointer; padding: 14px 18px; display: flex;
+  align-items: center; gap: 10px; font-size: 16px; font-weight: 600;
+  user-select: none;
+}
+.admin-section > summary::-webkit-details-marker { display: none; }
+.admin-section > summary::before {
+  content: '›'; display: inline-block; font-size: 18px; font-weight: 700;
+  color: var(--text-dim); transition: transform .15s ease; transform: rotate(0deg);
+}
+.admin-section[open] > summary::before { transform: rotate(90deg); }
+.admin-section > summary:hover { background: var(--surface2); }
+.admin-section > summary .admin-section-sub {
+  font-size: 12px; font-weight: 400; color: var(--text-dim); margin-left: 4px;
+}
+.admin-section-body { padding: 4px 18px 20px; border-top: 1px solid var(--border); }
 .count-badge {
   font-size: 12px; padding: 3px 10px; border-radius: 20px;
   background: var(--surface2); color: var(--text-dim); font-weight: 500;

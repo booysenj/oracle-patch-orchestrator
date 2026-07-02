@@ -186,81 +186,100 @@
         </div>
       </section>
       <section id="tab-admin" class="tab-content">
-        <div class="section-header"><h2>User Management</h2>
-          <button class="btn btn-sm btn-primary" onclick="openCreateUserModal()">+ Add User</button>
-        </div>
-        <div class="table-wrap">
-          <table id="usersTable" class="data-table">
-            <thead><tr><th>Username</th><th>Role</th><th>Status</th><th>Last Login</th><th>Actions</th></tr></thead>
-            <tbody></tbody>
-          </table>
-        </div>
-
-        <div class="section-header" style="margin-top:32px"><h2>Orchestrator Settings</h2></div>
-        <div style="max-width:640px">
-          <p style="color:var(--text-dim);font-size:13px;margin-bottom:12px">These values are stored in the database and used as defaults when adding patch versions. Change them here if mount points or the server IP changes.</p>
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
-            <div class="form-group" style="grid-column:1/-1"><label>Orchestrator URL <span style="font-size:11px;color:var(--text-dim)">(used in agent deploy scripts)</span></label>
-              <input type="text" id="settingOrcUrl" placeholder="http://172.16.36.95:4000" /></div>
-            <div class="form-group"><label>GI Base ZIP Path <span style="font-size:11px;color:var(--text-dim)">(full path on server)</span></label>
-              <input type="text" id="settingGiZip" placeholder="/backup/oracle_install/gi/V982068-01.zip" /></div>
-            <div class="form-group"><label>DB Base ZIP Path</label>
-              <input type="text" id="settingDbZip" placeholder="/backup/oracle_install/db/V982063-01.zip" /></div>
-            <div class="form-group"><label>GI Home Base Directory</label>
-              <input type="text" id="settingGiHomeBase" placeholder="/grid/oracle/product" /></div>
-            <div class="form-group"><label>DB Home Base Directory</label>
-              <input type="text" id="settingDbHomeBase" placeholder="/app/oracle/product" /></div>
-            <div class="form-group" style="grid-column:1/-1"><label>Patches Search Root <span style="font-size:11px;color:var(--text-dim)">(patch version appended automatically, e.g. /backup/patches → /backup/patches/p19.30)</span></label>
-              <input type="text" id="settingPatchesBase" placeholder="/backup/patches" /></div>
-            <div class="form-group" style="grid-column:1/-1"><label>Depot Base Path <span style="font-size:11px;color:var(--text-dim)">(where extracted depot files are stored — use a large filesystem, not root)</span></label>
-              <input type="text" id="settingDepotBasePath" placeholder="/backup/insight-depot" /></div>
-            <div class="form-group"><label>Clear stale homes after <span style="font-size:11px;color:var(--text-dim)">(days a tracked home must be confirmed missing before its stale reference is auto-cleared; blank = disabled)</span></label>
-              <input type="number" min="0" id="settingStaleHomeDays" placeholder="e.g. 14" /></div>
-            <div class="form-group"><label>Global MAIL_TO <span style="font-size:11px;color:var(--text-dim)">(recipient for patch reports)</span></label>
-              <input type="text" id="settingMailTo" placeholder="ops@example.com" /></div>
-            <div class="form-group"><label>Global MAIL_FROM <span style="font-size:11px;color:var(--text-dim)">(sender address)</span></label>
-              <input type="text" id="settingMailFrom" placeholder="oracle-patching@example.com" /></div>
-          </div>
-          <button class="btn btn-primary" onclick="saveOrcSettings()">Save Settings</button>
-          <span id="settingsMsg" style="margin-left:12px;font-size:13px;color:var(--success)"></span>
-
-          <hr style="border:none;border-top:1px solid var(--border);margin:24px 0">
-          <p style="font-weight:600;margin:0 0 8px">Orchestrator SSH Public Key</p>
-          <p style="font-size:12px;color:var(--text-dim);margin:0 0 10px">This key is generated once and stored in the database — it survives if the orchestrator is moved to a new server as long as the database file is copied with it. Copy it into <code>~oracle/.ssh/authorized_keys</code> on any target VM to pre-authorise agent deployment without a password.</p>
-          <div style="display:flex;gap:8px;align-items:flex-start">
-            <textarea id="orchSshPubKey" rows="3" readonly style="flex:1;font-family:monospace;font-size:11px;resize:none;background:var(--bg-secondary,#0d1117);border:1px solid var(--border);border-radius:4px;padding:8px;color:var(--text-dim)">Loading…</textarea>
-            <div style="display:flex;flex-direction:column;gap:6px">
-              <button class="btn btn-sm btn-secondary" onclick="copyOrcSshKey()">Copy</button>
-              <button class="btn btn-sm btn-danger" onclick="regenSshKey()" title="Generates a new key — you must re-authorise on all VMs">Regen</button>
+        <details class="admin-section" open>
+          <summary>User Management</summary>
+          <div class="admin-section-body">
+            <div class="section-header" style="margin-bottom:12px">
+              <button class="btn btn-sm btn-primary" onclick="openCreateUserModal()">+ Add User</button>
+            </div>
+            <div class="table-wrap">
+              <table id="usersTable" class="data-table">
+                <thead><tr><th>Username</th><th>Role</th><th>Status</th><th>Last Login</th><th>Actions</th></tr></thead>
+                <tbody></tbody>
+              </table>
             </div>
           </div>
-        </div>
+        </details>
 
-        <div class="section-header" style="margin-top:32px"><h2>Installed Homes</h2></div>
-        <div style="margin-bottom:32px">
-          <p style="font-size:13px;color:var(--text-dim);margin:0 0 12px">Every home this app has installed via <code>gi_install</code>/<code>db_install</code>/switch, and whether the agent's periodic verification still finds it on disk. If a home is manually deinstalled outside the app, it'll show "Missing since" here and its stale VM reference gets auto-cleared after the configured threshold above.</p>
-          <button class="btn btn-sm btn-secondary" onclick="loadInstalledHomes()">Refresh</button>
-          <table class="data-table" style="margin-top:12px">
-            <thead><tr><th>Host</th><th>Type</th><th>Home Path</th><th>Version</th><th>Installed</th><th>Last Verified</th><th>Status</th><th>Actions</th></tr></thead>
-            <tbody id="installedHomesBody"><tr><td colspan="8" class="loading">Loading…</td></tr></tbody>
-          </table>
-        </div>
+        <details class="admin-section">
+          <summary>Orchestrator Settings <span class="admin-section-sub">paths, mail, SSH key</span></summary>
+          <div class="admin-section-body">
+          <div style="max-width:640px">
+            <p style="color:var(--text-dim);font-size:13px;margin-bottom:12px">These values are stored in the database and used as defaults when adding patch versions. Change them here if mount points or the server IP changes.</p>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+              <div class="form-group" style="grid-column:1/-1"><label>Orchestrator URL <span style="font-size:11px;color:var(--text-dim)">(used in agent deploy scripts)</span></label>
+                <input type="text" id="settingOrcUrl" placeholder="http://172.16.36.95:4000" /></div>
+              <div class="form-group"><label>GI Base ZIP Path <span style="font-size:11px;color:var(--text-dim)">(full path on server)</span></label>
+                <input type="text" id="settingGiZip" placeholder="/backup/oracle_install/gi/V982068-01.zip" /></div>
+              <div class="form-group"><label>DB Base ZIP Path</label>
+                <input type="text" id="settingDbZip" placeholder="/backup/oracle_install/db/V982063-01.zip" /></div>
+              <div class="form-group"><label>GI Home Base Directory</label>
+                <input type="text" id="settingGiHomeBase" placeholder="/grid/oracle/product" /></div>
+              <div class="form-group"><label>DB Home Base Directory</label>
+                <input type="text" id="settingDbHomeBase" placeholder="/app/oracle/product" /></div>
+              <div class="form-group" style="grid-column:1/-1"><label>Patches Search Root <span style="font-size:11px;color:var(--text-dim)">(patch version appended automatically, e.g. /backup/patches → /backup/patches/p19.30)</span></label>
+                <input type="text" id="settingPatchesBase" placeholder="/backup/patches" /></div>
+              <div class="form-group" style="grid-column:1/-1"><label>Depot Base Path <span style="font-size:11px;color:var(--text-dim)">(where extracted depot files are stored — use a large filesystem, not root)</span></label>
+                <input type="text" id="settingDepotBasePath" placeholder="/backup/insight-depot" /></div>
+              <div class="form-group"><label>Clear stale homes after <span style="font-size:11px;color:var(--text-dim)">(days a tracked home must be confirmed missing before its stale reference is auto-cleared; blank = disabled)</span></label>
+                <input type="number" min="0" id="settingStaleHomeDays" placeholder="e.g. 14" /></div>
+              <div class="form-group"><label>Global MAIL_TO <span style="font-size:11px;color:var(--text-dim)">(recipient for patch reports)</span></label>
+                <input type="text" id="settingMailTo" placeholder="ops@example.com" /></div>
+              <div class="form-group"><label>Global MAIL_FROM <span style="font-size:11px;color:var(--text-dim)">(sender address)</span></label>
+                <input type="text" id="settingMailFrom" placeholder="oracle-patching@example.com" /></div>
+            </div>
+            <button class="btn btn-primary" onclick="saveOrcSettings()">Save Settings</button>
+            <span id="settingsMsg" style="margin-left:12px;font-size:13px;color:var(--success)"></span>
 
-        <div class="section-header" style="margin-top:32px"><h2>Server Update</h2></div>
-        <div style="max-width:540px;margin-bottom:32px">
-          <p style="font-size:13px;color:var(--text-dim);margin:0 0 12px">Pulls the latest code from GitHub and restarts the service. The page will reload automatically after ~4 seconds.</p>
-          <button class="btn btn-primary" onclick="selfUpdate()">&#x2B06; Pull &amp; Restart</button>
-          <pre id="selfUpdateOutput" style="display:none;margin-top:12px;padding:10px;background:var(--surface-alt);border-radius:6px;font-size:12px;white-space:pre-wrap;word-break:break-all;color:var(--text-muted);max-height:200px;overflow:auto"></pre>
-        </div>
+            <hr style="border:none;border-top:1px solid var(--border);margin:24px 0">
+            <p style="font-weight:600;margin:0 0 8px">Orchestrator SSH Public Key</p>
+            <p style="font-size:12px;color:var(--text-dim);margin:0 0 10px">This key is generated once and stored in the database — it survives if the orchestrator is moved to a new server as long as the database file is copied with it. Copy it into <code>~oracle/.ssh/authorized_keys</code> on any target VM to pre-authorise agent deployment without a password.</p>
+            <div style="display:flex;gap:8px;align-items:flex-start">
+              <textarea id="orchSshPubKey" rows="3" readonly style="flex:1;font-family:monospace;font-size:11px;resize:none;background:var(--bg-secondary,#0d1117);border:1px solid var(--border);border-radius:4px;padding:8px;color:var(--text-dim)">Loading…</textarea>
+              <div style="display:flex;flex-direction:column;gap:6px">
+                <button class="btn btn-sm btn-secondary" onclick="copyOrcSshKey()">Copy</button>
+                <button class="btn btn-sm btn-danger" onclick="regenSshKey()" title="Generates a new key — you must re-authorise on all VMs">Regen</button>
+              </div>
+            </div>
+          </div>
+          </div>
+        </details>
 
-        <div class="section-header" style="margin-top:32px"><h2>Change My Password</h2></div>
-        <div style="max-width:400px">
-          <div class="form-group"><label>Current Password</label><input type="password" id="myCurrentPwd" /></div>
-          <div class="form-group"><label>New Password</label><input type="password" id="myNewPwd" /></div>
-          <div class="form-group"><label>Confirm New Password</label><input type="password" id="myConfirmPwd" /></div>
-          <button class="btn btn-primary" onclick="changeMyPassword()">Update Password</button>
-          <span id="pwdMsg" style="margin-left:12px"></span>
-        </div>
+        <details class="admin-section">
+          <summary>Installed Homes <span class="admin-section-sub">tracked GI/DB homes on disk</span></summary>
+          <div class="admin-section-body">
+            <p style="font-size:13px;color:var(--text-dim);margin:0 0 12px">Every home this app has installed via <code>gi_install</code>/<code>db_install</code>/switch, and whether the agent's periodic verification still finds it on disk. If a home is manually deinstalled outside the app, it'll show "Missing since" here and its stale VM reference gets auto-cleared after the configured threshold above.</p>
+            <button class="btn btn-sm btn-secondary" onclick="loadInstalledHomes()">Refresh</button>
+            <table class="data-table" style="margin-top:12px">
+              <thead><tr><th>Host</th><th>Type</th><th>Home Path</th><th>Version</th><th>Installed</th><th>Last Verified</th><th>Status</th><th>Actions</th></tr></thead>
+              <tbody id="installedHomesBody"><tr><td colspan="8" class="loading">Loading…</td></tr></tbody>
+            </table>
+          </div>
+        </details>
+
+        <details class="admin-section">
+          <summary>Server Update</summary>
+          <div class="admin-section-body">
+          <div style="max-width:540px">
+            <p style="font-size:13px;color:var(--text-dim);margin:0 0 12px">Pulls the latest code from GitHub and restarts the service. The page will reload automatically after ~4 seconds.</p>
+            <button class="btn btn-primary" onclick="selfUpdate()">&#x2B06; Pull &amp; Restart</button>
+            <pre id="selfUpdateOutput" style="display:none;margin-top:12px;padding:10px;background:var(--surface-alt);border-radius:6px;font-size:12px;white-space:pre-wrap;word-break:break-all;color:var(--text-muted);max-height:200px;overflow:auto"></pre>
+          </div>
+          </div>
+        </details>
+
+        <details class="admin-section">
+          <summary>Change My Password</summary>
+          <div class="admin-section-body">
+          <div style="max-width:400px">
+            <div class="form-group"><label>Current Password</label><input type="password" id="myCurrentPwd" /></div>
+            <div class="form-group"><label>New Password</label><input type="password" id="myNewPwd" /></div>
+            <div class="form-group"><label>Confirm New Password</label><input type="password" id="myConfirmPwd" /></div>
+            <button class="btn btn-primary" onclick="changeMyPassword()">Update Password</button>
+            <span id="pwdMsg" style="margin-left:12px"></span>
+          </div>
+          </div>
+        </details>
       </section>
 
       <!-- Schedules Tab -->
